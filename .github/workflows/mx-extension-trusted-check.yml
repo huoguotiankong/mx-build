@@ -100,16 +100,14 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-        with:
-          build-root-directory: upstream
 
-      - name: Build Debug extension
+      - name: Build and lint extension
         working-directory: upstream
         shell: bash
         run: |
           set -euo pipefail
           source_name="${{ steps.target.outputs.source }}"
-          ./gradlew ":src:zh:$source_name:assembleDebug"
+          ./gradlew ":src:zh:$source_name:assembleDebug" ":src:zh:$source_name:lintRelease"
 
       - name: Record result
         shell: bash
@@ -118,7 +116,7 @@ jobs:
             echo
             echo "### Result"
             echo
-            echo "- Debug APK compilation passed."
+            echo "- Debug APK compilation and lintRelease passed."
             echo "- No APK artifact was uploaded."
             echo "- Android device validation is still required separately."
           } >> "$GITHUB_STEP_SUMMARY"
