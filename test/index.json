@@ -29,6 +29,28 @@
             "message": null
           }
         ]
+      },
+      {
+        "name": "Picacomic",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.picacomic",
+        "resources": {
+          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.picacomic-v1.6.11.apk",
+          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.picacomic-v106011.png"
+        },
+        "extensionLib": "1.6",
+        "versionCode": 106011,
+        "versionName": "1.6.11",
+        "contentWarning": "NSFW",
+        "sources": [
+          {
+            "id": 5768337869316468367,
+            "name": "哔咔漫画",
+            "language": "zh",
+            "homeUrl": "https://manhuabika.com",
+            "mirrorUrls": [],
+            "message": null
+          }
+        ]
       }
     ]
   },
