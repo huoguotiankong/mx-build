@@ -24,15 +24,54 @@ jobs:
           fetch-depth: 1
           persist-credentials: true
 
-      - name: Probe write permission without changing repository
+      - name: Probe private source write permission without changing repository
         working-directory: source
         shell: bash
         run: |
           set -euo pipefail
           if git push --dry-run origin HEAD:refs/heads/mx-permission-probe >/dev/null 2>&1; then
             echo "PRIVATE_TOKEN_CAN_WRITE=true" >> "$GITHUB_ENV"
-            echo "Private token has write permission."
+            echo "Private source token has write permission."
           else
             echo "PRIVATE_TOKEN_CAN_WRITE=false" >> "$GITHUB_ENV"
-            echo "Private token is read-only."
+            echo "Private source token is read-only."
+          fi
+
+      - name: Check app publish token presence
+        shell: bash
+        env:
+          MX_APP_PUBLISH_TOKEN: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$MX_APP_PUBLISH_TOKEN" ]]; then
+            echo "MX_APP_PUBLISH_TOKEN_PRESENT=true" >> "$GITHUB_ENV"
+            echo "App publish token is present."
+          else
+            echo "MX_APP_PUBLISH_TOKEN_PRESENT=false" >> "$GITHUB_ENV"
+            echo "App publish token is absent."
+          fi
+
+      - name: Checkout public extension repository with app publish token
+        if: env.MX_APP_PUBLISH_TOKEN_PRESENT == 'true'
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-repo
+          ref: repo
+          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          path: public-repo
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Probe app publish token write permission on mx-repo
+        if: env.MX_APP_PUBLISH_TOKEN_PRESENT == 'true'
+        working-directory: public-repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git push --dry-run origin HEAD:refs/heads/mx-repo-permission-probe >/dev/null 2>&1; then
+            echo "APP_TOKEN_CAN_WRITE_MX_REPO=true" >> "$GITHUB_ENV"
+            echo "MX_APP_PUBLISH_TOKEN can write mx-repo."
+          else
+            echo "APP_TOKEN_CAN_WRITE_MX_REPO=false" >> "$GITHUB_ENV"
+            echo "MX_APP_PUBLISH_TOKEN cannot write mx-repo."
           fi
