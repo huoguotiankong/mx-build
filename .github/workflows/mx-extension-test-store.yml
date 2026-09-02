@@ -1,0 +1,263 @@
+name: MX Extension Test Store
+
+run-name: MX Extension Test Store · ${{ github.event_name == 'push' && 'trusted-trigger' || inputs.source }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: "mx-dev source module name under src/zh/"
+        required: true
+        default: "kuaikanmanhua"
+        type: string
+      ref:
+        description: "mx-dev branch, tag, or commit SHA"
+        required: true
+        default: "main"
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - ".github/mx-extension-test-store-trigger"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mx-extension-test-store
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Resolve trusted target
+        id: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            source_name="$(sed -n 's/^source=//p' .github/mx-extension-test-store-trigger | head -n 1)"
+            source_ref="$(sed -n 's/^ref=//p' .github/mx-extension-test-store-trigger | head -n 1)"
+          else
+            source_name="${{ inputs.source }}"
+            source_ref="${{ inputs.ref }}"
+          fi
+          [[ "$source_name" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || { echo "::error::Invalid source module name"; exit 1; }
+          [[ "$source_ref" =~ ^[A-Za-z0-9._/-]+$ ]] || { echo "::error::Invalid source ref"; exit 1; }
+          echo "source=$source_name" >> "$GITHUB_OUTPUT"
+          echo "ref=$source_ref" >> "$GITHUB_OUTPUT"
+
+      - name: Check required secrets
+        shell: bash
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+          MX_REPO_TOKEN: ${{ secrets.MX_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]] || { echo "::error::Missing MX_PRIVATE_READ_TOKEN"; exit 1; }
+          [[ -n "$MANGA_SIGNING_BUNDLE" ]] || { echo "::error::Missing MANGA_SIGNING_BUNDLE"; exit 1; }
+          [[ -n "$MX_REPO_TOKEN" ]] || { echo "::error::Missing MX_REPO_TOKEN"; exit 1; }
+
+      - name: Checkout private extension source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: ${{ steps.target.outputs.ref }}
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify selected module
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_name="${{ steps.target.outputs.source }}"
+          test -f "source/src/zh/$source_name/build.gradle.kts"
+          test -d "source/src/zh/$source_name/src"
+          source_sha="$(git -C source rev-parse HEAD)"
+          echo "SOURCE_SHA=$source_sha" >> "$GITHUB_ENV"
+          printf 'zh/%s\n' "$source_name" > "$RUNNER_TEMP/mx-test-targets.txt"
+          {
+            echo "### MX extension source"
+            echo
+            echo "- Module: $source_name"
+            echo "- Private source commit: $source_sha"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Validate private source repository layout
+        working-directory: source
+        run: python3 scripts/validate_sources.py
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Checkout current Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Overlay selected private module
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_name="${{ steps.target.outputs.source }}"
+          rm -rf "upstream/src/zh/$source_name"
+          mkdir -p "upstream/src/zh"
+          cp -a "source/src/zh/$source_name" "upstream/src/zh/$source_name"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          build-root-directory: upstream
+
+      - name: Prepare stable extension signing key
+        shell: bash
+        env:
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64
+          import json
+          import os
+          from pathlib import Path
+          bundle = json.loads(os.environ["MANGA_SIGNING_BUNDLE"])
+          required = ("signingKey", "alias", "storePassword", "keyPassword")
+          missing = [key for key in required if not bundle.get(key)]
+          if missing:
+              raise SystemExit(f"Signing bundle missing fields: {', '.join(missing)}")
+          Path("upstream/signingkey.jks").write_bytes(base64.b64decode(bundle["signingKey"]))
+          values = {
+              "ALIAS": str(bundle["alias"]),
+              "KEY_STORE_PASSWORD": str(bundle["storePassword"]),
+              "KEY_PASSWORD": str(bundle["keyPassword"]),
+          }
+          with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as f:
+              for name, value in values.items():
+                  print(f"::add-mask::{value}")
+                  f.write(f"{name}<<__MX_EXT_SIGNING_EOF__\n{value}\n__MX_EXT_SIGNING_EOF__\n")
+          PY
+
+      - name: Verify configured signing identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620"
+          actual="$(keytool -exportcert -alias "$ALIAS" -keystore upstream/signingkey.jks -storepass "$KEY_STORE_PASSWORD" | sha256sum | awk '{print $1}')"
+          actual="$(printf '%s' "$actual" | tr '[:upper:]' '[:lower:]')"
+          [[ "$actual" == "$expected" ]] || { echo "::error::Extension signing certificate mismatch"; exit 1; }
+
+      - name: Build signed Release extension
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_name="${{ steps.target.outputs.source }}"
+          ./gradlew ":src:zh:$source_name:assembleRelease"
+
+      - name: Verify APK signing certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_name="${{ steps.target.outputs.source }}"
+          expected="1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620"
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          [[ -n "$apksigner" ]] || { echo "::error::apksigner not found"; exit 1; }
+          found=0
+          while IFS= read -r apk; do
+            found=1
+            cert_output="$("$apksigner" verify --print-certs "$apk" 2>&1)"
+            normalized="$(printf '%s' "$cert_output" | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')"
+            [[ "$normalized" == *"$expected"* ]] || { echo "::error::APK signing certificate mismatch"; exit 1; }
+          done < <(find "upstream/src/zh/$source_name" -path '*/build/outputs/apk/release/*.apk' -type f | sort)
+          [[ "$found" -eq 1 ]] || { echo "::error::No Release APK found"; exit 1; }
+
+      - name: Checkout public extension repository
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-repo
+          token: ${{ secrets.MX_REPO_TOKEN }}
+          ref: repo
+          path: repo
+          fetch-depth: 0
+
+      - name: Generate isolated test store
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 source/scripts/publish_test_repo.py \
+            --targets "$RUNNER_TEMP/mx-test-targets.txt" \
+            --upstream-root upstream \
+            --source-root source \
+            --repo-dir repo/test \
+            --owner huoguotiankong \
+            --repository mx-repo \
+            --signing-key "1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620"
+
+      - name: Commit test store
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add test
+          if git diff --cached --quiet; then
+            echo "No test-store changes to publish"
+          else
+            git commit -m "Publish MX test store ${SOURCE_SHA:0:7}"
+            git push origin HEAD:repo
+          fi
+
+      - name: Verify published test store
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="https://raw.githubusercontent.com/huoguotiankong/mx-repo/repo/test"
+          for file in repo.json index.json; do
+            ok=0
+            for attempt in 1 2 3 4 5; do
+              status="$(curl -L -sS -o "/tmp/$file" -w '%{http_code}' "$base/$file" || true)"
+              if [[ "$status" == "200" ]]; then ok=1; break; fi
+              sleep $((attempt * 2))
+            done
+            [[ "$ok" -eq 1 ]] || { echo "::error::Published test store endpoint unavailable: $file"; exit 1; }
+          done
+          SOURCE_NAME="${{ steps.target.outputs.source }}" python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          data = json.loads(Path("/tmp/index.json").read_text("utf-8"))
+          packages = {item.get("packageName") for item in data["extensionList"]["extensions"]}
+          expected = "eu.kanade.tachiyomi.extension.zh." + os.environ["SOURCE_NAME"]
+          if expected not in packages:
+              raise SystemExit(f"Published test index missing {expected}")
+          print(f"Published test index contains {expected}")
+          PY
+
+      - name: Record result
+        shell: bash
+        run: |
+          {
+            echo
+            echo "### Result"
+            echo
+            echo "- Release APK compiled with the stable MX extension certificate."
+            echo "- Selected extension published to the isolated MX Test store."
+            echo "- Android device validation is still required separately."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Cleanup signing material
+        if: always()
+        shell: bash
+        run: rm -f upstream/signingkey.jks
