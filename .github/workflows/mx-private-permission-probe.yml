@@ -1,0 +1,38 @@
+name: MX Private Token Permission Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/mx-private-permission-probe-trigger"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout private source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Probe write permission without changing repository
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git push --dry-run origin HEAD:refs/heads/mx-permission-probe >/dev/null 2>&1; then
+            echo "PRIVATE_TOKEN_CAN_WRITE=true" >> "$GITHUB_ENV"
+            echo "Private token has write permission."
+          else
+            echo "PRIVATE_TOKEN_CAN_WRITE=false" >> "$GITHUB_ENV"
+            echo "Private token is read-only."
+          fi
