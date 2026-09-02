@@ -21,7 +21,7 @@ on:
       - ".github/mx-extension-test-store-trigger"
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: mx-extension-test-store
@@ -59,12 +59,10 @@ jobs:
         env:
           MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
           MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
-          MX_REPO_TOKEN: ${{ secrets.MX_REPO_TOKEN }}
         run: |
           set -euo pipefail
           [[ -n "$MX_PRIVATE_READ_TOKEN" ]] || { echo "::error::Missing MX_PRIVATE_READ_TOKEN"; exit 1; }
           [[ -n "$MANGA_SIGNING_BUNDLE" ]] || { echo "::error::Missing MANGA_SIGNING_BUNDLE"; exit 1; }
-          [[ -n "$MX_REPO_TOKEN" ]] || { echo "::error::Missing MX_REPO_TOKEN"; exit 1; }
 
       - name: Checkout private extension source
         uses: actions/checkout@v5
@@ -187,14 +185,15 @@ jobs:
           done < <(find "upstream/src/zh/$source_name" -path '*/build/outputs/apk/release/*.apk' -type f | sort)
           [[ "$found" -eq 1 ]] || { echo "::error::No Release APK found"; exit 1; }
 
-      - name: Checkout public extension repository
+      - name: Checkout extension staging branch
         uses: actions/checkout@v5
         with:
-          repository: huoguotiankong/mx-repo
-          token: ${{ secrets.MX_REPO_TOKEN }}
-          ref: repo
-          path: repo
+          repository: huoguotiankong/mx-build
+          token: ${{ github.token }}
+          ref: extension-staging
+          path: staging
           fetch-depth: 0
+          persist-credentials: true
 
       - name: Generate isolated test store
         shell: bash
@@ -204,13 +203,13 @@ jobs:
             --targets "$RUNNER_TEMP/mx-test-targets.txt" \
             --upstream-root upstream \
             --source-root source \
-            --repo-dir repo/test \
+            --repo-dir staging/test \
             --owner huoguotiankong \
             --repository mx-repo \
             --signing-key "1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620"
 
-      - name: Commit test store
-        working-directory: repo
+      - name: Commit staged test store
+        working-directory: staging
         shell: bash
         run: |
           set -euo pipefail
@@ -218,17 +217,17 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add test
           if git diff --cached --quiet; then
-            echo "No test-store changes to publish"
+            echo "No staged test-store changes"
           else
-            git commit -m "Publish MX test store ${SOURCE_SHA:0:7}"
-            git push origin HEAD:repo
+            git commit -m "Stage MX test store ${SOURCE_SHA:0:7}"
+            git push origin HEAD:extension-staging
           fi
 
-      - name: Verify published test store
+      - name: Verify staged test store
         shell: bash
         run: |
           set -euo pipefail
-          base="https://raw.githubusercontent.com/huoguotiankong/mx-repo/repo/test"
+          base="https://raw.githubusercontent.com/huoguotiankong/mx-build/extension-staging/test"
           for file in repo.json index.json; do
             ok=0
             for attempt in 1 2 3 4 5; do
@@ -236,7 +235,7 @@ jobs:
               if [[ "$status" == "200" ]]; then ok=1; break; fi
               sleep $((attempt * 2))
             done
-            [[ "$ok" -eq 1 ]] || { echo "::error::Published test store endpoint unavailable: $file"; exit 1; }
+            [[ "$ok" -eq 1 ]] || { echo "::error::Staged test store endpoint unavailable: $file"; exit 1; }
           done
           SOURCE_NAME="${{ steps.target.outputs.source }}" python3 - <<'PY'
           import json
@@ -246,8 +245,8 @@ jobs:
           packages = {item.get("packageName") for item in data["extensionList"]["extensions"]}
           expected = "eu.kanade.tachiyomi.extension.zh." + os.environ["SOURCE_NAME"]
           if expected not in packages:
-              raise SystemExit(f"Published test index missing {expected}")
-          print(f"Published test index contains {expected}")
+              raise SystemExit(f"Staged test index missing {expected}")
+          print(f"Staged test index contains {expected}")
           PY
 
       - name: Record result
@@ -258,7 +257,7 @@ jobs:
             echo "### Result"
             echo
             echo "- Release APK compiled with the stable MX extension certificate."
-            echo "- Selected extension published to the isolated MX Test store."
+            echo "- Selected extension staged on mx-build/extension-staging for connector promotion."
             echo "- Android device validation is still required separately."
           } >> "$GITHUB_STEP_SUMMARY"
 
