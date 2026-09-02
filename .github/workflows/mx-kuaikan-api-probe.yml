@@ -88,6 +88,8 @@ jobs:
           probe_json v2_hot_floor_comic "https://api.kkmh.com/v2/comments/hot_floor_list?target_type=comic&target_id=2020&since=0&count=20"
           probe_json v1_floor_comic "https://api.kkmh.com/v1/comments/floor_list?target_type=comic&target_id=2020&since=0&count=20"
           probe_json v1_comic_comments "https://api.kkmh.com/v1/comics/2020/comments/0?order=score"
+          probe_json v1_comic_comments_p2 "https://api.kkmh.com/v1/comics/2020/comments/20?order=score"
+          probe_json v1_comic_comments_p3 "https://api.kkmh.com/v1/comics/2020/comments/40?order=score"
           probe_json v1_comic_hot "https://api.kkmh.com/v1/comics/2020/hot_comments"
           probe_json v2_comic_hot "https://api.kkmh.com/v2/comics/2020/hot_comments"
           probe_json v1_cruel_comic "https://api.kkmh.com/v1/comments/cruel/hot_floor_list?target_type=comic&target_id=2020&comic_id=2020&offset=0&limit=20"
@@ -141,4 +143,6 @@ jobs:
           }
 
           shape v1_comic_comments "https://api.kkmh.com/v1/comics/2020/comments/0?order=score"
+          shape v1_comic_comments_p2 "https://api.kkmh.com/v1/comics/2020/comments/20?order=score"
+          shape v1_comic_comments_p3 "https://api.kkmh.com/v1/comics/2020/comments/40?order=score"
           shape v2_hot_floor_comic "https://api.kkmh.com/v2/comments/hot_floor_list?target_type=comic&target_id=2020&since=0&count=20"
