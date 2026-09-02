@@ -52,7 +52,9 @@ Compiler output may reveal file names, class names, and line numbers. It must no
 
 ## Trigger rule
 
-Secret-bearing workflows use `workflow_dispatch` only. Public pull requests and forks must never execute private-source/signing steps with secrets.
+Secret-bearing workflows may use `workflow_dispatch` or a trusted `push` to `main` that only changes a dedicated trigger file. Public pull requests, forks, `pull_request_target`, and issue-comment events must never execute private-source/signing steps with secrets.
+
+The current MX App workflow listens to `.github/mx-app-build-trigger` on `main`; only trusted repository writers can cause that push.
 
 ## Output rule
 
