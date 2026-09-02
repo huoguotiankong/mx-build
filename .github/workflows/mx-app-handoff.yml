@@ -1,0 +1,39 @@
+name: MX App Direct Handoff
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/mx-app-handoff-trigger"
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout private MX App downloads
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-app
+          ref: downloads
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: private-downloads
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify ARM64 APK exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f private-downloads/apks/MX-Manga-arm64-v8a-preview.apk
+
+      - name: Upload ARM64 APK handoff
+        uses: actions/upload-artifact@v4
+        with:
+          name: MX-Manga-arm64-v8a-preview
+          path: private-downloads/apks/MX-Manga-arm64-v8a-preview.apk
+          if-no-files-found: error
+          retention-days: 1
