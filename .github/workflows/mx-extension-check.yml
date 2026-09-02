@@ -1,0 +1,132 @@
+name: MX Extension Check
+
+run-name: MX Extension Check · ${{ inputs.source }} · ${{ inputs.ref }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: "mx-dev source module name under src/zh/"
+        required: true
+        type: string
+      ref:
+        description: "mx-dev branch, tag, or commit SHA"
+        required: true
+        default: "main"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mx-extension-check-${{ inputs.source }}-${{ inputs.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Check private source token
+        shell: bash
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]] || {
+            echo "::error::Missing MX_PRIVATE_READ_TOKEN"
+            exit 1
+          }
+
+      - name: Validate requested source name
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_name="${{ inputs.source }}"
+          [[ "$source_name" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || {
+            echo "::error::Invalid source module name"
+            exit 1
+          }
+
+      - name: Checkout private MX extension source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: ${{ inputs.ref }}
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify requested module exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_name="${{ inputs.source }}"
+          test -f "source/src/zh/$source_name/build.gradle.kts" || {
+            echo "::error::Missing source/src/zh/$source_name/build.gradle.kts"
+            exit 1
+          }
+          source_sha="$(git -C source rev-parse HEAD)"
+          echo "SOURCE_SHA=$source_sha" >> "$GITHUB_ENV"
+          {
+            echo "### MX Extension source"
+            echo
+            echo "- Module: \`${{ inputs.source }}\`"
+            echo "- Requested ref: \`${{ inputs.ref }}\`"
+            echo "- Resolved commit: \`$source_sha\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Validate MX source repository layout
+        working-directory: source
+        run: python3 scripts/validate_sources.py
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Checkout current Keiyoushi build framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Overlay selected private module
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_name="${{ inputs.source }}"
+          target="upstream/src/zh/$source_name"
+          rm -rf "$target"
+          mkdir -p "$(dirname "$target")"
+          cp -a "source/src/zh/$source_name" "$target"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          build-root-directory: upstream
+
+      - name: Build Debug extension
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_name="${{ inputs.source }}"
+          ./gradlew ":src:zh:$source_name:assembleDebug"
+
+      - name: Record result
+        shell: bash
+        run: |
+          {
+            echo
+            echo "### Result"
+            echo
+            echo "- Debug APK compilation passed."
+            echo "- No private-source build artifact was uploaded from this public repository."
+            echo "- Android device validation is still required separately."
+          } >> "$GITHUB_STEP_SUMMARY"
