@@ -243,6 +243,15 @@ jobs:
             git push origin HEAD:extension-staging
           fi
 
+      - name: Upload production handoff artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-handoff-picacomic-v11
+          path: ${{ runner.temp }}/production-handoff
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
       - name: Commit production repo
         working-directory: repo
         shell: bash
