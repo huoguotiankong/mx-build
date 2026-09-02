@@ -1,6 +1,6 @@
 name: MX App Preview
 
-run-name: MX App Preview · ${{ inputs.ref }}
+run-name: MX App Preview · ${{ inputs.ref || 'feat/reader-chapter-comments-content-replacement' }}
 
 on:
   workflow_dispatch:
@@ -16,11 +16,16 @@ on:
         default: true
         type: boolean
 
+  push:
+    branches: [main]
+    paths:
+      - ".github/mx-app-build-trigger"
+
 permissions:
   contents: read
 
 concurrency:
-  group: mx-app-preview-${{ inputs.ref }}
+  group: mx-app-preview-${{ inputs.ref || 'feat/reader-chapter-comments-content-replacement' }}
   cancel-in-progress: true
 
 jobs:
@@ -45,7 +50,7 @@ jobs:
             echo "::error::Missing MX_APP_SIGNING_BUNDLE"
             exit 1
           }
-          if [[ "${{ inputs.publish }}" == "true" ]]; then
+          if [[ "${{ github.event_name == 'push' || inputs.publish }}" == "true" ]]; then
             [[ -n "$MX_APP_PUBLISH_TOKEN" ]] || {
               echo "::error::Missing MX_APP_PUBLISH_TOKEN"
               exit 1
@@ -56,7 +61,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: huoguotiankong/mx-app
-          ref: ${{ inputs.ref }}
+          ref: ${{ inputs.ref || 'feat/reader-chapter-comments-content-replacement' }}
           token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
           path: source
           fetch-depth: 0
@@ -72,7 +77,7 @@ jobs:
           {
             echo "### MX App source"
             echo
-            echo "- Requested ref: \`${{ inputs.ref }}\`"
+            echo "- Requested ref: \`${{ inputs.ref || 'feat/reader-chapter-comments-content-replacement' }}\`"
             echo "- Resolved commit: \`$source_sha\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -239,7 +244,7 @@ jobs:
           }
 
       - name: Checkout private APK publication target
-        if: ${{ inputs.publish }}
+        if: ${{ github.event_name == 'push' || inputs.publish }}
         uses: actions/checkout@v5
         with:
           repository: huoguotiankong/mx-app
@@ -249,7 +254,7 @@ jobs:
           fetch-depth: 1
 
       - name: Publish signed phone APKs to private downloads branch
-        if: ${{ inputs.publish }}
+        if: ${{ github.event_name == 'push' || inputs.publish }}
         shell: bash
         run: |
           set -euo pipefail
