@@ -22,11 +22,11 @@ on:
       - ".github/workflows/mx-extension-production-publish.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: mx-extension-production-publish
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   publish:
@@ -195,6 +195,53 @@ jobs:
           set -euo pipefail
           python3 -m pip install --disable-pip-version-check protobuf
           python3 source/scripts/publish_repo.py             --artifacts-root upstream/src             --source-root source             --repo-dir repo             --owner huoguotiankong             --repository mx-repo             --signing-key "$SIGNING_FINGERPRINT"             --upstream-root upstream
+
+      - name: Export production payload to mx-build
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/production-handoff"
+          (
+            cd repo
+            git status --porcelain=v1 | while IFS= read -r line; do
+              rel="${line:3}"
+              [[ -n "$rel" ]] || continue
+              if [[ -f "$rel" ]]; then
+                mkdir -p "$RUNNER_TEMP/production-handoff/$(dirname "$rel")"
+                cp -a "$rel" "$RUNNER_TEMP/production-handoff/$rel"
+              fi
+            done
+          )
+          printf '%s\n' "$SOURCE_SHA" > "$RUNNER_TEMP/production-handoff/SOURCE_SHA.txt"
+          find "$RUNNER_TEMP/production-handoff" -type f | sort
+
+      - name: Checkout production handoff branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-build
+          token: ${{ github.token }}
+          ref: extension-staging
+          path: handoff
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Commit production handoff
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf handoff/production-handoff
+          mkdir -p handoff/production-handoff
+          cp -a "$RUNNER_TEMP/production-handoff/." handoff/production-handoff/
+          cd handoff
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add production-handoff
+          if git diff --cached --quiet; then
+            echo "No production handoff changes"
+          else
+            git commit -m "Stage production handoff ${SOURCE_SHA:0:7}"
+            git push origin HEAD:extension-staging
+          fi
 
       - name: Commit production repo
         working-directory: repo
