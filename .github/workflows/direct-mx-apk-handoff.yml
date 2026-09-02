@@ -1,0 +1,44 @@
+name: Direct MX APK Handoff
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/direct-mx-apk-handoff.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  handoff:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout private MX APK branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-app
+          ref: downloads
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: private-apk
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prepare ARM64 APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          src="private-apk/apks/MX-Manga-arm64-v8a-preview.apk"
+          test -f "$src"
+          mkdir -p handoff
+          cp "$src" handoff/MX-Manga-arm64-v8a-preview.apk
+          sha256sum handoff/MX-Manga-arm64-v8a-preview.apk | tee handoff/SHA256SUMS.txt
+
+      - name: Upload one-day handoff artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mx-manga-arm64-direct-handoff
+          path: handoff/*
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
