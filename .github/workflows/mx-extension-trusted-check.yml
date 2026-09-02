@@ -101,13 +101,42 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Build and lint extension
+      - name: Build Debug, Release and lint extension
         working-directory: upstream
         shell: bash
         run: |
           set -euo pipefail
           source_name="${{ steps.target.outputs.source }}"
-          ./gradlew ":src:zh:$source_name:assembleDebug" ":src:zh:$source_name:lintRelease"
+          ./gradlew \
+            ":src:zh:$source_name:assembleDebug" \
+            ":src:zh:$source_name:assembleRelease" \
+            ":src:zh:$source_name:lintRelease"
+
+      - name: Verify MX Release ABI survives R8
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_name="${{ steps.target.outputs.source }}"
+          module="upstream/src/zh/$source_name"
+          apk="$(find "$module" -path '*/build/outputs/apk/release/*.apk' -type f | sort | head -n 1)"
+          [[ -n "$apk" ]] || { echo "::error::No Release APK found"; exit 1; }
+
+          if [[ -f "$module/src/eu/kanade/tachiyomi/source/mx/CommentSource.kt" ]]; then
+            dex_dump="$RUNNER_TEMP/mx-release-dex-strings.txt"
+            : > "$dex_dump"
+            while IFS= read -r dex; do
+              unzip -p "$apk" "$dex" | strings >> "$dex_dump"
+            done < <(unzip -Z1 "$apk" | grep -E '^classes([0-9]+)?\.dex || true)
+
+            grep -Fq 'eu/kanade/tachiyomi/source/mx/CommentSource' "$dex_dump" || {
+              echo "::error::Release APK lost MX CommentSource ABI after R8"
+              exit 1
+            }
+            grep -Fq 'commentCapabilities' "$dex_dump" || {
+              echo "::error::Release APK lost MX commentCapabilities member after R8"
+              exit 1
+            }
+          fi
 
       - name: Record result
         shell: bash
@@ -116,7 +145,8 @@ jobs:
             echo
             echo "### Result"
             echo
-            echo "- Debug APK compilation and lintRelease passed."
+            echo "- Debug APK, unsigned Release APK and lintRelease passed."
+            echo "- MX Release ABI survived R8 when the selected source exposes MX comment stubs."
             echo "- No APK artifact was uploaded."
-            echo "- Android device validation is still required separately."
+            echo "- Stable certificate signing and Android device validation are still required separately."
           } >> "$GITHUB_STEP_SUMMARY"
