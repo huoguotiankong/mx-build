@@ -1,0 +1,83 @@
+name: MX App CI
+
+run-name: MX App CI · feat/reader-chapter-comments-content-replacement
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/mx-app-ci-trigger"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mx-app-feature-ci
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Check private source token
+        shell: bash
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]] || {
+            echo "::error::Missing MX_PRIVATE_READ_TOKEN"
+            exit 1
+          }
+
+      - name: Checkout private MX App source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-app
+          ref: feat/reader-chapter-comments-content-replacement
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Record source revision
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "SOURCE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          build-root-directory: source
+
+      - name: Spotless
+        working-directory: source
+        run: ./gradlew spotlessCheck
+
+      - name: Build Preview APK
+        working-directory: source
+        run: ./gradlew assemblePreview -Pdisable-code-shrink
+
+      - name: Unit tests
+        working-directory: source
+        run: ./gradlew testReleaseUnitTest
+
+      - name: Summary
+        shell: bash
+        run: |
+          {
+            echo "### Result"
+            echo
+            echo "- Source commit: \`$SOURCE_SHA\`"
+            echo "- Spotless, Preview build, and unit tests completed."
+            echo "- This CI does not sign or publish APKs."
+          } >> "$GITHUB_STEP_SUMMARY"
