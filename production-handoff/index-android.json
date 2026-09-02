@@ -1,0 +1,648 @@
+{
+  "name": "MX",
+  "badgeLabel": "MX",
+  "signingKey": "1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620",
+  "contact": {
+    "website": "https://github.com/huoguotiankong/mx-repo"
+  },
+  "extensionList": {
+    "extensions": [
+      {
+        "name": "AMan",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.aman",
+        "resources": {
+          "apkUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.aman-v1.6.4.apk",
+          "iconUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/icon/eu.kanade.tachiyomi.extension.zh.aman-v106004.png",
+          "jarUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.aman-v1.6.4.jar"
+        },
+        "extensionLib": "1.6",
+        "versionCode": "212004",
+        "versionName": "1.6.4",
+        "contentWarning": "CONTENT_WARNING_NSFW",
+        "sources": [
+          {
+            "id": "3032962246086671983",
+            "name": "A\u6f2b",
+            "language": "zh",
+            "homeUrl": "https://aman8.org",
+            "mirrorUrls": [
+              "https://aman8.org",
+              "https://aman9.org",
+              "https://aman7.org",
+              "https://aman5.com",
+              "https://aman3.org",
+              "https://aman8.xyz",
+              "https://aman9.xyz",
+              "https://aman92.com"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "Bilibili Manga",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.bilibilimanga",
+        "resources": {
+          "apkUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.bilibilimanga-v1.6.13.apk",
+          "iconUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/icon/eu.kanade.tachiyomi.extension.zh.bilibilimanga-v106013.png",
+          "jarUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.bilibilimanga-v1.6.13.jar"
+        },
+        "extensionLib": "1.6",
+        "versionCode": "212013",
+        "versionName": "1.6.13",
+        "contentWarning": "CONTENT_WARNING_SAFE",
+        "sources": [
+          {
+            "id": "3561131545129718586",
+            "name": "\u54d4\u54e9\u54d4\u54e9\u6f2b\u753b",
+            "language": "zh",
+            "homeUrl": "https://manga.bilibili.com"
+          }
+        ]
+      },
+      {
+        "name": "DarenManhua",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.darenmanhua",
+        "resources": {
+          "apkUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.darenmanhua-v1.6.1.apk",
+          "iconUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/icon/eu.kanade.tachiyomi.extension.zh.darenmanhua-v106001.png",
+          "jarUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.darenmanhua-v1.6.1.jar"
+        },
+        "extensionLib": "1.6",
+        "versionCode": "212001",
+        "versionName": "1.6.1",
+        "contentWarning": "CONTENT_WARNING_NSFW",
+        "sources": [
+          {
+            "id": "5143250572843363634",
+            "name": "\u5927\u4eba\u6f2b\u753b",
+            "language": "zh",
+            "homeUrl": "https://drmh2.com",
+            "mirrorUrls": [
+              "https://drmh2.com",
+              "https://drmh8.org",
+              "https://drmh8.com",
+              "https://drmh6.xyz",
+              "https://drmh6.org",
+              "https://drmh6.com",
+              "https://drmh5.com",
+              "https://drmh3.xyz",
+              "https://drmh3.org",
+              "https://drmh3.com",
+              "https://drmh2.org",
+              "https://drmh2.xyz",
+              "https://darenmanhua.org",
+              "https://darenmanhua.xyz",
+              "https://darenmanhua2.com",
+              "https://darenmh.com",
+              "https://19manhua.xyz",
+              "https://19manhua.com"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "HaoDuoMan",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.haoduoman",
+        "resources": {
+          "apkUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.haoduoman-v1.6.1.apk",
+          "iconUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/icon/eu.kanade.tachiyomi.extension.zh.haoduoman-v106001.png",
+          "jarUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.haoduoman-v1.6.1.jar"
+        },
+        "extensionLib": "1.6",
+        "versionCode": "212001",
+        "versionName": "1.6.1",
+        "contentWarning": "CONTENT_WARNING_NSFW",
+        "sources": [
+          {
+            "id": "5119299125720953177",
+            "name": "\u597d\u591a\u6f2b",
+            "language": "zh",
+            "homeUrl": "https://www.haoduoman.com",
+            "mirrorUrls": [
+              "https://www.haoduoman.com",
+              "https://m.haoduoman.com"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "HaoGuoMan",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.haoguoman",
+        "resources": {
+          "apkUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.haoguoman-v1.6.4.apk",
+          "iconUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/icon/eu.kanade.tachiyomi.extension.zh.haoguoman-v106004.png",
+          "jarUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.haoguoman-v1.6.4.jar"
+        },
+        "extensionLib": "1.6",
+        "versionCode": "212004",
+        "versionName": "1.6.4",
+        "contentWarning": "CONTENT_WARNING_NSFW",
+        "sources": [
+          {
+            "id": "1876411511640179559",
+            "name": "\u597d\u56fd\u6f2b",
+            "language": "zh",
+            "homeUrl": "https://m.haoguoman8.com",
+            "mirrorUrls": [
+              "https://m.haoguoman8.com",
+              "https://www.haoguoman8.com",
+              "https://haoguoman8.com"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "HipMH",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.hipmh",
+        "resources": {
+          "apkUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.hipmh-v1.6.2.apk",
+          "iconUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/icon/eu.kanade.tachiyomi.extension.zh.hipmh-v106002.png",
+          "jarUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.hipmh-v1.6.2.jar"
+        },
+        "extensionLib": "1.6",
+        "versionCode": "212002",
+        "versionName": "1.6.2",
+        "contentWarning": "CONTENT_WARNING_NSFW",
+        "sources": [
+          {
+            "id": "3523521531153888487",
+            "name": "\u5b09\u76ae\u6f2b\u753b",
+            "language": "zh",
+            "homeUrl": "https://m.hipmh.com"
+          }
+        ]
+      },
+      {
+        "name": "ITsACG",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.itsacg",
+        "resources": {
+          "apkUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.itsacg-v1.6.4.apk",
+          "iconUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/icon/eu.kanade.tachiyomi.extension.zh.itsacg-v106004.png",
+          "jarUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.itsacg-v1.6.4.jar"
+        },
+        "extensionLib": "1.6",
+        "versionCode": "212004",
+        "versionName": "1.6.4",
+        "contentWarning": "CONTENT_WARNING_NSFW",
+        "sources": [
+          {
+            "id": "5771538400678483952",
+            "name": "ITsACG\u6f2b\u753b",
+            "language": "zh",
+            "homeUrl": "https://www.itsacg.com"
+          }
+        ]
+      },
+      {
+        "name": "Manhua100",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.manhua100",
+        "resources": {
+          "apkUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.manhua100-v1.6.1.apk",
+          "iconUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/icon/eu.kanade.tachiyomi.extension.zh.manhua100-v106001.png",
+          "jarUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.manhua100-v1.6.1.jar"
+        },
+        "extensionLib": "1.6",
+        "versionCode": "212001",
+        "versionName": "1.6.1",
+        "contentWarning": "CONTENT_WARNING_NSFW",
+        "sources": [
+          {
+            "id": "64452192911780122",
+            "name": "\u6f2b\u753b100",
+            "language": "zh",
+            "homeUrl": "https://www.manhua100.com",
+            "mirrorUrls": [
+              "https://www.manhua100.com",
+              "https://m.manhua100.com"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "ManHuaBa",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.manhuaba",
+        "resources": {
+          "apkUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.manhuaba-v1.6.3.apk",
+          "iconUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/icon/eu.kanade.tachiyomi.extension.zh.manhuaba-v106003.png",
+          "jarUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.manhuaba-v1.6.3.jar"
+        },
+        "extensionLib": "1.6",
+        "versionCode": "212003",
+        "versionName": "1.6.3",
+        "contentWarning": "CONTENT_WARNING_NSFW",
+        "sources": [
+          {
+            "id": "2463343216724262794",
+            "name": "\u6f2b\u753b\u5427",
+            "language": "zh",
+            "homeUrl": "https://www.manhuaba.com",
+            "mirrorUrls": [
+              "https://www.manhuaba.com",
+              "https://manhuaba.com"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "ManHuaCang",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.manhuacang",
+        "resources": {
+          "apkUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.manhuacang-v1.6.2.apk",
+          "iconUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/icon/eu.kanade.tachiyomi.extension.zh.manhuacang-v106002.png",
+          "jarUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.manhuacang-v1.6.2.jar"
+        },
+        "extensionLib": "1.6",
+        "versionCode": "212002",
+        "versionName": "1.6.2",
+        "contentWarning": "CONTENT_WARNING_NSFW",
+        "sources": [
+          {
+            "id": "4104918218047688386",
+            "name": "\u6f2b\u753b\u4ed3",
+            "language": "zh",
+            "homeUrl": "https://manhuacang.xyz",
+            "mirrorUrls": [
+              "https://manhuacang.xyz",
+              "https://hm890.com",
+              "https://tumanjun.com"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "ManHuaGou",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.manhuagou",
+        "resources": {
+          "apkUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.manhuagou-v1.6.2.apk",
+          "iconUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/icon/eu.kanade.tachiyomi.extension.zh.manhuagou-v106002.png",
+          "jarUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.manhuagou-v1.6.2.jar"
+        },
+        "extensionLib": "1.6",
+        "versionCode": "212002",
+        "versionName": "1.6.2",
+        "contentWarning": "CONTENT_WARNING_SAFE",
+        "sources": [
+          {
+            "id": "5204539549918984432",
+            "name": "\u6f2b\u753b\u72d7",
+            "language": "zh",
+            "homeUrl": "https://m.manhuagou.net",
+            "mirrorUrls": [
+              "https://m.manhuagou.net",
+              "https://www.manhuagou.net"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "ManHuaXia",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.manhuaxia",
+        "resources": {
+          "apkUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.manhuaxia-v1.6.4.apk",
+          "iconUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/icon/eu.kanade.tachiyomi.extension.zh.manhuaxia-v106004.png",
+          "jarUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.manhuaxia-v1.6.4.jar"
+        },
+        "extensionLib": "1.6",
+        "versionCode": "212004",
+        "versionName": "1.6.4",
+        "contentWarning": "CONTENT_WARNING_NSFW",
+        "sources": [
+          {
+            "id": "2248920680374502250",
+            "name": "\u6f2b\u753b\u4fa0",
+            "language": "zh",
+            "homeUrl": "https://mhxia.com",
+            "mirrorUrls": [
+              "https://mhxia.com",
+              "https://www.mhxia.com"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "ManHuaYu",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.manhuayu",
+        "resources": {
+          "apkUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.manhuayu-v1.6.3.apk",
+          "iconUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/icon/eu.kanade.tachiyomi.extension.zh.manhuayu-v106003.png",
+          "jarUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.manhuayu-v1.6.3.jar"
+        },
+        "extensionLib": "1.6",
+        "versionCode": "212003",
+        "versionName": "1.6.3",
+        "contentWarning": "CONTENT_WARNING_NSFW",
+        "sources": [
+          {
+            "id": "8037424456361891671",
+            "name": "\u6f2b\u753b\u9c7c",
+            "language": "zh",
+            "homeUrl": "https://m.manhuayu88.com",
+            "mirrorUrls": [
+              "https://m.manhuayu88.com",
+              "https://www.manhuayu88.com"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "ManShiDuo",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.manshiduo",
+        "resources": {
+          "apkUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.manshiduo-v1.6.1.apk",
+          "iconUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/icon/eu.kanade.tachiyomi.extension.zh.manshiduo-v106001.png",
+          "jarUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.manshiduo-v1.6.1.jar"
+        },
+        "extensionLib": "1.6",
+        "versionCode": "212001",
+        "versionName": "1.6.1",
+        "contentWarning": "CONTENT_WARNING_NSFW",
+        "sources": [
+          {
+            "id": "8741951640601575191",
+            "name": "\u6f2b\u58eb\u591a",
+            "language": "zh",
+            "homeUrl": "https://manshiduo.org",
+            "mirrorUrls": [
+              "https://manshiduo.org"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "MengXiGe",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.mengxige",
+        "resources": {
+          "apkUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.mengxige-v1.6.4.apk",
+          "iconUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/icon/eu.kanade.tachiyomi.extension.zh.mengxige-v106004.png",
+          "jarUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.mengxige-v1.6.4.jar"
+        },
+        "extensionLib": "1.6",
+        "versionCode": "212004",
+        "versionName": "1.6.4",
+        "contentWarning": "CONTENT_WARNING_SAFE",
+        "sources": [
+          {
+            "id": "987416804290845544",
+            "name": "\u68a6\u6eaa\u9601",
+            "language": "zh",
+            "homeUrl": "https://book.folongteng.com"
+          }
+        ]
+      },
+      {
+        "name": "MiHouTaoManga",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.mihoutao",
+        "resources": {
+          "apkUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.mihoutao-v1.6.2.apk",
+          "iconUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/icon/eu.kanade.tachiyomi.extension.zh.mihoutao-v106002.png",
+          "jarUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.mihoutao-v1.6.2.jar"
+        },
+        "extensionLib": "1.6",
+        "versionCode": "212002",
+        "versionName": "1.6.2",
+        "contentWarning": "CONTENT_WARNING_MIXED",
+        "sources": [
+          {
+            "id": "5618009198170626277",
+            "name": "\u7315\u7334\u6843\u6f2b\u753b",
+            "language": "zh",
+            "homeUrl": "https://manwaye.cc",
+            "mirrorUrls": [
+              "https://manwaye.cc",
+              "https://manwali.cc",
+              "https://manwalu.cc",
+              "https://mwmw.cc",
+              "https://www.manwaye.cc",
+              "https://www.mwwz.cc"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "MoMoManga",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.momo",
+        "resources": {
+          "apkUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.momo-v1.6.1.apk",
+          "iconUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/icon/eu.kanade.tachiyomi.extension.zh.momo-v106001.png",
+          "jarUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.momo-v1.6.1.jar"
+        },
+        "extensionLib": "1.6",
+        "versionCode": "212001",
+        "versionName": "1.6.1",
+        "contentWarning": "CONTENT_WARNING_NSFW",
+        "sources": [
+          {
+            "id": "1555869805938328904",
+            "name": "\u6478\u6478\u6f2b\u753b",
+            "language": "zh",
+            "homeUrl": "https://mmero.com",
+            "mirrorUrls": [
+              "https://mmero.com"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "MoMoManga",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.momomanhua",
+        "resources": {
+          "apkUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.momomanhua-v1.6.1.apk",
+          "iconUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/icon/eu.kanade.tachiyomi.extension.zh.momomanhua-v106001.png",
+          "jarUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.momomanhua-v1.6.1.jar"
+        },
+        "extensionLib": "1.6",
+        "versionCode": "212001",
+        "versionName": "1.6.1",
+        "contentWarning": "CONTENT_WARNING_NSFW",
+        "sources": [
+          {
+            "id": "1555869805938328904",
+            "name": "\u6478\u6478\u6f2b\u753b",
+            "language": "zh",
+            "homeUrl": "https://mmero.com"
+          }
+        ]
+      },
+      {
+        "name": "NNHanMan",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.nnhanman",
+        "resources": {
+          "apkUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.nnhanman-v1.6.2.apk",
+          "iconUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/icon/eu.kanade.tachiyomi.extension.zh.nnhanman-v106002.png",
+          "jarUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.nnhanman-v1.6.2.jar"
+        },
+        "extensionLib": "1.6",
+        "versionCode": "212002",
+        "versionName": "1.6.2",
+        "contentWarning": "CONTENT_WARNING_NSFW",
+        "sources": [
+          {
+            "id": "6412117657297236190",
+            "name": "\u9e1f\u9e1f\u97e9\u6f2b",
+            "language": "zh",
+            "homeUrl": "https://nnhanman.com",
+            "mirrorUrls": [
+              "https://nnhanman.com",
+              "https://nnhm95.com",
+              "https://nnhm93.com",
+              "https://nnhm81.com",
+              "https://nnhm92.com",
+              "https://nnhm91.com"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "Picacomic",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.picacomic",
+        "resources": {
+          "apkUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.picacomic-v1.6.11.apk",
+          "iconUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/icon/eu.kanade.tachiyomi.extension.zh.picacomic-v106011.png",
+          "jarUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.picacomic-v1.6.11.jar"
+        },
+        "extensionLib": "1.6",
+        "versionCode": "212011",
+        "versionName": "1.6.11",
+        "contentWarning": "CONTENT_WARNING_NSFW",
+        "sources": [
+          {
+            "id": "5768337869316468367",
+            "name": "\u54d4\u5494\u6f2b\u753b",
+            "language": "zh",
+            "homeUrl": "https://manhuabika.com"
+          }
+        ]
+      },
+      {
+        "name": "QiManWu",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.qimanwu",
+        "resources": {
+          "apkUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.qimanwu-v1.6.1.apk",
+          "iconUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/icon/eu.kanade.tachiyomi.extension.zh.qimanwu-v106001.png",
+          "jarUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.qimanwu-v1.6.1.jar"
+        },
+        "extensionLib": "1.6",
+        "versionCode": "212001",
+        "versionName": "1.6.1",
+        "contentWarning": "CONTENT_WARNING_NSFW",
+        "sources": [
+          {
+            "id": "7006651283942614505",
+            "name": "\u5947\u6f2b\u5c4b",
+            "language": "zh",
+            "homeUrl": "https://m.qimanwu.app",
+            "mirrorUrls": [
+              "https://m.qimanwu.app",
+              "https://www.qimanwu.app"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "Webtoons",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.webtoons",
+        "resources": {
+          "apkUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.webtoons-v1.6.2.apk",
+          "iconUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/icon/eu.kanade.tachiyomi.extension.zh.webtoons-v106002.png",
+          "jarUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.webtoons-v1.6.2.jar"
+        },
+        "extensionLib": "1.6",
+        "versionCode": "212002",
+        "versionName": "1.6.2",
+        "contentWarning": "CONTENT_WARNING_SAFE",
+        "sources": [
+          {
+            "id": "2050717828039580154",
+            "name": "WEBTOON",
+            "language": "zh",
+            "homeUrl": "https://www.webtoons.com"
+          }
+        ]
+      },
+      {
+        "name": "36Manga",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.weidumanwu",
+        "resources": {
+          "apkUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.weidumanwu-v1.6.4.apk",
+          "iconUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/icon/eu.kanade.tachiyomi.extension.zh.weidumanwu-v106004.png",
+          "jarUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.weidumanwu-v1.6.4.jar"
+        },
+        "extensionLib": "1.6",
+        "versionCode": "212004",
+        "versionName": "1.6.4",
+        "contentWarning": "CONTENT_WARNING_NSFW",
+        "sources": [
+          {
+            "id": "1316982367954300788",
+            "name": "36\u6f2b\u753b",
+            "language": "zh",
+            "homeUrl": "https://m.36mh.org"
+          }
+        ]
+      },
+      {
+        "name": "YuManHua",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.yumanhua",
+        "resources": {
+          "apkUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.yumanhua-v1.6.9.apk",
+          "iconUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/icon/eu.kanade.tachiyomi.extension.zh.yumanhua-v106009.png",
+          "jarUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.yumanhua-v1.6.9.jar"
+        },
+        "extensionLib": "1.6",
+        "versionCode": "212009",
+        "versionName": "1.6.9",
+        "contentWarning": "CONTENT_WARNING_SAFE",
+        "sources": [
+          {
+            "id": "4853252437674834413",
+            "name": "\u6f2b\u753b\u5ba2",
+            "language": "zh",
+            "homeUrl": "https://www.yumanhua.com"
+          }
+        ]
+      },
+      {
+        "name": "YydsManga",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.yydsmh",
+        "resources": {
+          "apkUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.yydsmh-v1.6.14.apk",
+          "iconUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/icon/eu.kanade.tachiyomi.extension.zh.yydsmh-v106014.png",
+          "jarUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.yydsmh-v1.6.14.jar"
+        },
+        "extensionLib": "1.6",
+        "versionCode": "212014",
+        "versionName": "1.6.14",
+        "contentWarning": "CONTENT_WARNING_SAFE",
+        "sources": [
+          {
+            "id": "8745674600033026461",
+            "name": "YYDS\u6f2b\u753b",
+            "language": "zh",
+            "homeUrl": "https://www.yydsmh.com"
+          }
+        ]
+      },
+      {
+        "name": "ZhiYinManKe",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.zymk",
+        "resources": {
+          "apkUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.zymk-v1.6.2.apk",
+          "iconUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/icon/eu.kanade.tachiyomi.extension.zh.zymk-v106002.png",
+          "jarUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.zymk-v1.6.2.jar"
+        },
+        "extensionLib": "1.6",
+        "versionCode": "212002",
+        "versionName": "1.6.2",
+        "contentWarning": "CONTENT_WARNING_SAFE",
+        "sources": [
+          {
+            "id": "456078172230880279",
+            "name": "\u77e5\u97f3\u6f2b\u5ba2",
+            "language": "zh",
+            "homeUrl": "https://m.zymk.cn"
+          }
+        ]
+      }
+    ]
+  }
+}
