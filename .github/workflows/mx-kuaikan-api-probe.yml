@@ -85,6 +85,70 @@ jobs:
           probe_html chapter_web_2020 "https://www.kuaikanmanhua.com/web/comic/2020"
           probe_html chapter_reader_2020 "https://www.kuaikanmanhua.com/webs/comic-next/2020"
 
+          probe_nuxt_shape() {
+            label="$1"
+            url="$2"
+            html="$RUNNER_TEMP/kk-nuxt-$label.html"
+            script="$RUNNER_TEMP/kk-nuxt-$label.js"
+            curl -L -sS -A "$WEB_UA" -o "$html" "$url"
+            HTML="$html" SCRIPT="$script" python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+          html = Path(os.environ["HTML"]).read_text("utf-8", errors="replace")
+          matches = re.findall(r"<script[^>]*>(.*?)</script>", html, flags=re.S | re.I)
+          candidate = next((x for x in matches if "window.__NUXT__" in x), "")
+          Path(os.environ["SCRIPT"]).write_text(candidate, "utf-8")
+          PY
+            LABEL="$label" SCRIPT="$script" node <<'NODE'
+          const fs = require("fs");
+          const vm = require("vm");
+          const script = fs.readFileSync(process.env.SCRIPT, "utf8");
+          if (!script.includes("window.__NUXT__")) {
+            console.log("NUXT " + process.env.LABEL + " missing");
+            process.exit(0);
+          }
+          const sandbox = { window: {} };
+          vm.createContext(sandbox);
+          try {
+            vm.runInContext(script, sandbox, { timeout: 1000 });
+          } catch (e) {
+            console.log("NUXT " + process.env.LABEL + " eval=" + e.name);
+            process.exit(0);
+          }
+          const root = sandbox.window.__NUXT__;
+          const hits = [];
+          function walk(value, path = "", depth = 0) {
+            if (depth > 9 || hits.length > 80) return;
+            if (Array.isArray(value)) {
+              for (let i = 0; i < Math.min(value.length, 5); i++) walk(value[i], path + "[" + i + "]", depth + 1);
+              return;
+            }
+            if (!value || typeof value !== "object") return;
+            for (const [key, child] of Object.entries(value)) {
+              const p = path ? path + "." + key : key;
+              const lk = key.toLowerCase();
+              if (lk.includes("comment") || lk.includes("floor") || lk.includes("reply")) {
+                const kind = Array.isArray(child) ? "array:" + child.length : (child && typeof child === "object" ? "object" : typeof child);
+                let keys = "";
+                const sample = Array.isArray(child) ? child[0] : child;
+                if (sample && typeof sample === "object" && !Array.isArray(sample)) {
+                  keys = " keys=" + Object.keys(sample).sort().join(",");
+                }
+                hits.push("NUXT " + process.env.LABEL + " path=" + p + " kind=" + kind + keys);
+              }
+              walk(child, p, depth + 1);
+            }
+          }
+          walk(root);
+          if (!hits.length) console.log("NUXT " + process.env.LABEL + " no_comment_keys");
+          else hits.slice(0, 40).forEach(x => console.log(x));
+          NODE
+          }
+
+          probe_nuxt_shape topic_148 "https://www.kuaikanmanhua.com/web/topic/148/"
+          probe_nuxt_shape chapter_reader_2020 "https://www.kuaikanmanhua.com/webs/comic-next/2020"
+
           probe_json v2_hot_floor_comic "https://api.kkmh.com/v2/comments/hot_floor_list?target_type=comic&target_id=2020&since=0&count=20"
           probe_json v1_floor_comic "https://api.kkmh.com/v1/comments/floor_list?target_type=comic&target_id=2020&since=0&count=20"
           probe_json v1_comic_comments "https://api.kkmh.com/v1/comics/2020/comments/0?order=score"
