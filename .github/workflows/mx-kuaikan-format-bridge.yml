@@ -1,0 +1,106 @@
+name: MX Kuaikan Format Bridge
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/mx-kuaikan-format-bridge-trigger"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mx-kuaikan-format-bridge
+  cancel-in-progress: true
+
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout build infrastructure
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Check private source token
+        shell: bash
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]] || { echo "::error::Missing MX_PRIVATE_READ_TOKEN"; exit 1; }
+
+      - name: Checkout private MX source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout current Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Overlay and format Kuaikan
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf upstream/src/zh/kuaikanmanhua
+          mkdir -p upstream/src/zh
+          cp -a source/src/zh/kuaikanmanhua upstream/src/zh/kuaikanmanhua
+          (
+            cd upstream
+            ./gradlew :src:zh:kuaikanmanhua:spotlessApply
+          )
+
+      - name: Encrypt formatted source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/mx-format"
+          tar -C upstream/src/zh/kuaikanmanhua -czf "$RUNNER_TEMP/mx-format/kuaikan-formatted.tar.gz" src
+
+          cat > "$RUNNER_TEMP/mx-format/public.pem" <<'PEM'
+          -----BEGIN PUBLIC KEY-----
+          MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAmbsd3on+vTbwAzhPpoHT
+          Iam4kWJxXcrsYKga6LOPCVZZrqs6kJVw+uu8RvsZSj1ZGzLSIZVnI9LlD3iWT2nI
+          e0JbapPj6Rmw9P1NWQPXNmtNTW1DdzTEZ7wSRGWzXgqID59FJvNUE845MhOZMvyg
+          GqCQ+VX6J8Rs6QdJNV9ykqddot56WPfcnuicPONSG0+t72osO08Ra+v+g63C6t8o
+          ksgriyDkjnxETws4aO7I5lDloJQ2fWFErWrQlJLYjKpsLaKPSfkC+G2HLQSdNv20
+          O/9TZYwFL4o7gV1D62ZFN4nlNj2RjSzepTYgp+9z5ZnAWaY++uhgy7sAsZ5dnRa/
+          VwIDAQAB
+          -----END PUBLIC KEY-----
+          PEM
+
+          openssl rand -out "$RUNNER_TEMP/mx-format/pass.bin" 32
+          openssl enc -aes-256-cbc -pbkdf2 -salt \
+            -pass file:"$RUNNER_TEMP/mx-format/pass.bin" \
+            -in "$RUNNER_TEMP/mx-format/kuaikan-formatted.tar.gz" \
+            -out "$RUNNER_TEMP/mx-format/kuaikan-formatted.tar.gz.enc"
+          openssl pkeyutl -encrypt -pubin \
+            -inkey "$RUNNER_TEMP/mx-format/public.pem" \
+            -pkeyopt rsa_padding_mode:oaep \
+            -in "$RUNNER_TEMP/mx-format/pass.bin" \
+            -out "$RUNNER_TEMP/mx-format/pass.bin.enc"
+
+          rm -f "$RUNNER_TEMP/mx-format/kuaikan-formatted.tar.gz" \
+                "$RUNNER_TEMP/mx-format/pass.bin" \
+                "$RUNNER_TEMP/mx-format/public.pem"
+
+      - name: Upload encrypted formatter result
+        uses: actions/upload-artifact@v4
+        with:
+          name: kuaikan-format-encrypted
+          path: |
+            ${{ runner.temp }}/mx-format/kuaikan-formatted.tar.gz.enc
+            ${{ runner.temp }}/mx-format/pass.bin.enc
+          if-no-files-found: error
+          retention-days: 1
