@@ -1,0 +1,60 @@
+name: Secure MX APK Handoff
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/mx-secure-apk-handoff-trigger"
+
+permissions:
+  contents: read
+
+jobs:
+  handoff:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout private MX APK branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-app
+          ref: downloads
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: private-apk
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Encrypt ARM64 APK for handoff
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="private-apk/apks/MX-Manga-arm64-v8a-preview.apk"
+          test -f "$apk"
+
+          cat > "$RUNNER_TEMP/mx-transfer-public.pem" <<'EOF'
+-----BEGIN PUBLIC KEY-----
+MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAuhZIyd9NOc7ZX/pads4G
+SSBl/sFCpivBk7Fcd5tlcaZxNLjvgkyRk4J0bHtoRA5uzmgqzpD5/sjs8fMq7X1m
+yLnMQGUbOO9EBXubJMEnLCXleeZlHRCszFMfLOPyQ8Pocz4id7Sq/ffSD+WXbUEh
+rNOt1y2bn3AVCWphYPxcKlGPmhNcPAGafgZIKFOC5GU4iBewX8V930gseZAYOz5K
+/Uvq+0JwsSN4ANZdmeeId/0BSITE9OCsZnbgrARtOSZatFk4S5c3TcnvT6wMU2Er
+pYDoZXiUehSoqwQagy8zDhpOJt435p0cU8nUY16PTrfYM7artS/q4KJzudSPHTiK
+qXStJAfcRNFpfhQXddD83eaADx/hip9DpibH9w8MBP+njxt6zcpLiLl/EoOJpnzG
+vSe9kEAo5G1IreWMj+wLVMJCkWKW3liujNMP2qKszBxLdOrOMismnAUc00yyAYFR
+314+bgbyuIHREIMfkfm1wi9RU2JwZUQRTQiD4PPSrvkpAgMBAAE=
+-----END PUBLIC KEY-----
+EOF
+
+          mkdir -p handoff
+          openssl rand -hex 32 > "$RUNNER_TEMP/mx-transfer-pass.txt"
+          openssl enc -aes-256-cbc -salt -pbkdf2             -in "$apk"             -out "handoff/MX-Manga-arm64-v8a-preview.apk.enc"             -pass file:"$RUNNER_TEMP/mx-transfer-pass.txt"
+          openssl pkeyutl -encrypt             -pubin             -inkey "$RUNNER_TEMP/mx-transfer-public.pem"             -in "$RUNNER_TEMP/mx-transfer-pass.txt"             -out "handoff/key.enc"             -pkeyopt rsa_padding_mode:oaep             -pkeyopt rsa_oaep_md:sha256
+
+          rm -f "$RUNNER_TEMP/mx-transfer-pass.txt" "$RUNNER_TEMP/mx-transfer-public.pem"
+
+      - name: Upload encrypted handoff
+        uses: actions/upload-artifact@v4
+        with:
+          name: mx-apk-secure-handoff
+          path: handoff/*
+          if-no-files-found: error
+          retention-days: 1
