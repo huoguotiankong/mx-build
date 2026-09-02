@@ -61,11 +61,47 @@ jobs:
             ./gradlew :src:zh:kuaikanmanhua:spotlessApply
           )
 
-      - name: Encrypt formatted source
+      - name: Build formatter operation list
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/mx-format"
+          python3 - <<'PY'
+          import difflib
+          import json
+          from pathlib import Path
+
+          original_root = Path("source/src/zh/kuaikanmanhua/src")
+          formatted_root = Path("upstream/src/zh/kuaikanmanhua/src")
+          files = sorted(set(p.relative_to(original_root) for p in original_root.rglob("*.kt")))
+          payload = []
+          for rel in files:
+              original = (original_root / rel).read_text("utf-8").splitlines(keepends=True)
+              formatted = (formatted_root / rel).read_text("utf-8").splitlines(keepends=True)
+              ops = []
+              for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(a=original, b=formatted).get_opcodes():
+                  if tag == "equal":
+                      continue
+                  ops.append({
+                      "start": i1,
+                      "end": i2,
+                      "replacement": formatted[j1:j2],
+                  })
+              if ops:
+                  payload.append({"path": str(rel), "ops": ops})
+          Path("$RUNNER_TEMP/mx-format/ops.json").write_text(
+              json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+              "utf-8",
+          )
+          if not payload:
+              raise SystemExit("No formatter changes found")
+          print(f"Prepared formatter operations for {len(payload)} files")
+          PY
+
+      - name: Encrypt formatted source
+        shell: bash
+        run: |
+          set -euo pipefail
           tar -C upstream/src/zh/kuaikanmanhua -czf "$RUNNER_TEMP/mx-format/kuaikan-formatted.tar.gz" src
 
           cat > "$RUNNER_TEMP/mx-format/public.pem" <<'PEM'
@@ -85,6 +121,10 @@ jobs:
             -pass file:"$RUNNER_TEMP/mx-format/pass.bin" \
             -in "$RUNNER_TEMP/mx-format/kuaikan-formatted.tar.gz" \
             -out "$RUNNER_TEMP/mx-format/kuaikan-formatted.tar.gz.enc"
+          openssl enc -aes-256-cbc -pbkdf2 -salt \
+            -pass file:"$RUNNER_TEMP/mx-format/pass.bin" \
+            -in "$RUNNER_TEMP/mx-format/ops.json" \
+            -out "$RUNNER_TEMP/mx-format/ops.json.enc"
           openssl pkeyutl -encrypt -pubin \
             -inkey "$RUNNER_TEMP/mx-format/public.pem" \
             -pkeyopt rsa_padding_mode:oaep \
@@ -93,7 +133,8 @@ jobs:
 
           rm -f "$RUNNER_TEMP/mx-format/kuaikan-formatted.tar.gz" \
                 "$RUNNER_TEMP/mx-format/pass.bin" \
-                "$RUNNER_TEMP/mx-format/public.pem"
+                "$RUNNER_TEMP/mx-format/public.pem" \
+                "$RUNNER_TEMP/mx-format/ops.json"
 
       - name: Upload encrypted formatter result
         uses: actions/upload-artifact@v4
@@ -101,6 +142,7 @@ jobs:
           name: kuaikan-format-encrypted
           path: |
             ${{ runner.temp }}/mx-format/kuaikan-formatted.tar.gz.enc
+            ${{ runner.temp }}/mx-format/ops.json.enc
             ${{ runner.temp }}/mx-format/pass.bin.enc
           if-no-files-found: error
           retention-days: 1
