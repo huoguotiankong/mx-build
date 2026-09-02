@@ -126,30 +126,7 @@ jobs:
             : > "$dex_dump"
             while IFS= read -r dex; do
               unzip -p "$apk" "$dex" | strings >> "$dex_dump"
-            done < <(unzip -Z1 "$apk" | grep -E '^classes([0-9]+)?\\.dex
-            grep -Fq 'eu/kanade/tachiyomi/source/mx/CommentSource' "$dex_dump" || {
-              echo "::error::Release APK lost MX CommentSource ABI after R8"
-              exit 1
-            }
-            grep -Fq 'commentCapabilities' "$dex_dump" || {
-              echo "::error::Release APK lost MX commentCapabilities member after R8"
-              exit 1
-            }
-          fi
-
-      - name: Record result
-        shell: bash
-        run: |
-          {
-            echo
-            echo "### Result"
-            echo
-            echo "- Debug APK, unsigned Release APK and lintRelease passed."
-            echo "- MX Release ABI survived R8 when the selected source exposes MX comment stubs."
-            echo "- No APK artifact was uploaded."
-            echo "- Stable certificate signing and Android device validation are still required separately."
-          } >> "$GITHUB_STEP_SUMMARY"
- || true)
+            done < <(unzip -Z1 "$apk" | grep -E "^classes([0-9]+)?\\.dex$" || true)
 
             grep -Fq 'eu/kanade/tachiyomi/source/mx/CommentSource' "$dex_dump" || {
               echo "::error::Release APK lost MX CommentSource ABI after R8"
