@@ -19,6 +19,7 @@ jobs:
         shell: bash
         env:
           WEB_UA: "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Mobile Safari/537.36"
+          DESKTOP_UA: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
           APP_UA: "Kuaikan/5.75.0/575000(iPhone;Scale/3.00) (iPhone; CPU)"
         run: |
           set -euo pipefail
@@ -82,6 +83,9 @@ jobs:
           }
 
           probe_html topic_148 "https://www.kuaikanmanhua.com/web/topic/148/"
+          body="$RUNNER_TEMP/kk-html-topic-desktop.txt"
+          code="$(curl -L -sS -A "$DESKTOP_UA" -o "$body" -w '%{http_code}' "https://www.kuaikanmanhua.com/web/topic/148/" || true)"
+          printf 'HTML %-24s http=%s bytes=%s hot=%s comment=%s\n' "topic_148_desktop" "$code" "$(wc -c < "$body")" "$(grep -q '热门评论' "$body" && echo yes || echo no)" "$(grep -q '评论' "$body" && echo yes || echo no)"
           probe_html chapter_web_2020 "https://www.kuaikanmanhua.com/web/comic/2020"
           probe_html chapter_reader_2020 "https://www.kuaikanmanhua.com/webs/comic-next/2020"
 
@@ -209,6 +213,7 @@ jobs:
           }
 
           probe_comment_dom topic_148 "https://www.kuaikanmanhua.com/web/topic/148/"
+          WEB_UA="$DESKTOP_UA" probe_comment_dom topic_148_desktop "https://www.kuaikanmanhua.com/web/topic/148/"
 
           probe_json v2_hot_floor_comic "https://api.kkmh.com/v2/comments/hot_floor_list?target_type=comic&target_id=2020&since=0&count=20"
           probe_json v1_floor_comic "https://api.kkmh.com/v1/comments/floor_list?target_type=comic&target_id=2020&since=0&count=20"
