@@ -46,8 +46,15 @@ jobs:
           cp -a source/src/zh/picacomic upstream/src/zh/picacomic
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-        with:
-          build-root-directory: upstream
+      - name: Format PicACG
+        working-directory: upstream
+        run: ./gradlew :src:zh:picacomic:spotlessApply
+      - name: Print formatted source
+        run: |
+          echo 'PICACOMIC_FORMATTED_BEGIN'
+          base64 -w0 upstream/src/zh/picacomic/src/eu/kanade/tachiyomi/extension/zh/picacomic/Picacomic.kt
+          echo
+          echo 'PICACOMIC_FORMATTED_END'
       - name: Build PicACG Debug
         working-directory: upstream
         run: ./gradlew :src:zh:picacomic:assembleDebug
