@@ -46,6 +46,6 @@ jobs:
           cp -a source/src/zh/picacomic upstream/src/zh/picacomic
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-      - name: Build PicACG Debug
+      - name: Build and lint Picacomic v11
         working-directory: upstream
-        run: ./gradlew :src:zh:picacomic:assembleDebug
+        run: ./gradlew :src:zh:picacomic:assembleDebug :src:zh:picacomic:lintRelease
