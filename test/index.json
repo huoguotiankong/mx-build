@@ -12,12 +12,12 @@
         "name": "Kuaikan Manhua",
         "packageName": "eu.kanade.tachiyomi.extension.zh.kuaikanmanhua",
         "resources": {
-          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.kuaikanmanhua-v1.6.19.apk",
-          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.kuaikanmanhua-v106019.png"
+          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.kuaikanmanhua-v1.6.20.apk",
+          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.kuaikanmanhua-v106020.png"
         },
         "extensionLib": "1.6",
-        "versionCode": 106019,
-        "versionName": "1.6.19",
+        "versionCode": 106020,
+        "versionName": "1.6.20",
         "contentWarning": "SAFE",
         "sources": [
           {
