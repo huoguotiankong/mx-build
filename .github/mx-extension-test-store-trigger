@@ -1,3 +1,3 @@
-source=tencentcomics
-ref=352a8d3197ab9472dfea8345808961fbea98e7ad
-requested=v12-comment-fix-format-retry-20260903
+source=picacomic
+ref=main
+reason=mx-structured-details-v12
