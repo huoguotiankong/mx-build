@@ -1,0 +1,55 @@
+name: Format MX App chapter replacement
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/mx-app-format-trigger"
+
+permissions:
+  contents: read
+
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout private MX App feature
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-app
+          ref: feat/chapter-list-replacement-paid-only
+          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          build-root-directory: source
+
+      - name: Apply Spotless
+        working-directory: source
+        run: ./gradlew spotlessApply
+
+      - name: Commit formatting
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "No formatting changes needed."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "style: apply Spotless to chapter replacement changes"
+          git push origin HEAD:feat/chapter-list-replacement-paid-only
