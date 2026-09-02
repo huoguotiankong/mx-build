@@ -113,6 +113,13 @@ jobs:
           data = obj.get("data") if isinstance(obj, dict) else None
           items = []
           if isinstance(data, dict):
+              print(f"SHAPE {os.environ['LABEL']} data_keys=" + ",".join(sorted(data.keys())))
+              scalar = []
+              for key, value in data.items():
+                  if isinstance(value, (str, int, float, bool)) and any(t in key.lower() for t in ("since", "offset", "total", "more", "next", "count")):
+                      scalar.append(f"{key}={value!r}")
+              if scalar:
+                  print(f"SHAPE {os.environ['LABEL']} paging=" + ",".join(scalar))
               for key in ("comments", "comment_floors"):
                   value = data.get(key)
                   if isinstance(value, list) and value:
@@ -123,10 +130,13 @@ jobs:
               raise SystemExit(0)
           first = items[0]
           print(f"SHAPE {os.environ['LABEL']} item_keys=" + ",".join(sorted(first.keys())))
-          for nested_key in ("user", "author", "content"):
+          for nested_key in ("user", "author", "content", "root"):
               nested = first.get(nested_key)
               if isinstance(nested, dict):
                   print(f"SHAPE {os.environ['LABEL']} {nested_key}_keys=" + ",".join(sorted(nested.keys())))
+          children = first.get("children_comments")
+          if isinstance(children, list) and children and isinstance(children[0], dict):
+              print(f"SHAPE {os.environ['LABEL']} child_keys=" + ",".join(sorted(children[0].keys())))
           PY
           }
 
