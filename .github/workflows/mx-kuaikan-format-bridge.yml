@@ -69,6 +69,7 @@ jobs:
           python3 - <<'PY'
           import difflib
           import json
+          import os
           from pathlib import Path
 
           original_root = Path("source/src/zh/kuaikanmanhua/src")
@@ -89,7 +90,7 @@ jobs:
                   })
               if ops:
                   payload.append({"path": str(rel), "ops": ops})
-          Path("$RUNNER_TEMP/mx-format/ops.json").write_text(
+          Path(os.environ["RUNNER_TEMP"], "mx-format", "ops.json").write_text(
               json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
               "utf-8",
           )
