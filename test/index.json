@@ -9,6 +9,28 @@
   "extensionList": {
     "extensions": [
       {
+        "name": "Bilibili Manga",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.bilibilimanga",
+        "resources": {
+          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.bilibilimanga-v1.6.19.apk",
+          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.bilibilimanga-v106019.png"
+        },
+        "extensionLib": "1.6",
+        "versionCode": 106019,
+        "versionName": "1.6.19",
+        "contentWarning": "SAFE",
+        "sources": [
+          {
+            "id": 3561131545129718586,
+            "name": "哔哩哔哩漫画",
+            "language": "zh",
+            "homeUrl": "https://manga.bilibili.com",
+            "mirrorUrls": [],
+            "message": null
+          }
+        ]
+      },
+      {
         "name": "Kuaikan Manhua",
         "packageName": "eu.kanade.tachiyomi.extension.zh.kuaikanmanhua",
         "resources": {
