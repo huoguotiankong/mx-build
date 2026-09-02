@@ -12,18 +12,18 @@
         "name": "Kuaikan Manhua",
         "packageName": "eu.kanade.tachiyomi.extension.zh.kuaikanmanhua",
         "resources": {
-          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.kuaikanmanhua-v1.6.17.apk",
-          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.kuaikanmanhua-v106017.png"
+          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.kuaikanmanhua-v1.6.18.apk",
+          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.kuaikanmanhua-v106018.png"
         },
         "extensionLib": "1.6",
-        "versionCode": 106017,
-        "versionName": "1.6.17",
+        "versionCode": 106018,
+        "versionName": "1.6.18",
         "contentWarning": "SAFE",
         "sources": [
           {
             "id": 8099870292642776005,
             "name": "快看漫画",
-            "language": "zh-Hans",
+            "language": "zh",
             "homeUrl": "https://www.kuaikanmanhua.com",
             "mirrorUrls": [],
             "message": null
