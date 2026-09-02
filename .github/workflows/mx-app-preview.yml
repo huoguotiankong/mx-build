@@ -1,6 +1,6 @@
 name: MX App Preview
 
-run-name: MX App Preview · ${{ inputs.ref || 'feat/chapter-content-alignment-controls' }}
+run-name: MX App Preview · ${{ inputs.ref || 'main' }}
 
 on:
   workflow_dispatch:
@@ -25,7 +25,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: mx-app-preview-${{ inputs.ref || 'feat/chapter-content-alignment-controls' }}
+  group: mx-app-preview-${{ inputs.ref || 'main' }}
   cancel-in-progress: true
 
 jobs:
@@ -61,7 +61,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: huoguotiankong/mx-app
-          ref: ${{ inputs.ref || 'feat/chapter-content-alignment-controls' }}
+          ref: ${{ inputs.ref || 'main' }}
           token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
           path: source
           fetch-depth: 0
@@ -77,7 +77,7 @@ jobs:
           {
             echo "### MX App source"
             echo
-            echo "- Requested ref: \`${{ inputs.ref || 'feat/chapter-content-alignment-controls' }}\`"
+            echo "- Requested ref: \`${{ inputs.ref || 'main' }}\`"
             echo "- Resolved commit: \`$source_sha\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
