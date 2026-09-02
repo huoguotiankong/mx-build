@@ -98,3 +98,37 @@ jobs:
           probe_json v2_hot_floor_topic "https://api.kkmh.com/v2/comments/hot_floor_list?target_type=topic&target_id=148&since=0&count=20"
           probe_json v1_floor_topic "https://api.kkmh.com/v1/comments/floor_list?target_type=topic&target_id=148&since=0&count=20"
           probe_json v1_topic_feed "https://api.kkmh.com/v1/comments/feed/148/order/time?offset=0&limit=20"
+
+          shape() {
+            label="$1"
+            url="$2"
+            body="$RUNNER_TEMP/kk-shape-$(echo "$label" | tr -c 'A-Za-z0-9' '_').json"
+            curl -L -sS -A "$APP_UA" -H 'X-Device: 0' -H 'Accept: application/json, text/plain, */*' -o "$body" "$url"
+            LABEL="$label" FILE="$body" python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          obj = json.loads(Path(os.environ["FILE"]).read_text("utf-8"))
+          data = obj.get("data") if isinstance(obj, dict) else None
+          items = []
+          if isinstance(data, dict):
+              for key in ("comments", "comment_floors"):
+                  value = data.get(key)
+                  if isinstance(value, list) and value:
+                      items = value
+                      break
+          if not items or not isinstance(items[0], dict):
+              print(f"SHAPE {os.environ['LABEL']} empty")
+              raise SystemExit(0)
+          first = items[0]
+          print(f"SHAPE {os.environ['LABEL']} item_keys=" + ",".join(sorted(first.keys())))
+          for nested_key in ("user", "author", "content"):
+              nested = first.get(nested_key)
+              if isinstance(nested, dict):
+                  print(f"SHAPE {os.environ['LABEL']} {nested_key}_keys=" + ",".join(sorted(nested.keys())))
+          PY
+          }
+
+          shape v1_comic_comments "https://api.kkmh.com/v1/comics/2020/comments/0?order=score"
+          shape v2_hot_floor_comic "https://api.kkmh.com/v2/comments/hot_floor_list?target_type=comic&target_id=2020&since=0&count=20"
