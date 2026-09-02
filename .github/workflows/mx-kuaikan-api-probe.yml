@@ -149,6 +149,67 @@ jobs:
           probe_nuxt_shape topic_148 "https://www.kuaikanmanhua.com/web/topic/148/"
           probe_nuxt_shape chapter_reader_2020 "https://www.kuaikanmanhua.com/webs/comic-next/2020"
 
+          probe_comment_dom() {
+            label="$1"
+            url="$2"
+            html="$RUNNER_TEMP/kk-dom-$label.html"
+            curl -L -sS -A "$WEB_UA" -o "$html" "$url"
+            LABEL="$label" HTML="$html" python3 - <<'PY'
+          import os
+          from html.parser import HTMLParser
+          from pathlib import Path
+
+          def desc(tag, attrs):
+              attrs = dict(attrs)
+              bits = [tag]
+              if attrs.get("id"):
+                  bits.append("#" + attrs["id"])
+              classes = attrs.get("class", "").split()
+              if classes:
+                  bits.append("." + ".".join(classes[:6]))
+              for key in ("data-v", "data-id", "data-type"):
+                  if attrs.get(key):
+                      bits.append(f"[{key}]")
+              return "".join(bits)
+
+          class Probe(HTMLParser):
+              def __init__(self):
+                  super().__init__(convert_charrefs=True)
+                  self.stack = []
+                  self.active = 0
+                  self.seen = False
+
+              def handle_starttag(self, tag, attrs):
+                  d = desc(tag, attrs)
+                  self.stack.append(d)
+                  if self.active > 0:
+                      print(f"DOM {os.environ['LABEL']} tag=" + d)
+                      self.active -= 1
+
+              def handle_startendtag(self, tag, attrs):
+                  if self.active > 0:
+                      print(f"DOM {os.environ['LABEL']} tag=" + desc(tag, attrs))
+                      self.active -= 1
+
+              def handle_endtag(self, tag):
+                  if self.stack:
+                      self.stack.pop()
+
+              def handle_data(self, data):
+                  if not self.seen and "热门评论" in data:
+                      self.seen = True
+                      print(f"DOM {os.environ['LABEL']} anchor=hot_comments stack=" + " > ".join(self.stack[-12:]))
+                      self.active = 100
+
+          parser = Probe()
+          parser.feed(Path(os.environ["HTML"]).read_text("utf-8", errors="replace"))
+          if not parser.seen:
+              print(f"DOM {os.environ['LABEL']} hot_comments_not_found")
+          PY
+          }
+
+          probe_comment_dom topic_148 "https://www.kuaikanmanhua.com/web/topic/148/"
+
           probe_json v2_hot_floor_comic "https://api.kkmh.com/v2/comments/hot_floor_list?target_type=comic&target_id=2020&since=0&count=20"
           probe_json v1_floor_comic "https://api.kkmh.com/v1/comments/floor_list?target_type=comic&target_id=2020&since=0&count=20"
           probe_json v1_comic_comments "https://api.kkmh.com/v1/comics/2020/comments/0?order=score"
