@@ -1,0 +1,100 @@
+name: Probe Kuaikan Public APIs
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/mx-kuaikan-api-probe.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Probe public Kuaikan endpoints
+        shell: bash
+        env:
+          WEB_UA: "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Mobile Safari/537.36"
+          APP_UA: "Kuaikan/5.75.0/575000(iPhone;Scale/3.00) (iPhone; CPU)"
+        run: |
+          set -euo pipefail
+
+          probe_html() {
+            label="$1"
+            url="$2"
+            body="$RUNNER_TEMP/kk-html-$(echo "$label" | tr -c 'A-Za-z0-9' '_').txt"
+            code="$(curl -L -sS -A "$WEB_UA" -o "$body" -w '%{http_code}' "$url" || true)"
+            bytes="$(wc -c < "$body" 2>/dev/null || echo 0)"
+            nuxt=no
+            comments=no
+            grep -q '__NUXT__' "$body" && nuxt=yes || true
+            grep -q '评论' "$body" && comments=yes || true
+            printf 'HTML %-24s http=%s bytes=%s nuxt=%s comment_text=%s\n' "$label" "$code" "$bytes" "$nuxt" "$comments"
+          }
+
+          probe_json() {
+            label="$1"
+            url="$2"
+            body="$RUNNER_TEMP/kk-json-$(echo "$label" | tr -c 'A-Za-z0-9' '_').json"
+            code="$(curl -L -sS -A "$APP_UA" -H 'X-Device: 0' -H 'Accept: application/json, text/plain, */*' -o "$body" -w '%{http_code}' "$url" || true)"
+            bytes="$(wc -c < "$body" 2>/dev/null || echo 0)"
+            printf 'JSON %-24s http=%s bytes=%s ' "$label" "$code" "$bytes"
+            FILE="$body" python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          p = Path(os.environ["FILE"])
+          try:
+              obj = json.loads(p.read_text("utf-8"))
+          except Exception as exc:
+              print("not_json=" + type(exc).__name__)
+              raise SystemExit(0)
+
+          if isinstance(obj, dict):
+              print("top=" + ",".join(list(obj.keys())[:12]), end=" ")
+              for key in ("code", "message", "msg"):
+                  if key in obj and isinstance(obj[key], (str, int, float, bool)):
+                      print(f"{key}={obj[key]!r}", end=" ")
+          candidates = []
+          def walk(v, path="", depth=0):
+              if depth > 7:
+                  return
+              if isinstance(v, dict):
+                  for k, child in v.items():
+                      p2 = f"{path}.{k}" if path else k
+                      lk = k.lower()
+                      if isinstance(child, list) and any(t in lk for t in ("comment", "floor", "reply", "feed")):
+                          candidates.append((p2, len(child)))
+                      walk(child, p2, depth + 1)
+              elif isinstance(v, list):
+                  for i, child in enumerate(v[:10]):
+                      walk(child, f"{path}[{i}]", depth + 1)
+          walk(obj)
+          if candidates:
+              print("lists=" + ";".join(f"{p}:{n}" for p,n in candidates[:12]), end=" ")
+          print()
+          PY
+          }
+
+          probe_html topic_148 "https://www.kuaikanmanhua.com/web/topic/148/"
+          probe_html chapter_web_2020 "https://www.kuaikanmanhua.com/web/comic/2020"
+          probe_html chapter_reader_2020 "https://www.kuaikanmanhua.com/webs/comic-next/2020"
+
+          probe_json v2_hot_floor_comic "https://api.kkmh.com/v2/comments/hot_floor_list?target_type=comic&target_id=2020&since=0&count=20"
+          probe_json v1_floor_comic "https://api.kkmh.com/v1/comments/floor_list?target_type=comic&target_id=2020&since=0&count=20"
+          probe_json v1_comic_comments "https://api.kkmh.com/v1/comics/2020/comments/0?order=score"
+          probe_json v1_comic_hot "https://api.kkmh.com/v1/comics/2020/hot_comments"
+          probe_json v2_comic_hot "https://api.kkmh.com/v2/comics/2020/hot_comments"
+          probe_json v1_cruel_comic "https://api.kkmh.com/v1/comments/cruel/hot_floor_list?target_type=comic&target_id=2020&comic_id=2020&offset=0&limit=20"
+          probe_json v2_cruel_comic "https://api.kkmh.com/v2/comments/cruel/hot_floor_list?target_type=comic&target_id=2020&comic_id=2020&offset=0&limit=20"
+          probe_json v3_cruel_comic "https://api.kkmh.com/v3/comments/cruel/hot_floor_list?target_type=comic&target_id=2020&comic_id=2020&offset=0&limit=20"
+          probe_json v4_cruel_comic "https://api.kkmh.com/v4/comments/cruel/hot_floor_list?target_type=comic&target_id=2020&comic_id=2020&offset=0&limit=20"
+
+          probe_json v2_hot_floor_topic "https://api.kkmh.com/v2/comments/hot_floor_list?target_type=topic&target_id=148&since=0&count=20"
+          probe_json v1_floor_topic "https://api.kkmh.com/v1/comments/floor_list?target_type=topic&target_id=148&since=0&count=20"
+          probe_json v1_topic_feed "https://api.kkmh.com/v1/comments/feed/148/order/time?offset=0&limit=20"
