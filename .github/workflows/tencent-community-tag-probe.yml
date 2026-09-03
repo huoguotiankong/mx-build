@@ -1,0 +1,254 @@
+name: Tencent Community Tag Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/tencent-community-tag-probe.yml"
+      - ".github/tencent-community-tag-probe-trigger"
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Probe official APP community tag feeds
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64
+          import hashlib
+          import json
+          import subprocess
+          import time
+          import urllib.request
+          from pathlib import Path
+
+          HOST = "a.ac.qq.com"
+          VERSION = "12.19.9"
+          CHANNEL = "dm306015002"
+          COMIC_ID = "531490"
+          SUFFIX = "4jo2YHMm0d2VGt59tVYndX9P7eFcw8TvRv5lMqFP1TT"
+          KEY = b"42e0d587d5bda41326c2000d"
+
+          def decrypt(raw: bytes) -> dict:
+              stripped = raw.strip()
+              if stripped.startswith(b"{"):
+                  return json.loads(stripped.decode("utf-8"))
+              encrypted = base64.b64decode(stripped)
+              proc = subprocess.run(
+                  ["openssl", "enc", "-des-ede3", "-d", "-K", KEY.hex(), "-nosalt"],
+                  input=encrypted,
+                  stdout=subprocess.PIPE,
+                  stderr=subprocess.PIPE,
+                  check=True,
+              )
+              return json.loads(proc.stdout.decode("utf-8"))
+
+          def request(path: str) -> dict:
+              localtime = str(int(time.time() * 1000))
+              sc = hashlib.md5((path + HOST + "0" + localtime + SUFFIX).encode()).hexdigest()
+              req = urllib.request.Request(
+                  "https://" + HOST + path,
+                  headers={
+                      "Accept": "application/json, text/plain, */*",
+                      "User-Agent": "okhttp/4.10.0",
+                      "version": VERSION,
+                      "channel": CHANNEL,
+                      "fakeduin": "0",
+                      "localtime": localtime,
+                      "userstate": "1",
+                      "oversea": "1",
+                      "sc": sc,
+                  },
+              )
+              with urllib.request.urlopen(req, timeout=30) as resp:
+                  raw = resp.read()
+                  return {
+                      "http": resp.status,
+                      "content_type": resp.headers.get("Content-Type", ""),
+                      "bytes": len(raw),
+                      "json": decrypt(raw),
+                  }
+
+          def obj_keys(value):
+              return ",".join(sorted(value.keys())) if isinstance(value, dict) else ""
+
+          def first_dict(value):
+              if isinstance(value, list):
+                  return next((x for x in value if isinstance(x, dict)), None)
+              return None
+
+          def find_key(value, names):
+              if isinstance(value, dict):
+                  for name in names:
+                      if name in value:
+                          return value[name]
+                  for child in value.values():
+                      found = find_key(child, names)
+                      if found is not None:
+                          return found
+              elif isinstance(value, list):
+                  for child in value:
+                      found = find_key(child, names)
+                      if found is not None:
+                          return found
+              return None
+
+          def summarize_topic_list(prefix, root):
+              lines = []
+              data = root.get("data") if isinstance(root, dict) else None
+              lines.append(prefix + ".root_keys=" + obj_keys(root))
+              lines.append(prefix + ".data_keys=" + obj_keys(data))
+              error_code = root.get("error_code", root.get("errorCode")) if isinstance(root, dict) else None
+              lines.append(prefix + ".error_code=" + str(error_code))
+              if not isinstance(data, dict):
+                  return lines, None, None
+
+              candidate = data
+              for key in ("topic_list", "topicList", "list_info", "listInfo"):
+                  if isinstance(candidate.get(key), dict):
+                      candidate = candidate[key]
+                      break
+
+              items = None
+              for key in ("list", "topic_list", "topicList", "topics"):
+                  if isinstance(candidate.get(key), list):
+                      items = candidate[key]
+                      break
+              if items is None:
+                  items = []
+
+              next_page = None
+              for key in ("next_page_id", "nextPageId", "page_id", "pageId"):
+                  if key in candidate:
+                      next_page = candidate.get(key)
+                      break
+              has_more = None
+              for key in ("has_more", "hasMore", "end_of_list", "endOfList"):
+                  if key in candidate:
+                      has_more = candidate.get(key)
+                      break
+
+              lines.append(prefix + ".candidate_keys=" + obj_keys(candidate))
+              lines.append(prefix + ".item_count=" + str(len(items)))
+              lines.append(prefix + ".next_page_id=" + str(next_page))
+              lines.append(prefix + ".has_more_or_end=" + str(has_more))
+              first = first_dict(items)
+              if first:
+                  lines.append(prefix + ".item_keys=" + obj_keys(first))
+                  for key in (
+                      "topic_id", "topicId", "date", "good_count", "goodCount",
+                      "comment_count", "commentCount", "is_essence", "isEssence",
+                  ):
+                      if key in first:
+                          lines.append(prefix + "." + key + "=" + str(first.get(key)))
+              return lines, next_page, items
+
+          lines = []
+          detail_paths = [
+              f"/{VERSION}/CommunityTag/detailPage/target_type/1/target_id/{COMIC_ID}/comic_id/{COMIC_ID}",
+              f"/{VERSION}/CommunityTag/detailPage/comic_id/{COMIC_ID}/target_type/1/target_id/{COMIC_ID}",
+          ]
+          detail = None
+          for index, path in enumerate(detail_paths, 1):
+              try:
+                  result = request(path)
+                  root = result["json"]
+                  code = root.get("error_code", root.get("errorCode")) if isinstance(root, dict) else None
+                  lines += [
+                      f"detail.try{index}.http={result['http']}",
+                      f"detail.try{index}.content_type={result['content_type']}",
+                      f"detail.try{index}.bytes={result['bytes']}",
+                      f"detail.try{index}.error_code={code}",
+                      f"detail.try{index}.root_keys={obj_keys(root)}",
+                      f"detail.try{index}.data_keys={obj_keys(root.get('data') if isinstance(root, dict) else None)}",
+                  ]
+                  if code in (2, "2") and isinstance(root.get("data"), dict):
+                      detail = root
+                      lines.append(f"detail.selected=try{index}")
+                      break
+              except Exception as exc:
+                  lines.append(f"detail.try{index}.error={type(exc).__name__}:{exc}")
+
+          if detail is None:
+              raise SystemExit("No working CommunityTag/detailPage variant")
+
+          data = detail.get("data") or {}
+          tag_id = find_key(data, ("tag_id", "tagId"))
+          lines.append("detail.tag_id=" + str(tag_id))
+          base_info = data.get("base_info", data.get("baseInfo"))
+          topic_info = data.get("topic_list", data.get("topicList"))
+          lines.append("detail.base_info_keys=" + obj_keys(base_info))
+          lines.append("detail.topic_list_keys=" + obj_keys(topic_info))
+          if isinstance(topic_info, dict):
+              for bucket in ("recommend_topic", "recommendTopic", "new_topic", "newTopic", "new_publish_topic", "newPublishTopic", "notice_topic", "noticeTopic"):
+                  if bucket in topic_info:
+                      value = topic_info[bucket]
+                      lines.append("detail.bucket." + bucket + ".keys=" + obj_keys(value))
+                      if isinstance(value, dict):
+                          arr = value.get("list")
+                          if isinstance(arr, list):
+                              lines.append("detail.bucket." + bucket + ".count=" + str(len(arr)))
+                              first = first_dict(arr)
+                              if first:
+                                  lines.append("detail.bucket." + bucket + ".item_keys=" + obj_keys(first))
+                          for nk in ("next_page_id", "nextPageId"):
+                              if nk in value:
+                                  lines.append("detail.bucket." + bucket + "." + nk + "=" + str(value.get(nk)))
+
+          if tag_id is None:
+              raise SystemExit("detailPage succeeded but tag_id was not found")
+
+          for feed in ("recommend_topic", "new_topic", "new_publish_topic"):
+              path = (
+                  f"/{VERSION}/CommunityTag/topicList"
+                  f"/tag_id/{tag_id}/type/{feed}/page_id/0/comic_id/{COMIC_ID}"
+              )
+              try:
+                  result = request(path)
+                  root = result["json"]
+                  lines += [
+                      f"{feed}.http={result['http']}",
+                      f"{feed}.content_type={result['content_type']}",
+                      f"{feed}.bytes={result['bytes']}",
+                  ]
+                  feed_lines, next_page, _ = summarize_topic_list(feed + ".page1", root)
+                  lines += feed_lines
+                  if feed in ("recommend_topic", "new_publish_topic") and str(next_page) not in ("", "None", "0", "-1"):
+                      next_path = (
+                          f"/{VERSION}/CommunityTag/topicList"
+                          f"/tag_id/{tag_id}/type/{feed}/page_id/{next_page}/comic_id/{COMIC_ID}"
+                      )
+                      next_result = request(next_path)
+                      next_lines, next2, _ = summarize_topic_list(feed + ".page2", next_result["json"])
+                      lines += next_lines
+                      lines.append(feed + ".page2.cursor_changed=" + str(str(next2) != str(next_page)))
+              except Exception as exc:
+                  lines.append(f"{feed}.error={type(exc).__name__}:{exc}")
+
+          out = "\n".join(lines) + "\n"
+          print(out)
+          Path("probe-results").mkdir(exist_ok=True)
+          Path("probe-results/tencent-community-tag-probe.txt").write_text(out, encoding="utf-8")
+          PY
+
+      - name: Commit sanitized probe summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add probe-results/tencent-community-tag-probe.txt
+          if git diff --cached --quiet; then
+            echo "Probe summary unchanged"
+            exit 0
+          fi
+          git commit -m "probe: record Tencent community tag feeds"
+          git push
