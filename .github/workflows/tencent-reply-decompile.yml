@@ -33,23 +33,18 @@ jobs:
           unzip -q jadx.zip -d jadx
           mkdir -p out
 
-      - name: Decompile reply call sites
+      - name: Decompile reply presenters
         shell: bash
         run: |
           set -euo pipefail
           classes=(
-            'com.qq.ac.android.model.q3'
-            'com.qq.ac.android.model.x0'
-            'com.qq.ac.android.view.activity.TopicDetailActivity'
-            'com.qq.ac.android.view.activity.TopicCommentDetailActivity'
-            'com.qq.ac.android.view.activity.CommentListActivity'
+            'com.qq.ac.android.presenter.l1'
+            'com.qq.ac.android.adapter.w'
           )
           for cls in "${classes[@]}"; do
             safe="${cls##*.}"
             ./jadx/bin/jadx --single-class "$cls" --single-class-output "out/$safe.java" tencent.apk
           done
 
-          echo '=== getTopicCommentList / getReplyList / getCommentReplyList call-site excerpts ==='
-          grep -n -A30 -B30 -E 'getTopicCommentList|getReplyList|getCommentReplyList|new x0|x0\.|q3\.' out/*.java || true
-          echo '=== end/list pagination excerpts ==='
-          grep -n -A25 -B25 -E 'endOfList|end_of_list|getEndOfList|replyCount|reply_count|replyList|getReplyList' out/*.java || true
+          echo '=== presenter reply loading ==='
+          grep -n -A60 -B60 -E 'getReplyList|getCommentReplyList|new x0|x0\.|q3\.|ReplyInfoListResponse|replyCount|endOfList|end_of_list|void K\(|void L\(|void M\(' out/*.java || true
