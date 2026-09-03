@@ -130,7 +130,7 @@ jobs:
             -postScript DumpFunctions.java "$PWD/out/decompile.txt" \
             -deleteProject
           wc -l out/decompile.txt
-          sed -n '1,260p' out/decompile.txt
+          sed -n '1,520p' out/decompile.txt
 
       - uses: actions/upload-artifact@v4
         with:
