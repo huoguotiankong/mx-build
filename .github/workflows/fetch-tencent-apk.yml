@@ -17,10 +17,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          url='https://s.shouji.qihucdn.com/260731/36dbf11bb96a01e475f1f53a9af8fcba/com.qq.ac.android_246.apk?en=curpage%3Dopenbox_wap_detail%26exp%3D1787182233%26from%3Dopenbox_mintf_getAppInfoByIds%26m2%3D%26ts%3D1786577433%26tok%3D269093e216b7fa5def9c9f9d84ecfd0b%26v%3D%26f%3Dz.apk'
-          curl -L --fail --retry 3 --connect-timeout 15 --max-time 180 -o tencent.apk "$url"
+          url='https://wap.pp.cn/app/dl/fs08/2026/07/31/6/110_1d0689776bd9df3cabc573c6ccee1db0.apk'
+          curl -A 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/126 Mobile Safari/537.36'             -L --fail --retry 3 --connect-timeout 15 --max-time 240 -o tencent.apk "$url"
+          file tencent.apk
           ls -lh tencent.apk
           sha256sum tencent.apk
+          unzip -l tencent.apk | grep -E 'libcryptutils\.so|classes[0-9]*\.dex' | head -30
       - uses: actions/upload-artifact@v4
         with:
           name: tencent-apk-12.19.9
