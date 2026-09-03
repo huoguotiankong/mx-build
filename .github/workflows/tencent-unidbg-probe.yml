@@ -121,7 +121,15 @@ jobs:
                 Memory memory = emulator.getMemory();
                 memory.setLibraryResolver(new AndroidResolver(23));
                 VM vm = emulator.createDalvikVM(new File("../tencent.apk"));
-                vm.setJni(new AbstractJni(){});
+                vm.setJni(new AbstractJni() {
+                  @Override
+                  public int getStaticIntField(BaseVM baseVm, DvmClass dvmClass, String signature) {
+                    if ("android/os/Build$VERSION->SDK_INT:I".equals(signature)) {
+                      return 35;
+                    }
+                    return super.getStaticIntField(baseVm, dvmClass, signature);
+                  }
+                });
                 vm.setVerbose(false);
                 vm.loadLibrary(new File("../native/libc++_shared.so"), true);
                 DalvikModule dm = vm.loadLibrary(new File("../native/libcryptutils.so"), true);
