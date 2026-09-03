@@ -120,7 +120,7 @@ jobs:
                       dumpOne(out, decomp, fn, true);
                   }
 
-                  for (String name : new String[]{"getKeyString","decryptString","encryptString"}) {
+                  for (String name : new String[]{"JNI_OnLoad","getKeyString","decryptString","encryptString"}) {
                       dumpOne(out, decomp, findByName(name), true);
                   }
 
