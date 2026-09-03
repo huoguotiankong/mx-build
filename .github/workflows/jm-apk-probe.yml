@@ -76,6 +76,36 @@ jobs:
                   emitted+=1
           PY
 
+      - name: Summarize comment identifiers
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import collections,zipfile
+          terms=["/forum","/comment","comment_id","isSpoiler","is_spoiler","photo_id","photoId","pid","ncid","aid","段评","段落评","页评","吐槽","pageComment","imageComment","segmentComment"]
+          with zipfile.ZipFile("jm.apk") as z:
+              docs=[]
+              for n in z.namelist():
+                  if n.startswith("assets/") and n.lower().endswith((".js",".json",".html",".txt")):
+                      try: docs.append((n,z.read(n).decode("utf-8","ignore")))
+                      except Exception: pass
+              for term in terms:
+                  found=[]
+                  for n,text in docs:
+                      start=0
+                      while True:
+                          i=text.find(term,start)
+                          if i<0: break
+                          found.append((n,i,text))
+                          start=i+len(term)
+                  print(f"TERM {term!r} COUNT={len(found)} FILES={len(set(x[0] for x in found))}")
+                  for n,i,text in found[:6]:
+                      a=max(0,i-450); b=min(len(text),i+len(term)+750)
+                      print(f"  FILE {n}")
+                      print("  "+text[a:b].replace("\\n"," "))
+                      print("  ---")
+          PY
+
       - name: Download JADX
         shell: bash
         run: |
