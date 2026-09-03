@@ -194,6 +194,27 @@
         ]
       },
       {
+        "name": "Kuaikan Manhua",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.kuaikanmanhua",
+        "resources": {
+          "apkUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.kuaikanmanhua-v1.6.22.apk",
+          "iconUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/icon/eu.kanade.tachiyomi.extension.zh.kuaikanmanhua-v106022.png",
+          "jarUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.kuaikanmanhua-v1.6.22.jar"
+        },
+        "extensionLib": "1.6",
+        "versionCode": "212022",
+        "versionName": "1.6.22",
+        "contentWarning": "CONTENT_WARNING_SAFE",
+        "sources": [
+          {
+            "id": "8099870292642776005",
+            "name": "\u5feb\u770b\u6f2b\u753b",
+            "language": "zh",
+            "homeUrl": "https://www.kuaikanmanhua.com"
+          }
+        ]
+      },
+      {
         "name": "Manhua100",
         "packageName": "eu.kanade.tachiyomi.extension.zh.manhua100",
         "resources": {
