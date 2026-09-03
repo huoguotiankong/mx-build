@@ -1,0 +1,104 @@
+name: JM APK Comment Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/jm-apk-probe-trigger"
+      - ".github/workflows/jm-apk-probe.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Download latest public JMComic APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, urllib.request
+          api="https://api.github.com/repos/hect0x7/JMComic-APK/releases/latest"
+          req=urllib.request.Request(api, headers={"User-Agent":"mx-jm-probe"})
+          release=json.load(urllib.request.urlopen(req))
+          assets=[a for a in release.get("assets",[]) if a.get("name","").endswith(".apk")]
+          if len(assets)!=1:
+              raise SystemExit(f"expected exactly one APK, got {len(assets)}")
+          asset=assets[0]
+          print("JM_RELEASE_TAG="+release.get("tag_name",""))
+          print("JM_APK_NAME="+asset["name"])
+          print("JM_APK_DIGEST="+str(asset.get("digest","")))
+          urllib.request.urlretrieve(asset["browser_download_url"], "jm.apk")
+          PY
+          sha256sum jm.apk
+
+      - name: Download JADX
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, urllib.request
+          api="https://api.github.com/repos/skylot/jadx/releases/latest"
+          req=urllib.request.Request(api, headers={"User-Agent":"mx-jm-probe"})
+          release=json.load(urllib.request.urlopen(req))
+          assets=[a for a in release.get("assets",[]) if a.get("name","").startswith("jadx-") and a.get("name","").endswith(".zip")]
+          if not assets:
+              raise SystemExit("jadx zip asset not found")
+          urllib.request.urlretrieve(assets[0]["browser_download_url"], "jadx.zip")
+          print("JADX="+release.get("tag_name",""))
+          PY
+          unzip -q jadx.zip -d jadx
+          chmod +x jadx/bin/jadx
+
+      - name: Decompile code only
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./jadx/bin/jadx --no-res --show-bad-code -d decompiled jm.apk >/tmp/jadx.log 2>&1 || true
+          tail -n 40 /tmp/jadx.log
+
+      - name: Report comment protocol evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import pathlib,re
+          root=pathlib.Path("decompiled/sources")
+          needles=[
+              r"段评", r"段落评", r"页评", r"吐槽",
+              r"/forum", r"/comment", r"comment_id", r"isSpoiler", r"is_spoiler",
+              r"photo_id", r"photoId", r"\bpid\b", r"\baid\b",
+              r"paragraph", r"segment", r"pageComment", r"imageComment",
+          ]
+          rx=re.compile("|".join(needles), re.I)
+          scored=[]
+          for p in root.rglob("*.java"):
+              try: lines=p.read_text(errors="ignore").splitlines()
+              except Exception: continue
+              hit_idx=[i for i,line in enumerate(lines) if rx.search(line)]
+              if not hit_idx: continue
+              score=sum(4 if re.search(r"段评|段落评|页评|吐槽|pageComment|imageComment",lines[i],re.I) else 1 for i in hit_idx)
+              scored.append((score,p,lines,hit_idx))
+          scored.sort(key=lambda x:(-x[0],str(x[1])))
+          print(f"MATCHED_FILES={len(scored)}")
+          emitted=0
+          for score,p,lines,idxs in scored:
+              if emitted>=45: break
+              interesting=[i for i in idxs if re.search(r"段评|段落评|页评|吐槽|/forum|/comment|comment_id|photo_id|photoId|\bpid\b|pageComment|imageComment",lines[i],re.I)]
+              if not interesting: continue
+              print(f"\n### FILE {p} score={score}")
+              used=set()
+              for i in interesting[:8]:
+                  a=max(0,i-5); b=min(len(lines),i+8)
+                  if any(j in used for j in range(a,b)): continue
+                  used.update(range(a,b))
+                  for j in range(a,b):
+                      print(f"{j+1}: {lines[j]}")
+                  print("---")
+              emitted+=1
+          PY
