@@ -101,6 +101,7 @@ jobs:
 
           import com.github.unidbg.AndroidEmulator;
           import com.github.unidbg.linux.android.AndroidEmulatorBuilder;
+          import com.github.unidbg.arm.backend.Unicorn2Factory;
           import com.github.unidbg.linux.android.AndroidResolver;
           import com.github.unidbg.linux.android.dvm.*;
           import com.github.unidbg.linux.android.dvm.array.ByteArray;
@@ -113,6 +114,7 @@ jobs:
             public static void main(String[] args) throws Exception {
               AndroidEmulator emulator = AndroidEmulatorBuilder.for64Bit()
                   .setProcessName("com.qq.ac.android")
+                  .addBackendFactory(new Unicorn2Factory(true))
                   .build();
               try {
                 Memory memory = emulator.getMemory();
