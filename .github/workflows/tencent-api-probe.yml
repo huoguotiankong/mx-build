@@ -1,0 +1,54 @@
+name: Tencent API Probe
+
+on:
+  push:
+    paths:
+      - ".github/workflows/tencent-api-probe.yml"
+      - ".github/tencent-api-probe-trigger"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe chapter topic API
+        shell: bash
+        run: |
+          set -u
+          comic=644371
+          chapter=1296
+          ua_pc='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36'
+          ua_app='okhttp/4.12.0'
+          for host in https://a.ac.qq.com https://android.ac.qq.com; do
+            for path in Community/getChapterTopicList /Community/getChapterTopicList; do
+              for mode in bare appheaders querymeta allmeta; do
+                url="$host/$path?comic_id=$comic&chapter_id=$chapter&page=1&type=1"
+                headers=(-H "Accept: application/json, text/plain, */*")
+                case "$mode" in
+                  bare)
+                    headers+=(-H "User-Agent: $ua_pc")
+                    ;;
+                  appheaders)
+                    headers+=(-H "User-Agent: $ua_app" -H "version: 12.19.9" -H "channel: dm306015002" -H "Referer: https://m.ac.qq.com/")
+                    ;;
+                  querymeta)
+                    url="$url&version=12.19.9&channel=dm306015002"
+                    headers+=(-H "User-Agent: $ua_app" -H "Referer: https://m.ac.qq.com/")
+                    ;;
+                  allmeta)
+                    url="$url&version=12.19.9&channel=dm306015002&platform=android"
+                    headers+=(-H "User-Agent: $ua_app" -H "version: 12.19.9" -H "channel: dm306015002" -H "Referer: https://m.ac.qq.com/")
+                    ;;
+                esac
+                echo "=== host=$host path=$path mode=$mode ==="
+                tmp=$(mktemp)
+                code=$(curl -sS -L --connect-timeout 10 --max-time 20 -o "$tmp" -w '%{http_code}' "${headers[@]}" "$url" || true)
+                echo "HTTP $code"
+                head -c 1200 "$tmp" | tr '\n' ' '
+                echo
+                rm -f "$tmp"
+              done
+            done
+          done
