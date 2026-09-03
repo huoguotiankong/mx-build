@@ -13,46 +13,27 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Discover Tencent APK links
+      - name: Inspect PC chapter comment target IDs
         shell: bash
         run: |
-          set -u
+          set -euo pipefail
           ua='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36'
-          urls=(
-            'https://app.meizu.com/apps/public/detail?package_name=com.qq.ac.android'
-            'https://m.app.mi.com/details?id=com.qq.ac.android'
-            'https://zhushou.2345.com/soft/174577.html'
-            'https://www.jb51.net/softs/245545.html'
-            'https://www.xzji.com/android/1406.html'
-            'https://wap.pp.cn/app_cxmZncxyoOzD/'
-            'https://ac.qq.com/'
-          )
-          n=0
-          for u in "${urls[@]}"; do
-            n=$((n+1))
-            f="p$n.html"
-            echo "===== $u ====="
-            code=$(curl -A "$ua" -sS -L --compressed --connect-timeout 10 --max-time 40 -o "$f" -w '%{http_code}' "$u" || true)
-            echo "HTTP=$code bytes=$(wc -c < "$f" 2>/dev/null || echo 0)"
-            python3 - "$f" <<'PY'
+          for target in 1294 1295 1296 1297 1298; do
+            url="https://ac.qq.com/Community/topicList?targetId=$target&page=1&_=$(date +%s%3N)"
+            file="t-$target.html"
+            curl -sS -L --connect-timeout 10 --max-time 30               -H "User-Agent: $ua"               -H "X-Requested-With: XMLHttpRequest"               "$url" -o "$file"
+            python3 - "$file" "$target" <<'PY'
           import re,sys,html
-          try:s=open(sys.argv[1],"r",encoding="utf-8",errors="replace").read()
-          except: s=""
-          s=html.unescape(s).replace("\\/","/")
-          pats=[
-            r'https?://[^\s"\'<>]+?\.apk(?:\?[^\s"\'<>]*)?',
-            r'https?://[^\s"\'<>]+?(?:download|down)[^\s"\'<>]{0,300}',
-          ]
-          seen=[]
-          for p in pats:
-            for m in re.findall(p,s,re.I):
-              if m not in seen:
-                seen.append(m)
-          for x in seen[:30]: print(x[:1000])
-          print("--- apk-ish lines ---")
-          for line in s.splitlines():
-            low=line.lower()
-            if (".apk" in low or "downloadurl" in low or "downurl" in low or "download_url" in low) and len(line)<5000:
-              print(line.strip()[:1200])
+          s=open(sys.argv[1],"r",encoding="utf-8",errors="replace").read()
+          total=re.search(r'class="commen-ft-ts"[^>]*>\s*([0-9,]+)',s)
+          rows=re.findall(r'<div class="comment-list-content-wr clearfix"([\s\S]*?)</div>\s*<!-- comment content in the right end -->\s*</div>',s)
+          details=re.findall(r'class="comment-content-detail"[^>]*>(.*?)</a>',s,re.S)
+          clean=lambda x:re.sub(r'<[^>]+>','',html.unescape(x)).strip()
+          print("TARGET",sys.argv[2],"bytes",len(s),"total",total.group(1) if total else None,"comments",len(details))
+          for i,x in enumerate(details[:5]):
+              print(i,clean(x)[:220])
+          for key in ["data-p=","data-t=","data-c=","data-nick="]:
+              vals=re.findall(key+r'"([^"]*)"',s)
+              print(key,vals[:5])
           PY
           done
