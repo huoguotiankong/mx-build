@@ -13,24 +13,60 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe One Person Under chapter comments on PC
+      - name: Diagnose signed APP response layers
         shell: bash
         run: |
           set -euo pipefail
-          ua='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36'
+          host='a.ac.qq.com'
           comic=531490
-          for cid in 1 2 3 4 5; do
-            url="https://ac.qq.com/Community/topicList?targetId=$cid&page=1&_=$(date +%s%3N)"
-            file="c-$cid.html"
-            curl -sS -L --connect-timeout 10 --max-time 30               -H "User-Agent: $ua"               -H "Referer: https://ac.qq.com/ComicView/index/id/$comic/cid/$cid"               -H "X-Requested-With: XMLHttpRequest"               "$url" -o "$file"
-            python3 - "$file" "$cid" <<'PY'
-          import re,sys,html
-          s=open(sys.argv[1],"r",encoding="utf-8",errors="replace").read()
-          total=re.search(r'class="commen-ft-ts"[^>]*>\s*([0-9,]+)',s)
-          details=re.findall(r'class="comment-content-detail"[^>]*>(.*?)</a>',s,re.S)
-          clean=lambda x:re.sub(r'<[^>]+>','',html.unescape(x)).strip()
-          print("CID",sys.argv[2],"bytes",len(s),"total",total.group(1) if total else None,"comments",len(details),"raw",repr(s[:20]))
-          print("nick",re.findall(r'data-nick="([^"]*)"',s)[:5])
-          for i,x in enumerate(details[:5]): print(i,clean(x)[:180])
+          chapter=1
+          version='12.19.9'
+          channel='dm306015002'
+          secret='4jo2YHMm0d2VGt59tVYndX9P7eFcw8TvRv5lMqFP1TT'
+          path="/$version/Community/getChapterTopicList/comic_id/$comic/chapter_id/$chapter/page/1/type/1"
+          localtime=$(date +%s%3N)
+          sc=$(printf '%s' "$path$host""0""$localtime$secret" | md5sum | awk '{print $1}')
+          url="https://$host$path"
+
+          curl -sS -L --connect-timeout 10 --max-time 30             -H 'Accept: application/json, text/plain, */*'             -H 'User-Agent: okhttp/4.12.0'             -H 'fakeduin: 0'             -H "localtime: $localtime"             -H "version: $version"             -H "channel: $channel"             -H 'userstate: 1'             -H 'oversea: 1'             -H "sc: $sc"             "$url" -o response.raw
+
+          python3 - <<'PY'
+          import base64,binascii,gzip,json,zlib
+          raw=open("response.raw","rb").read().strip()
+          print("raw_len",len(raw))
+          print("raw_prefix",raw[:80])
+          try:
+              dec=base64.b64decode(raw,validate=True)
+              print("b64_len",len(dec))
+              print("b64_hex_0_64",dec[:64].hex())
+              print("b64_ascii_0_64",repr(dec[:64]))
+              for n in [0,16,32]:
+                  x=dec[n:]
+                  print("\n-- offset",n,"len",len(x),"--")
+                  print("hex",x[:64].hex())
+                  print("ascii",repr(x[:160]))
+                  for mode in ["utf8","gzip","zlib"]:
+                      try:
+                          if mode=="utf8":
+                              y=x.decode("utf-8")
+                          elif mode=="gzip":
+                              y=gzip.decompress(x).decode("utf-8")
+                          else:
+                              y=zlib.decompress(x).decode("utf-8")
+                          print(mode,"OK",repr(y[:500]))
+                          try:
+                              obj=json.loads(y)
+                              print("json_keys",list(obj)[:20] if isinstance(obj,dict) else type(obj).__name__)
+                          except Exception as e:
+                              print("json_fail",type(e).__name__,str(e)[:120])
+                      except Exception as e:
+                          print(mode,"FAIL",type(e).__name__,str(e)[:120])
+          except Exception as e:
+              print("base64_fail",repr(e))
           PY
-          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tencent-signed-response
+          path: response.raw
+          compression-level: 0
