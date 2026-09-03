@@ -121,19 +121,37 @@ jobs:
           apk="$(find "$module" -path '*/build/outputs/apk/release/*.apk' -type f | sort | head -n 1)"
           [[ -n "$apk" ]] || { echo "::error::No Release APK found"; exit 1; }
 
-          if [[ -f "$module/src/eu/kanade/tachiyomi/source/mx/CommentSource.kt" ]]; then
+          has_comment=0
+          has_replacement=0
+          [[ -f "$module/src/eu/kanade/tachiyomi/source/mx/CommentSource.kt" ]] && has_comment=1
+          [[ -f "$module/src/eu/kanade/tachiyomi/source/mx/ChapterContentReplacementSource.kt" ]] && has_replacement=1
+
+          if [[ "$has_comment" -eq 1 || "$has_replacement" -eq 1 ]]; then
             dex_dump="$RUNNER_TEMP/mx-release-dex-strings.txt"
             : > "$dex_dump"
             while IFS= read -r dex; do
               unzip -p "$apk" "$dex" | strings >> "$dex_dump"
             done < <(unzip -Z1 "$apk" | grep -E "^classes([0-9]+)?\\.dex$" || true)
+          fi
 
+          if [[ "$has_comment" -eq 1 ]]; then
             grep -Fq 'eu/kanade/tachiyomi/source/mx/CommentSource' "$dex_dump" || {
               echo "::error::Release APK lost MX CommentSource ABI after R8"
               exit 1
             }
             grep -Fq 'commentCapabilities' "$dex_dump" || {
               echo "::error::Release APK lost MX commentCapabilities member after R8"
+              exit 1
+            }
+          fi
+
+          if [[ "$has_replacement" -eq 1 ]]; then
+            grep -Fq 'eu/kanade/tachiyomi/source/mx/ChapterContentReplacementSource' "$dex_dump" || {
+              echo "::error::Release APK lost MX ChapterContentReplacementSource ABI after R8"
+              exit 1
+            }
+            grep -Fq 'chapterContentReplacementCapabilities' "$dex_dump" || {
+              echo "::error::Release APK lost MX chapterContentReplacementCapabilities member after R8"
               exit 1
             }
           fi
@@ -146,7 +164,7 @@ jobs:
             echo "### Result"
             echo
             echo "- Debug APK, unsigned Release APK and lintRelease passed."
-            echo "- MX Release ABI survived R8 when the selected source exposes MX comment stubs."
+            echo "- Exposed MX comment/replacement ABIs survived R8 when present."
             echo "- No APK artifact was uploaded."
             echo "- Stable certificate signing and Android device validation are still required separately."
           } >> "$GITHUB_STEP_SUMMARY"
