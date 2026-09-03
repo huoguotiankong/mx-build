@@ -15,24 +15,26 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Compare topic comment pagination
+      - name: Probe nested reply target semantics
         shell: bash
         run: |
           set -euo pipefail
           host='a.ac.qq.com'
           version='12.19.9'
+          comment='634593'
           topic='49933575'
           comic='644371'
+          chapter='1296'
           secret='4jo2YHMm0d2VGt59tVYndX9P7eFcw8TvRv5lMqFP1TT'
           key='42e0d587d5bda41326c2000d'
           keyhex=$(printf '%s' "$key" | xxd -p -c 256)
           : > result.txt
 
           probe() {
-            page="$1"
-            listcnt="$2"
-            tag="p${page}-c${listcnt}"
-            path="/$version/Comment/getTopicCommentList/topic_id/$topic/target_type/3/page/$page/listcnt/$listcnt/comic_id/$comic"
+            label="$1"
+            target="$2"
+            page="$3"
+            path="/$version/Comment/getReplyList/comment_id/$comment/page/$page/target_type/3/target_id/$target/comic_id/$comic"
             localtime=$(date +%s%3N)
             sc=$(printf '%s' "$path$host""0""$localtime$secret" | md5sum | awk '{print $1}')
             curl -sS -L --fail --connect-timeout 10 --max-time 30 \
@@ -45,48 +47,58 @@ jobs:
               -H 'userstate: 1' \
               -H 'oversea: 1' \
               -H "sc: $sc" \
-              -o "$tag.enc" "https://$host$path"
-            tr -d '\r\n\t ' < "$tag.enc" | base64 -d > "$tag.bin"
-            openssl enc -des-ede3 -d -K "$keyhex" -nosalt -in "$tag.bin" -out "$tag.json"
-            TAG="$tag" PAGE="$page" LISTCNT="$listcnt" python3 - <<'PY' >> result.txt
+              -o "$label.enc" "https://$host$path"
+            tr -d '\r\n\t ' < "$label.enc" | base64 -d > "$label.bin"
+            openssl enc -des-ede3 -d -K "$keyhex" -nosalt -in "$label.bin" -out "$label.json"
+            LABEL="$label" TARGET="$target" PAGE="$page" python3 - <<'PY' >> result.txt
           import json,os
-          obj=json.load(open(os.environ["TAG"]+".json",encoding="utf-8"))
-          data=obj.get("data") or {}
-          items=data.get("list") or []
-          ids=[str(x.get("comment_id",x.get("commentId",""))) for x in items if isinstance(x,dict)]
-          print("tag="+os.environ["TAG"])
+          obj=json.load(open(os.environ["LABEL"]+".json",encoding="utf-8"))
+          data=obj.get("data")
+          print("label="+os.environ["LABEL"])
+          print("target_id="+os.environ["TARGET"])
           print("page="+os.environ["PAGE"])
-          print("listcnt="+os.environ["LISTCNT"])
           print("error_code="+str(obj.get("error_code",obj.get("errorCode"))))
-          print("comment_count="+str(data.get("comment_count",data.get("commentCount"))))
-          print("end_of_list="+str(data.get("end_of_list",data.get("endOfList"))))
-          print("list_count="+str(len(items)))
-          print("ids="+",".join(ids))
+          print("msg="+str(obj.get("msg",""))[:100])
+          print("data_type="+type(data).__name__)
+          if isinstance(data,dict):
+              print("data_keys="+",".join(sorted(data.keys())))
+              items=data.get("list") or data.get("reply_list") or data.get("replyList") or []
+              print("list_count="+str(len(items) if isinstance(items,list) else -1))
+              for k in ("end_of_list","endOfList","reply_count","replyCount","total","total_count"):
+                  if k in data: print(k+"="+str(data[k]))
+              if isinstance(items,list) and items:
+                  x=items[0]
+                  if isinstance(x,dict):
+                      print("item_keys="+",".join(sorted(x.keys())))
+                      print("ids="+",".join(str(v.get("comment_id",v.get("commentId",""))) for v in items if isinstance(v,dict)))
+          elif isinstance(data,list):
+              print("list_count="+str(len(data)))
+              if data and isinstance(data[0],dict):
+                  print("item_keys="+",".join(sorted(data[0].keys())))
+                  print("ids="+",".join(str(v.get("comment_id",v.get("commentId",""))) for v in data if isinstance(v,dict)))
           print()
           PY
           }
 
-          probe 1 0
-          probe 1 9
-          probe 1 20
-          probe 2 0
-          probe 2 9
-          probe 2 20
+          probe topic-p1 "$topic" 1
+          probe topic-p2 "$topic" 2
+          probe comic-p1 "$comic" 1
+          probe chapter-p1 "$chapter" 1
 
           cat result.txt
           mkdir -p probe-results
-          cp result.txt probe-results/tencent-reply-pagination.txt
+          cp result.txt probe-results/tencent-nested-reply-target.txt
 
-      - name: Commit sanitized pagination result
+      - name: Commit sanitized nested-reply result
         shell: bash
         run: |
           set -euo pipefail
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add probe-results/tencent-reply-pagination.txt
+          git add probe-results/tencent-nested-reply-target.txt
           if git diff --cached --quiet; then
             echo "No changes"
           else
-            git commit -m "probe: record Tencent reply pagination"
+            git commit -m "probe: record Tencent nested reply target"
             git push
           fi
