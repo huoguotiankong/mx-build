@@ -1,0 +1,8 @@
+top_keys=data,error_code
+error_code=2
+data_type=dict
+data_keys=comment_count,end_of_list,list
+list_list_count=9
+list_item_keys=avatar_box,comic_fans,comic_fans_action,comic_fans_list,comment_id,content,creator_info,creator_uins,date,god_state,good_count,grade,grade_text,host_qq,iron_fans,is_good_by_creator,level,nick_name,qq_head,reply_count,reply_list,title_level,title_name,title_state,top_state,user_type,v_club_state,v_club_year_state
+comment_count_value=48
+end_of_list_value=1
