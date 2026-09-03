@@ -105,8 +105,20 @@ jobs:
                   }
                   FunctionManager fm = currentProgram.getFunctionManager();
 
-                  Function gud = fm.getFunctionAt(toAddr(0x17b658L));
-                  dumpOne(out, decomp, gud, true);
+                  long[] addrs = new long[]{
+                      0x1c4948L,
+                      0x17a120L,
+                      0x194cccL,
+                      0x18b774L,
+                      0x195c20L,
+                      0x1c524cL,
+                      0x1c635cL,
+                      0x2e81ecL
+                  };
+                  for (long a : addrs) {
+                      Function fn = fm.getFunctionAt(toAddr(a));
+                      dumpOne(out, decomp, fn, true);
+                  }
 
                   for (String name : new String[]{"getKeyString","decryptString","encryptString"}) {
                       dumpOne(out, decomp, findByName(name), true);
@@ -130,7 +142,7 @@ jobs:
             -postScript DumpFunctions.java "$PWD/out/decompile.txt" \
             -deleteProject
           wc -l out/decompile.txt
-          sed -n '1,520p' out/decompile.txt
+          sed -n '1,900p' out/decompile.txt
 
       - uses: actions/upload-artifact@v4
         with:
