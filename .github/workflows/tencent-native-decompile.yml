@@ -1,0 +1,138 @@
+name: Tencent Native Decompile
+
+on:
+  push:
+    paths:
+      - ".github/workflows/tencent-native-decompile.yml"
+      - ".github/tencent-native-decompile-trigger"
+
+permissions:
+  contents: read
+
+jobs:
+  decompile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Download APK and Ghidra
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -A 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/126 Mobile Safari/537.36' \
+            -L --fail --retry 3 --connect-timeout 15 --max-time 300 \
+            -o tencent.apk \
+            'https://wap.pp.cn/app/dl/fs08/2026/07/31/6/110_1d0689776bd9df3cabc573c6ccee1db0.apk'
+          unzip -j tencent.apk 'lib/arm64-v8a/libcryptutils.so' -d native
+          curl -L --fail --retry 3 --connect-timeout 15 --max-time 600 \
+            -o ghidra.zip \
+            'https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.1.3_build/ghidra_12.1.3_PUBLIC_20260817.zip'
+          unzip -q ghidra.zip -d ghidra-home
+          echo "GHIDRA=$(find ghidra-home -maxdepth 1 -type d -name 'ghidra_*' | head -1)" >> "$GITHUB_ENV"
+
+      - name: Create decompiler script
+        shell: bash
+        run: |
+          mkdir -p ghidra-scripts out
+          cat > ghidra-scripts/DumpFunctions.java <<'JAVA'
+          import ghidra.app.decompiler.*;
+          import ghidra.app.script.GhidraScript;
+          import ghidra.program.model.address.Address;
+          import ghidra.program.model.listing.Function;
+          import ghidra.program.model.listing.FunctionManager;
+          import ghidra.program.model.symbol.Symbol;
+          import ghidra.program.model.symbol.SymbolIterator;
+          import java.io.*;
+          import java.util.*;
+
+          public class DumpFunctions extends GhidraScript {
+              private Function findByName(String name) {
+                  SymbolIterator it = currentProgram.getSymbolTable().getSymbols(name);
+                  while (it.hasNext()) {
+                      Symbol s = it.next();
+                      Object o = s.getObject();
+                      if (o instanceof Function) return (Function)o;
+                  }
+                  return null;
+              }
+
+              private void dumpOne(PrintWriter out, DecompInterface decomp, Function f, boolean recurse) throws Exception {
+                  if (f == null) return;
+                  out.println("\n===== FUNCTION " + f.getName() + " @ " + f.getEntryPoint() + " =====");
+                  out.println("SIG: " + f.getSignature());
+                  Set<Function> called = f.getCalledFunctions(monitor);
+                  out.println("CALLED(" + called.size() + "):");
+                  for (Function c : called) {
+                      out.println("  " + c.getEntryPoint() + " " + c.getName() + " :: " + c.getSignature());
+                  }
+                  DecompileResults r = decomp.decompileFunction(f, 180, monitor);
+                  if (r.decompileCompleted() && r.getDecompiledFunction() != null) {
+                      out.println("\n--- C ---");
+                      out.println(r.getDecompiledFunction().getC());
+                  } else {
+                      out.println("DECOMPILE FAILED: " + r.getErrorMessage());
+                  }
+
+                  if (recurse) {
+                      int n = 0;
+                      for (Function c : called) {
+                          String nme = c.getName();
+                          if (nme.startsWith("FUN_") || nme.contains("datadiv") ||
+                              nme.toLowerCase().contains("decrypt") || nme.toLowerCase().contains("base64") ||
+                              nme.toLowerCase().contains("rijndael") || nme.toLowerCase().contains("cbc")) {
+                              dumpOne(out, decomp, c, false);
+                              if (++n >= 24) break;
+                          }
+                      }
+                  }
+              }
+
+              @Override
+              public void run() throws Exception {
+                  String outPath = getScriptArgs()[0];
+                  PrintWriter out = new PrintWriter(new File(outPath), "UTF-8");
+                  DecompInterface decomp = new DecompInterface();
+                  decomp.toggleCCode(true);
+                  decomp.toggleSyntaxTree(true);
+                  decomp.setSimplificationStyle("decompile");
+                  if (!decomp.openProgram(currentProgram)) {
+                      throw new RuntimeException("openProgram failed");
+                  }
+                  FunctionManager fm = currentProgram.getFunctionManager();
+
+                  Function gud = fm.getFunctionAt(toAddr(0x7b658L));
+                  dumpOne(out, decomp, gud, true);
+
+                  for (String name : new String[]{"getKeyString","decryptString","encryptString"}) {
+                      dumpOne(out, decomp, findByName(name), true);
+                  }
+
+                  out.close();
+                  decomp.dispose();
+              }
+          }
+          JAVA
+
+      - name: Analyze and decompile
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/ghproj
+          "$GHIDRA/support/analyzeHeadless" /tmp/ghproj TencentCrypt \
+            -import native/libcryptutils.so \
+            -analysisTimeoutPerFile 600 \
+            -scriptPath "$PWD/ghidra-scripts" \
+            -postScript DumpFunctions.java "$PWD/out/decompile.txt" \
+            -deleteProject
+          wc -l out/decompile.txt
+          sed -n '1,260p' out/decompile.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tencent-native-decompile
+          path: out/decompile.txt
