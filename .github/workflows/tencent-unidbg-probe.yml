@@ -123,28 +123,32 @@ jobs:
                 vm.setJni(new AbstractJni(){});
                 vm.setVerbose(false);
                 DalvikModule dm = vm.loadLibrary(new File("../native/libcryptutils.so"), false);
-                dm.callJNI_OnLoad(emulator);
-
+                // JNI_OnLoad is aggressively obfuscated in this build and confuses
+                // unidbg's RegisterNatives shorty parser. The target function address
+                // was independently recovered from the registration table, so invoke
+                // that JNI function directly: (JNIEnv*, jclass, jbyteArray) -> jbyteArray.
                 DvmClass crypt = vm.resolveClass("com/qq/ac/android/utils/CryptUtils");
-
-                try {
-                  DvmObject<?> key = crypt.callStaticJniMethodObject(emulator, "getKeyString()Ljava/lang/String;");
-                  System.out.println("KEY=" + (key == null ? "null" : key.getValue()));
-                } catch (Throwable t) {
-                  System.out.println("KEY_CALL_FAILED=" + t);
-                  t.printStackTrace(System.out);
-                }
+                int clazzRef = vm.addLocalObject(crypt);
 
                 byte[] encrypted = Files.readAllBytes(new File("../encrypted.body").toPath());
-                ByteArray out = crypt.callStaticJniMethodObject(
+                ByteArray input = new ByteArray(vm, encrypted);
+                int inputRef = vm.addLocalObject(input);
+
+                Number ret = dm.getModule().callFunction(
                     emulator,
-                    "gudKsDdgRDftyhRz([B)[B",
-                    new ByteArray(vm, encrypted)
+                    0x7b658L,
+                    vm.getJNIEnv(),
+                    clazzRef,
+                    inputRef
                 );
-                if (out == null || out.getValue() == null) {
-                  throw new IllegalStateException("native decrypt returned null");
+                DvmObject<?> retObj = vm.getObject(ret.intValue());
+                if (!(retObj instanceof ByteArray)) {
+                  throw new IllegalStateException("native decrypt returned " + retObj);
                 }
-                byte[] clear = out.getValue();
+                byte[] clear = ((ByteArray) retObj).getValue();
+                if (clear == null || clear.length == 0) {
+                  throw new IllegalStateException("native decrypt returned empty bytes");
+                }
                 Files.write(new File("../decrypted.body").toPath(), clear);
                 System.out.println("DECRYPTED_BYTES=" + clear.length);
                 String text = new String(clear, StandardCharsets.UTF_8);
