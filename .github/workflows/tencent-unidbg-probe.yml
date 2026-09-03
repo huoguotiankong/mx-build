@@ -101,8 +101,12 @@ jobs:
           package probe;
 
           import com.github.unidbg.AndroidEmulator;
+          import com.github.unidbg.Module;
           import com.github.unidbg.linux.android.AndroidEmulatorBuilder;
           import com.github.unidbg.arm.backend.Unicorn2Factory;
+          import com.github.unidbg.arm.context.RegisterContext;
+          import com.github.unidbg.debugger.BreakPointCallback;
+          import com.github.unidbg.pointer.UnidbgPointer;
           import com.github.unidbg.linux.android.AndroidResolver;
           import com.github.unidbg.linux.android.dvm.*;
           import com.github.unidbg.linux.android.dvm.array.ByteArray;
@@ -133,6 +137,24 @@ jobs:
                 vm.setVerbose(false);
                 vm.loadLibrary(new File("../native/libc++_shared.so"), true);
                 DalvikModule dm = vm.loadLibrary(new File("../native/libcryptutils.so"), true);
+                Module module = dm.getModule();
+
+                // Capture the Crypto++ DES-EDE3 SetKey arguments without printing
+                // the raw key into this public repository's Actions log.
+                final byte[][] capturedKey = new byte[1][];
+                emulator.attach().addBreakPoint(module.base + 0x8072cL, new BreakPointCallback() {
+                  @Override
+                  public boolean onHit(com.github.unidbg.Emulator<?> emu, long address) {
+                    RegisterContext context = emu.getContext();
+                    UnidbgPointer keyPtr = context.getPointerArg(1);
+                    int keyLen = context.getIntArg(2);
+                    if (keyPtr != null && keyLen > 0 && keyLen <= 64) {
+                      capturedKey[0] = keyPtr.getByteArray(0, keyLen);
+                    }
+                    return true;
+                  }
+                });
+
                 // JNI_OnLoad is aggressively obfuscated in this build and confuses
                 // unidbg's RegisterNatives shorty parser. The target function address
                 // was independently recovered from the registration table, so invoke
@@ -170,6 +192,11 @@ jobs:
                   throw new IllegalStateException("native decrypt returned empty bytes");
                 }
                 Files.write(new File("../decrypted.body").toPath(), clear);
+                if (capturedKey[0] == null || capturedKey[0].length == 0) {
+                  throw new IllegalStateException("DES-EDE3 key breakpoint was not hit");
+                }
+                Files.write(new File("../captured.key").toPath(), capturedKey[0]);
+                System.out.println("CAPTURED_KEY_LEN=" + capturedKey[0].length);
                 System.out.println("DECRYPTED_BYTES=" + clear.length);
                 String text = new String(clear, StandardCharsets.UTF_8);
                 System.out.println("DECRYPTED_HEAD=" + text.substring(0, Math.min(text.length(), 3000)));
@@ -184,6 +211,33 @@ jobs:
         working-directory: probe
         run: |
           mvn -q -DskipTests compile exec:java -Dexec.mainClass=probe.Main
+
+      - name: Encrypt captured key for one-time handoff
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s captured.key
+          echo "captured_key_bytes=$(wc -c < captured.key)"
+          sha256sum captured.key | awk '{print "captured_key_sha256=" $1}'
+          cat > capture-public.pem <<'PEM'
+          -----BEGIN PUBLIC KEY-----
+          MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA7hyr+PKal8LV3Ce5pXK+
+          QoXeFC+nz2oaiwhjcV4dAIvKKNKaZC2ohw0Q3tEkk312Lzu+abzbt83VNIYhOSCV
+          hvikTXbniE9tnfl0gdFPG90NI1TDYYQdcwel4rxAlmOcagXvVTlpbNYSPte0SsP7
+          5mNViCanj8wHcPBi1Dt1zA8n01Y8Fx++GObDLnm5OB8nY+8UV/9SO+uEyfogMMDv
+          zvVzrbxDxk2rqjBwHqLmCnRXW0f99UWDsu+ZPW7ckVy53I91W7MtVLnptFmy4Vq9
+          JDcl9KfGcukVFmPkeXIxVN8P0LlRknr9zxToq7kBUvtejwADuD2C0/Sj/S2DWjtR
+          vwIDAQAB
+          -----END PUBLIC KEY-----
+          PEM
+          openssl pkeyutl -encrypt -pubin             -inkey capture-public.pem             -pkeyopt rsa_padding_mode:oaep             -pkeyopt rsa_oaep_md:sha256             -in captured.key             -out captured.key.enc
+          rm -f captured.key capture-public.pem
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tencent-captured-key-encrypted
+          path: captured.key.enc
+          compression-level: 0
 
       - name: Validate decrypted JSON
         shell: bash
