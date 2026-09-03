@@ -140,6 +140,16 @@ jobs:
                 DvmClass crypt = vm.resolveClass("com/qq/ac/android/utils/CryptUtils");
                 int clazzRef = vm.addLocalObject(crypt);
 
+                Number keyRet = dm.getModule().callFunction(
+                    emulator,
+                    0xc635cL,
+                    vm.getJNIEnv(),
+                    clazzRef
+                );
+                DvmObject<?> keyObj = vm.getObject(keyRet.intValue());
+                System.out.println("KEY_OBJECT=" + keyObj);
+                System.out.println("KEY_VALUE=" + (keyObj == null ? "null" : keyObj.getValue()));
+
                 byte[] encrypted = Files.readAllBytes(new File("../encrypted.body").toPath());
                 ByteArray input = new ByteArray(vm, encrypted);
                 int inputRef = vm.addLocalObject(input);
