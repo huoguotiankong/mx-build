@@ -89,7 +89,7 @@ jobs:
           emitted=0
           for score,p,lines,idxs in scored:
               if emitted>=45: break
-              interesting=[i for i in idxs if re.search(r"段评|段落评|页评|吐槽|/forum|/comment|comment_id|photo_id|photoId|\bpid\b|pageComment|imageComment",lines[i],re.I)]
+              interesting=idxs
               if not interesting: continue
               print(f"\n### FILE {p} score={score}")
               used=set()
