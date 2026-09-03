@@ -28,6 +28,7 @@ jobs:
             -o tencent.apk \
             'https://wap.pp.cn/app/dl/fs08/2026/07/31/6/110_1d0689776bd9df3cabc573c6ccee1db0.apk'
           mkdir -p native
+          unzip -j tencent.apk 'lib/arm64-v8a/libc++_shared.so' -d native
           unzip -j tencent.apk 'lib/arm64-v8a/libcryptutils.so' -d native
 
       - name: Fetch encrypted chapter topic response
@@ -122,7 +123,8 @@ jobs:
                 VM vm = emulator.createDalvikVM(new File("../tencent.apk"));
                 vm.setJni(new AbstractJni(){});
                 vm.setVerbose(false);
-                DalvikModule dm = vm.loadLibrary(new File("../native/libcryptutils.so"), false);
+                vm.loadLibrary(new File("../native/libc++_shared.so"), true);
+                DalvikModule dm = vm.loadLibrary(new File("../native/libcryptutils.so"), true);
                 // JNI_OnLoad is aggressively obfuscated in this build and confuses
                 // unidbg's RegisterNatives shorty parser. The target function address
                 // was independently recovered from the registration table, so invoke
