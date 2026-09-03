@@ -13,27 +13,26 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Inspect PC chapter comment target IDs
+      - name: Inspect PC chapter comment targets with reader referer
         shell: bash
         run: |
           set -euo pipefail
           ua='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36'
+          comic=644371
           for target in 1294 1295 1296 1297 1298; do
             url="https://ac.qq.com/Community/topicList?targetId=$target&page=1&_=$(date +%s%3N)"
             file="t-$target.html"
-            curl -sS -L --connect-timeout 10 --max-time 30               -H "User-Agent: $ua"               -H "X-Requested-With: XMLHttpRequest"               "$url" -o "$file"
+            curl -sS -L --connect-timeout 10 --max-time 30               -H "User-Agent: $ua"               -H "Referer: https://ac.qq.com/ComicView/index/id/$comic/cid/$target"               -H "X-Requested-With: XMLHttpRequest"               "$url" -o "$file"
             python3 - "$file" "$target" <<'PY'
           import re,sys,html
           s=open(sys.argv[1],"r",encoding="utf-8",errors="replace").read()
           total=re.search(r'class="commen-ft-ts"[^>]*>\s*([0-9,]+)',s)
-          rows=re.findall(r'<div class="comment-list-content-wr clearfix"([\s\S]*?)</div>\s*<!-- comment content in the right end -->\s*</div>',s)
           details=re.findall(r'class="comment-content-detail"[^>]*>(.*?)</a>',s,re.S)
           clean=lambda x:re.sub(r'<[^>]+>','',html.unescape(x)).strip()
-          print("TARGET",sys.argv[2],"bytes",len(s),"total",total.group(1) if total else None,"comments",len(details))
-          for i,x in enumerate(details[:5]):
-              print(i,clean(x)[:220])
-          for key in ["data-p=","data-t=","data-c=","data-nick="]:
-              vals=re.findall(key+r'"([^"]*)"',s)
-              print(key,vals[:5])
+          print("TARGET",sys.argv[2],"bytes",len(s),"total",total.group(1) if total else None,"comments",len(details),"raw",repr(s[:80]))
+          for i,x in enumerate(details[:5]): print(i,clean(x)[:220])
+          print("data-p",re.findall(r'data-p="([^"]*)"',s)[:5])
+          print("data-t",re.findall(r'data-t="([^"]*)"',s)[:5])
+          print("data-nick",re.findall(r'data-nick="([^"]*)"',s)[:5])
           PY
           done
