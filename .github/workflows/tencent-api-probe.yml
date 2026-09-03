@@ -13,26 +13,24 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Inspect PC chapter comment targets with reader referer
+      - name: Probe One Person Under chapter comments on PC
         shell: bash
         run: |
           set -euo pipefail
           ua='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36'
-          comic=644371
-          for target in 1294 1295 1296 1297 1298; do
-            url="https://ac.qq.com/Community/topicList?targetId=$target&page=1&_=$(date +%s%3N)"
-            file="t-$target.html"
-            curl -sS -L --connect-timeout 10 --max-time 30               -H "User-Agent: $ua"               -H "Referer: https://ac.qq.com/ComicView/index/id/$comic/cid/$target"               -H "X-Requested-With: XMLHttpRequest"               "$url" -o "$file"
-            python3 - "$file" "$target" <<'PY'
+          comic=531490
+          for cid in 1 2 3 4 5; do
+            url="https://ac.qq.com/Community/topicList?targetId=$cid&page=1&_=$(date +%s%3N)"
+            file="c-$cid.html"
+            curl -sS -L --connect-timeout 10 --max-time 30               -H "User-Agent: $ua"               -H "Referer: https://ac.qq.com/ComicView/index/id/$comic/cid/$cid"               -H "X-Requested-With: XMLHttpRequest"               "$url" -o "$file"
+            python3 - "$file" "$cid" <<'PY'
           import re,sys,html
           s=open(sys.argv[1],"r",encoding="utf-8",errors="replace").read()
           total=re.search(r'class="commen-ft-ts"[^>]*>\s*([0-9,]+)',s)
           details=re.findall(r'class="comment-content-detail"[^>]*>(.*?)</a>',s,re.S)
           clean=lambda x:re.sub(r'<[^>]+>','',html.unescape(x)).strip()
-          print("TARGET",sys.argv[2],"bytes",len(s),"total",total.group(1) if total else None,"comments",len(details),"raw",repr(s[:80]))
-          for i,x in enumerate(details[:5]): print(i,clean(x)[:220])
-          print("data-p",re.findall(r'data-p="([^"]*)"',s)[:5])
-          print("data-t",re.findall(r'data-t="([^"]*)"',s)[:5])
-          print("data-nick",re.findall(r'data-nick="([^"]*)"',s)[:5])
+          print("CID",sys.argv[2],"bytes",len(s),"total",total.group(1) if total else None,"comments",len(details),"raw",repr(s[:20]))
+          print("nick",re.findall(r'data-nick="([^"]*)"',s)[:5])
+          for i,x in enumerate(details[:5]): print(i,clean(x)[:180])
           PY
           done
