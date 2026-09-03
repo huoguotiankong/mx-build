@@ -116,6 +116,10 @@ jobs:
                   if isinstance(candidate.get(key), dict):
                       candidate = candidate[key]
                       break
+              if isinstance(candidate, dict) and len(candidate) == 1:
+                  only_value = next(iter(candidate.values()))
+                  if isinstance(only_value, dict):
+                      candidate = only_value
 
               items = None
               for key in ("list", "topic_list", "topicList", "topics"):
@@ -251,4 +255,5 @@ jobs:
             exit 0
           fi
           git commit -m "probe: record Tencent community tag feeds"
+          git pull --rebase origin main
           git push
