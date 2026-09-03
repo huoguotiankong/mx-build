@@ -1,0 +1,184 @@
+name: Tencent Unidbg Decrypt Probe
+
+on:
+  push:
+    paths:
+      - ".github/workflows/tencent-unidbg-probe.yml"
+      - ".github/tencent-unidbg-probe-trigger"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Download Tencent APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -A 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/126 Mobile Safari/537.36' \
+            -L --fail --retry 3 --connect-timeout 15 --max-time 240 \
+            -o tencent.apk \
+            'https://wap.pp.cn/app/dl/fs08/2026/07/31/6/110_1d0689776bd9df3cabc573c6ccee1db0.apk'
+          mkdir -p native
+          unzip -j tencent.apk 'lib/arm64-v8a/libcryptutils.so' -d native
+
+      - name: Fetch encrypted chapter topic response
+        shell: bash
+        run: |
+          set -euo pipefail
+          host='a.ac.qq.com'
+          version='12.19.9'
+          channel='dm306015002'
+          comic='644371'
+          chapter='1296'
+          secret='4jo2YHMm0d2VGt59tVYndX9P7eFcw8TvRv5lMqFP1TT'
+          path="/$version/Community/getChapterTopicList/comic_id/$comic/chapter_id/$chapter/page/1/type/1"
+          localtime=$(date +%s%3N)
+          sc=$(printf '%s' "$path$host""0""$localtime$secret" | md5sum | awk '{print $1}')
+          curl -sS -L --fail --connect-timeout 10 --max-time 30 \
+            -H 'Accept: application/json, text/plain, */*' \
+            -H 'User-Agent: okhttp/4.12.0' \
+            -H 'fakeduin: 0' \
+            -H "localtime: $localtime" \
+            -H "version: $version" \
+            -H "channel: $channel" \
+            -H 'userstate: 1' \
+            -H 'oversea: 1' \
+            -H "sc: $sc" \
+            -o encrypted.body "https://$host$path"
+          echo "encrypted bytes=$(wc -c < encrypted.body)"
+          head -c 80 encrypted.body; echo
+
+      - name: Create unidbg harness
+        shell: bash
+        run: |
+          mkdir -p probe/src/main/java/probe
+          cat > probe/pom.xml <<'XML'
+          <project xmlns="http://maven.apache.org/POM/4.0.0">
+            <modelVersion>4.0.0</modelVersion>
+            <groupId>local</groupId><artifactId>probe</artifactId><version>1</version>
+            <properties>
+              <maven.compiler.source>17</maven.compiler.source>
+              <maven.compiler.target>17</maven.compiler.target>
+              <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+            </properties>
+            <dependencies>
+              <dependency>
+                <groupId>com.github.zhkl0228</groupId>
+                <artifactId>unidbg-android</artifactId>
+                <version>0.9.9</version>
+              </dependency>
+              <dependency>
+                <groupId>com.github.zhkl0228</groupId>
+                <artifactId>unidbg-unicorn2</artifactId>
+                <version>0.9.9</version>
+              </dependency>
+              <dependency>
+                <groupId>org.slf4j</groupId>
+                <artifactId>slf4j-simple</artifactId>
+                <version>2.0.17</version>
+              </dependency>
+            </dependencies>
+            <build><plugins>
+              <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.5.1</version>
+              </plugin>
+            </plugins></build>
+          </project>
+          XML
+          cat > probe/src/main/java/probe/Main.java <<'JAVA'
+          package probe;
+
+          import com.github.unidbg.AndroidEmulator;
+          import com.github.unidbg.linux.android.AndroidEmulatorBuilder;
+          import com.github.unidbg.linux.android.AndroidResolver;
+          import com.github.unidbg.linux.android.dvm.*;
+          import com.github.unidbg.linux.android.dvm.array.ByteArray;
+          import com.github.unidbg.memory.Memory;
+          import java.io.*;
+          import java.nio.charset.StandardCharsets;
+          import java.nio.file.Files;
+
+          public class Main {
+            public static void main(String[] args) throws Exception {
+              AndroidEmulator emulator = AndroidEmulatorBuilder.for64Bit()
+                  .setProcessName("com.qq.ac.android")
+                  .build();
+              try {
+                Memory memory = emulator.getMemory();
+                memory.setLibraryResolver(new AndroidResolver(23));
+                VM vm = emulator.createDalvikVM(new File("../tencent.apk"));
+                vm.setJni(new AbstractJni(){});
+                vm.setVerbose(false);
+                DalvikModule dm = vm.loadLibrary(new File("../native/libcryptutils.so"), false);
+                dm.callJNI_OnLoad(emulator);
+
+                DvmClass crypt = vm.resolveClass("com/qq/ac/android/utils/CryptUtils");
+
+                try {
+                  DvmObject<?> key = crypt.callStaticJniMethodObject(emulator, "getKeyString()Ljava/lang/String;");
+                  System.out.println("KEY=" + (key == null ? "null" : key.getValue()));
+                } catch (Throwable t) {
+                  System.out.println("KEY_CALL_FAILED=" + t);
+                  t.printStackTrace(System.out);
+                }
+
+                byte[] encrypted = Files.readAllBytes(new File("../encrypted.body").toPath());
+                ByteArray out = crypt.callStaticJniMethodObject(
+                    emulator,
+                    "gudKsDdgRDftyhRz([B)[B",
+                    new ByteArray(vm, encrypted)
+                );
+                if (out == null || out.getValue() == null) {
+                  throw new IllegalStateException("native decrypt returned null");
+                }
+                byte[] clear = out.getValue();
+                Files.write(new File("../decrypted.body").toPath(), clear);
+                System.out.println("DECRYPTED_BYTES=" + clear.length);
+                String text = new String(clear, StandardCharsets.UTF_8);
+                System.out.println("DECRYPTED_HEAD=" + text.substring(0, Math.min(text.length(), 3000)));
+              } finally {
+                emulator.close();
+              }
+            }
+          }
+          JAVA
+
+      - name: Run native decrypt probe
+        working-directory: probe
+        run: |
+          mvn -q -DskipTests compile exec:java -Dexec.mainClass=probe.Main
+
+      - name: Validate decrypted JSON
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          b=open('decrypted.body','rb').read()
+          print('first bytes',repr(b[:80]))
+          obj=json.loads(b)
+          print('keys',list(obj)[:20])
+          print('errorCode',obj.get('errorCode'),'msg',obj.get('msg'))
+          data=obj.get('data') or {}
+          print('data keys',list(data)[:30])
+          print('totalCount',data.get('totalCount'),'endOfList',data.get('endOfList'))
+          topics=data.get('topicList') or []
+          print('topics',len(topics))
+          for t in topics[:3]:
+              print({k:t.get(k) for k in ['topicId','nickName','qqHead','date','goodCount','commentCount','content']})
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tencent-decrypted-topic-sample
+          path: decrypted.body
