@@ -1,0 +1,44 @@
+name: Tencent Encrypted Sample
+
+on:
+  push:
+    paths:
+      - ".github/workflows/tencent-encrypted-sample.yml"
+      - ".github/tencent-encrypted-sample-trigger"
+
+permissions:
+  contents: read
+
+jobs:
+  sample:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch signed encrypted chapter comments
+        shell: bash
+        run: |
+          set -euo pipefail
+          comic=644371
+          chapter=1296
+          version=12.19.9
+          channel=dm306015002
+          host=a.ac.qq.com
+          secret='4jo2YHMm0d2VGt59tVYndX9P7eFcw8TvRv5lMqFP1TT'
+          path="/$version/Community/getChapterTopicList/comic_id/$comic/chapter_id/$chapter/page/1/type/1"
+          localtime=$(date +%s%3N)
+          sc=$(printf '%s' "$path$host""0""$localtime$secret" | md5sum | awk '{print $1}')
+          curl -sS -L --fail --connect-timeout 10 --max-time 30             -H 'Accept: application/json, text/plain, */*'             -H 'User-Agent: okhttp/4.12.0'             -H 'fakeduin: 0'             -H "localtime: $localtime"             -H "version: $version"             -H "channel: $channel"             -H 'userstate: 1'             -H 'oversea: 1'             -H "sc: $sc"             "https://$host$path" -o encrypted.txt
+          wc -c encrypted.txt
+          python3 - <<'PY'
+          import base64
+          s=open('encrypted.txt','rb').read().strip()
+          b=base64.b64decode(s)
+          open('encrypted.bin','wb').write(b)
+          print("b64",len(s),"decoded",len(b),"mod16",len(b)%16,"head",b[:32].hex())
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tencent-encrypted-sample
+          path: |
+            encrypted.txt
+            encrypted.bin
+          compression-level: 0
