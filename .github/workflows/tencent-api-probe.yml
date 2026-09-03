@@ -21,19 +21,18 @@ jobs:
           curl -sS -L --connect-timeout 10 --max-time 30             -H 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36'             -H 'Referer: https://ac.qq.com/Comic/comicInfo/id/644371'             -H 'X-Requested-With: XMLHttpRequest'             "$url" -o topic.html
           echo "bytes=$(wc -c < topic.html)"
           python3 - <<'PY'
-          from bs4 import BeautifulSoup
-          html=open("topic.html","rb").read()
-          soup=BeautifulSoup(html,"html.parser")
-          print("title/count:", soup.select_one(".commen-ft-ts"))
-          details=soup.select(".comment-content-detail")
-          print("detail count:",len(details))
-          for i,d in enumerate(details[:3]):
-              node=d
-              for _ in range(5):
-                  if node.parent is None: break
-                  node=node.parent
-              print("\n=== DETAIL",i,"TEXT ===")
-              print(d.get_text(" ", strip=True)[:600])
-              print("=== ANCESTOR HTML ===")
-              print(str(node)[:7000])
+          import re
+          html=open("topic.html","r",encoding="utf-8",errors="replace").read()
+          print("comment-content-detail count",html.count("comment-content-detail"))
+          print("comment-content-a count",html.count("comment-content-a"))
+          print("comment-userhead-wr count",html.count("comment-userhead-wr"))
+          for term in ["comment-content-detail","comment-content-a","comment-userhead-wr","commen-ft-ts"]:
+              print("\n#####",term,"#####")
+              start=0
+              for n in range(3):
+                  i=html.find(term,start)
+                  if i<0: break
+                  print(html[max(0,i-1800):min(len(html),i+3800)])
+                  print("\n---")
+                  start=i+len(term)
           PY
