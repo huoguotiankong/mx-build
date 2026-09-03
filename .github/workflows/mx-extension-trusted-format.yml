@@ -94,6 +94,17 @@ jobs:
           source_name="${{ steps.target.outputs.source }}"
           ./gradlew ":src:zh:$source_name:spotlessApply"
 
+      - name: Verify formatted extension build
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_name="${{ steps.target.outputs.source }}"
+          ./gradlew \
+            ":src:zh:$source_name:assembleDebug" \
+            ":src:zh:$source_name:assembleRelease" \
+            ":src:zh:$source_name:lintRelease"
+
       - name: Export whitespace-only formatting plan
         shell: bash
         run: |
