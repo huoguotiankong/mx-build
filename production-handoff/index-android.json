@@ -42,13 +42,13 @@
         "name": "Bilibili Manga",
         "packageName": "eu.kanade.tachiyomi.extension.zh.bilibilimanga",
         "resources": {
-          "apkUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.bilibilimanga-v1.6.13.apk",
-          "iconUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/icon/eu.kanade.tachiyomi.extension.zh.bilibilimanga-v106013.png",
-          "jarUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.bilibilimanga-v1.6.13.jar"
+          "apkUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.bilibilimanga-v1.6.21.apk",
+          "iconUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/icon/eu.kanade.tachiyomi.extension.zh.bilibilimanga-v106021.png",
+          "jarUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.bilibilimanga-v1.6.21.jar"
         },
         "extensionLib": "1.6",
-        "versionCode": "212013",
-        "versionName": "1.6.13",
+        "versionCode": "212021",
+        "versionName": "1.6.21",
         "contentWarning": "CONTENT_WARNING_SAFE",
         "sources": [
           {

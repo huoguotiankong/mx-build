@@ -11,15 +11,15 @@
     "versionName": "1.6.4"
   },
   "eu.kanade.tachiyomi.extension.zh.bilibilimanga": {
-    "androidVersionCode": 212013,
-    "apk": "tachiyomi-zh.bilibilimanga-v1.6.13.apk",
-    "apkSha256": "90f7d20ecda1f3c7d2892d84641837d4099c3cff4b343eaf9b44c2e60fd4fd4e",
-    "jar": "tachiyomi-zh.bilibilimanga-v1.6.13.jar",
-    "jarSha256": "1e06be280aeaad14d9b30f2776d40d3f5019dbefbfc4c34dfd2683cd02ac35d6",
+    "androidVersionCode": 212021,
+    "apk": "tachiyomi-zh.bilibilimanga-v1.6.21.apk",
+    "apkSha256": "aef0ab379a5aa00bba301f058c19dbf7fafd9c4b572b7435b8691a5f78af79fe",
+    "jar": "tachiyomi-zh.bilibilimanga-v1.6.21.jar",
+    "jarSha256": "a3f396e6ae38fa838caf236e297d0c9ed0489b4faeff74da0cdae842aa4f8b7d",
     "module": "zh.bilibilimanga",
-    "sourceHash": "c3b5ab60c1a1b5e8e46836638d62aaad37aabb17cfbaf10004c2bf344586da40",
-    "versionCode": 106013,
-    "versionName": "1.6.13"
+    "sourceHash": "43d060ccb1c30f0fbe523b25454e99753eeaf943d1ece7bcdb7c56646e8da7e4",
+    "versionCode": 106021,
+    "versionName": "1.6.21"
   },
   "eu.kanade.tachiyomi.extension.zh.darenmanhua": {
     "androidVersionCode": 212001,
