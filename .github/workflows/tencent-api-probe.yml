@@ -15,73 +15,59 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Probe signed anonymous APP request
+      - name: Probe signed chapter topic replies
         shell: bash
         run: |
           set -euo pipefail
+          host='a.ac.qq.com'
+          version='12.19.9'
+          channel='dm306015002'
+          comic='644371'
+          topic='49933575'
+          target_type='3'
+          page='1'
+          listcnt='20'
+          suffix='4jo2YHMm0d2VGt59tVYndX9P7eFcw8TvRv5lMqFP1TT'
+          key='42e0d587d5bda41326c2000d'
+          path="/$version/Comment/getTopicCommentList/topic_id/$topic/target_type/$target_type/page/$page/listcnt/$listcnt/comic_id/$comic"
+          localtime=$(date +%s%3N)
+          sc=$(printf '%s' "$path$host""0""$localtime$suffix" | md5sum | awk '{print $1}')
+          curl -sS -L --fail --connect-timeout 10 --max-time 30             -H 'Accept: application/json, text/plain, */*'             -H 'User-Agent: okhttp/4.10.0'             -H 'fakeduin: 0'             -H "localtime: $localtime"             -H "version: $version"             -H "channel: $channel"             -H 'userstate: 1'             -H 'oversea: 1'             -H "sc: $sc"             "https://$host$path" -o reply.enc
+
+          tr -d '\r\n\t ' < reply.enc | base64 -d > reply.bin
+          keyhex=$(printf '%s' "$key" | xxd -p -c 256)
+          openssl enc -des-ede3 -d -K "$keyhex" -nosalt -in reply.bin -out reply.json
+
           python3 - <<'PY'
-          import hashlib, time, urllib.request, urllib.error, re
+          import json
           from pathlib import Path
-
-          version="12.19.9"
-          channel="dm306015002"
-          comic="644371"
-          chapter="1296"
-          secret="4jo2YHMm0d2VGt59tVYndX9P7eFcw8TvRv5lMqFP1TT"
-          rows=[]
-
-          class NoRedirect(urllib.request.HTTPRedirectHandler):
-              def redirect_request(self, req, fp, code, msg, headers, newurl):
-                  return None
-
-          def request(host, ua, follow):
-              path=f"/{version}/Community/getChapterTopicList/comic_id/{comic}/chapter_id/{chapter}/page/1/type/1"
-              localtime=str(int(time.time()*1000))
-              sc=hashlib.md5((path+host+"0"+localtime+secret).encode()).hexdigest()
-              headers={
-                  "Accept":"application/json, text/plain, */*",
-                  "User-Agent":ua,
-                  "fakeduin":"0",
-                  "localtime":localtime,
-                  "version":version,
-                  "channel":channel,
-                  "userstate":"1",
-                  "oversea":"1",
-                  "sc":sc,
-              }
-              opener=urllib.request.build_opener() if follow else urllib.request.build_opener(NoRedirect)
-              status=0; ctype="unknown"; loc=""; raw=b""
-              try:
-                  resp=opener.open(urllib.request.Request("https://"+host+path,headers=headers),timeout=30)
-                  status=resp.status; ctype=resp.headers.get("Content-Type","unknown"); loc=resp.headers.get("Location",""); raw=resp.read()
-              except urllib.error.HTTPError as e:
-                  status=e.code; ctype=e.headers.get("Content-Type","unknown"); loc=e.headers.get("Location",""); raw=e.read()
-              text=raw[:4096].decode("utf-8","ignore")
-              title=""
-              m=re.search(r"<title[^>]*>(.*?)</title>",text,re.I|re.S)
-              if m: title=re.sub(r"\s+"," ",m.group(1)).strip()[:120]
-              stripped=raw.strip()
-              b64chars=all(c in b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=\r\n\t " for c in stripped)
-              rows.extend([
-                  f"host={host} ua={ua} follow={follow}",
-                  f"status={status}",
-                  f"content_type={ctype}",
-                  f"location={loc[:200]}",
-                  f"bytes={len(raw)}",
-                  f"html_title={title}",
-                  f"looks_base64={b64chars}",
-                  "",
-              ])
-
-          for host in ("a.ac.qq.com","android.ac.qq.com"):
-              for ua in ("okhttp/4.10.0","okhttp/4.12.0"):
-                  request(host,ua,False)
-                  request(host,ua,True)
-
-          out="\n".join(rows)
+          obj=json.loads(Path('reply.json').read_text('utf-8'))
+          data=obj.get('data') or {}
+          rows=[
+              f"error_code={obj.get('error_code', obj.get('errorCode'))}",
+              "root_keys="+','.join(sorted(obj.keys())),
+              "data_keys="+','.join(sorted(data.keys())) if isinstance(data,dict) else "data_type="+type(data).__name__,
+          ]
+          if isinstance(data,dict):
+              items=data.get('list') or data.get('comment_list') or data.get('commentList') or []
+              rows.append('list_count='+str(len(items) if isinstance(items,list) else -1))
+              for k in ('total','total_count','totalCount','end_of_list','endOfList','top_topic_info','topTopicInfo'):
+                  if k in data: rows.append(f"{k}={data.get(k)}")
+              if isinstance(items,list) and items:
+                  first=items[0]
+                  if isinstance(first,dict):
+                      rows.append('item_keys='+','.join(sorted(first.keys())))
+                      for k in ('comment_id','commentId','host_qq','hostQq','nick_name','nickName','qq_head','qqHead','date','good_count','goodCount','reply_count','replyCount'):
+                          if k in first: rows.append(f"{k}={first.get(k)}")
+                      reply_list=first.get('reply_list', first.get('replyList'))
+                      if isinstance(reply_list,list):
+                          rows.append('embedded_reply_count='+str(len(reply_list)))
+                          if reply_list and isinstance(reply_list[0],dict):
+                              rows.append('embedded_reply_keys='+','.join(sorted(reply_list[0].keys())))
+          out='\n'.join(rows)+'\n'
           print(out)
-          Path("probe-results").mkdir(exist_ok=True)
-          Path("probe-results/tencent-topic-probe.txt").write_text(out+"\n",encoding="utf-8")
+          Path('probe-results').mkdir(exist_ok=True)
+          Path('probe-results/tencent-topic-replies-probe.txt').write_text(out,encoding='utf-8')
           PY
 
       - name: Commit sanitized probe summary
@@ -90,10 +76,10 @@ jobs:
           set -euo pipefail
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add probe-results/tencent-topic-probe.txt
+          git add probe-results/tencent-topic-replies-probe.txt
           if git diff --cached --quiet; then
             echo "Probe summary unchanged"
             exit 0
           fi
-          git commit -m "probe: refresh Tencent signed chapter topic result"
+          git commit -m "probe: record Tencent topic reply shape"
           git push
