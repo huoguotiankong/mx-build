@@ -1,4 +1,4 @@
-name: Tencent API Probe
+name: Tencent Chapter Topic Probe
 
 on:
   push:
@@ -7,66 +7,114 @@ on:
       - ".github/tencent-api-probe-trigger"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Diagnose signed APP response layers
+      - uses: actions/checkout@v4
+
+      - name: Compare anonymous APP header variants
         shell: bash
         run: |
           set -euo pipefail
-          host='a.ac.qq.com'
-          comic=531490
-          chapter=1
           version='12.19.9'
           channel='dm306015002'
-          secret='4jo2YHMm0d2VGt59tVYndX9P7eFcw8TvRv5lMqFP1TT'
+          comic='644371'
+          chapter='2'
           path="/$version/Community/getChapterTopicList/comic_id/$comic/chapter_id/$chapter/page/1/type/1"
-          localtime=$(date +%s%3N)
-          sc=$(printf '%s' "$path$host""0""$localtime$secret" | md5sum | awk '{print $1}')
-          url="https://$host$path"
+          : > tencent-topic-probe.txt
 
-          curl -sS -L --connect-timeout 10 --max-time 30             -H 'Accept: application/json, text/plain, */*'             -H 'User-Agent: okhttp/4.12.0'             -H 'fakeduin: 0'             -H "localtime: $localtime"             -H "version: $version"             -H "channel: $channel"             -H 'userstate: 1'             -H 'oversea: 1'             -H "sc: $sc"             "$url" -o response.raw
+          probe() {
+            local label="$1"
+            local host="$2"
+            local add_login_headers="$3"
+            localtime=$(date +%s%3N)
+            url="https://$host$path"
+            headers=(-H 'Accept: application/json, text/plain, */*'
+                     -H 'User-Agent: okhttp/4.10.0'
+                     -H "version: $version"
+                     -H "channel: $channel"
+                     -H "localtime: $localtime"
+                     -H 'userstate: 1'
+                     -H 'oversea: 1')
+            if [[ "$add_login_headers" == "yes" ]]; then
+              headers+=(-H 'logintype: 0' -H 'fakeduin: 0')
+            fi
 
-          python3 - <<'PY'
-          import base64,binascii,gzip,json,zlib
-          raw=open("response.raw","rb").read().strip()
-          print("raw_len",len(raw))
-          print("raw_prefix",raw[:80])
-          try:
-              dec=base64.b64decode(raw,validate=True)
-              print("b64_len",len(dec))
-              print("b64_hex_0_64",dec[:64].hex())
-              print("b64_ascii_0_64",repr(dec[:64]))
-              for n in [0,16,32]:
-                  x=dec[n:]
-                  print("\n-- offset",n,"len",len(x),"--")
-                  print("hex",x[:64].hex())
-                  print("ascii",repr(x[:160]))
-                  for mode in ["utf8","gzip","zlib"]:
-                      try:
-                          if mode=="utf8":
-                              y=x.decode("utf-8")
-                          elif mode=="gzip":
-                              y=gzip.decompress(x).decode("utf-8")
-                          else:
-                              y=zlib.decompress(x).decode("utf-8")
-                          print(mode,"OK",repr(y[:500]))
-                          try:
-                              obj=json.loads(y)
-                              print("json_keys",list(obj)[:20] if isinstance(obj,dict) else type(obj).__name__)
-                          except Exception as e:
-                              print("json_fail",type(e).__name__,str(e)[:120])
-                      except Exception as e:
-                          print(mode,"FAIL",type(e).__name__,str(e)[:120])
-          except Exception as e:
-              print("base64_fail",repr(e))
-          PY
+            rm -f body.bin headers.txt
+            status=$(curl -sS -L --connect-timeout 10 --max-time 30               -D headers.txt -o body.bin -w '%{http_code}'               "${headers[@]}" "$url" || true)
+            ctype=$(awk 'BEGIN{IGNORECASE=1} /^content-type:/ {sub(/^[^:]+:[[:space:]]*/, ""); gsub(//,""); v=$0} END{print v}' headers.txt)
+            bytes=$(wc -c < body.bin 2>/dev/null || echo 0)
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: tencent-signed-response
-          path: response.raw
-          compression-level: 0
+            {
+              echo "=== $label ==="
+              echo "host=$host"
+              echo "http_status=$status"
+              echo "content_type=${ctype:-unknown}"
+              echo "body_bytes=$bytes"
+              python3 - "$label" <<'PY'
+import base64, json, pathlib, sys
+raw = pathlib.Path("body.bin").read_bytes() if pathlib.Path("body.bin").exists() else b""
+try:
+    text = raw.decode("utf-8").strip()
+except UnicodeDecodeError:
+    text = ""
+try:
+    obj = json.loads(text)
+except Exception:
+    obj = None
+if isinstance(obj, dict):
+    print("body_kind=json")
+    print("errorCode=" + str(obj.get("errorCode", obj.get("error_code"))))
+    msg = obj.get("msg", obj.get("message", obj.get("errorMsg")))
+    if msg is not None:
+        safe = str(msg).replace("\n", " ")[:160]
+        print("msg=" + safe)
+    data = obj.get("data")
+    print("data_type=" + type(data).__name__)
+    if isinstance(data, dict):
+        print("data_keys=" + ",".join(sorted(data.keys())))
+        topics = data.get("topicList")
+        print("topicList_type=" + type(topics).__name__)
+        if isinstance(topics, list):
+            print("topic_count=" + str(len(topics)))
+        print("totalCount=" + str(data.get("totalCount")))
+        print("endOfList=" + str(data.get("endOfList")))
+else:
+    print("body_kind=non_json")
+    compact = b"".join(raw.split())
+    try:
+        decoded = base64.b64decode(compact, validate=True)
+        print("base64_valid=yes")
+        print("base64_decoded_bytes=" + str(len(decoded)))
+    except Exception:
+        print("base64_valid=no")
+PY
+              echo
+            } >> tencent-topic-probe.txt
+          }
+
+          for host in a.ac.qq.com android.ac.qq.com; do
+            probe "v15-current" "$host" no
+            probe "official-anonymous-login-headers" "$host" yes
+          done
+
+          cat tencent-topic-probe.txt
+
+      - name: Commit sanitized probe summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p probe-results
+          cp tencent-topic-probe.txt probe-results/tencent-topic-probe.txt
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add probe-results/tencent-topic-probe.txt
+          if git diff --cached --quiet; then
+            echo "Probe summary unchanged"
+            exit 0
+          fi
+          git commit -m "probe: record Tencent chapter topic result"
+          git push
