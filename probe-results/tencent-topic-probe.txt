@@ -1,32 +1,64 @@
-=== v15-current ===
-host=a.ac.qq.com
-http_status=403
-content_type=text/html; charset=utf-8
-body_bytes=150
-body_kind=non_json
-base64_valid=no
+host=a.ac.qq.com ua=okhttp/4.10.0 follow=False
+status=200
+content_type=text/html; charset=UTF-8
+location=
+bytes=34176
+html_title=
+looks_base64=True
 
-=== official-anonymous-login-headers ===
-host=a.ac.qq.com
-http_status=403
-content_type=text/html; charset=utf-8
-body_bytes=150
-body_kind=non_json
-base64_valid=no
+host=a.ac.qq.com ua=okhttp/4.10.0 follow=True
+status=200
+content_type=text/html; charset=UTF-8
+location=
+bytes=34176
+html_title=
+looks_base64=True
 
-=== v15-current ===
-host=android.ac.qq.com
-http_status=403
-content_type=text/html; charset=utf-8
-body_bytes=150
-body_kind=non_json
-base64_valid=no
+host=a.ac.qq.com ua=okhttp/4.12.0 follow=False
+status=200
+content_type=text/html; charset=UTF-8
+location=
+bytes=34176
+html_title=
+looks_base64=True
 
-=== official-anonymous-login-headers ===
-host=android.ac.qq.com
-http_status=403
-content_type=text/html; charset=utf-8
-body_bytes=150
-body_kind=non_json
-base64_valid=no
+host=a.ac.qq.com ua=okhttp/4.12.0 follow=True
+status=200
+content_type=text/html; charset=UTF-8
+location=
+bytes=34176
+html_title=
+looks_base64=True
+
+host=android.ac.qq.com ua=okhttp/4.10.0 follow=False
+status=200
+content_type=text/html; charset=UTF-8
+location=
+bytes=34176
+html_title=
+looks_base64=True
+
+host=android.ac.qq.com ua=okhttp/4.10.0 follow=True
+status=200
+content_type=text/html; charset=UTF-8
+location=
+bytes=34176
+html_title=
+looks_base64=True
+
+host=android.ac.qq.com ua=okhttp/4.12.0 follow=False
+status=200
+content_type=text/html; charset=UTF-8
+location=
+bytes=34176
+html_title=
+looks_base64=True
+
+host=android.ac.qq.com ua=okhttp/4.12.0 follow=True
+status=200
+content_type=text/html; charset=UTF-8
+location=
+bytes=34176
+html_title=
+looks_base64=True
 
