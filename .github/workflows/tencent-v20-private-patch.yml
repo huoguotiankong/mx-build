@@ -1,0 +1,61 @@
+name: Tencent v20 Private Patch
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/tencent-v20-private-patch-trigger"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tencent-v20-private-patch
+  cancel-in-progress: false
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check private source token
+        shell: bash
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]] || { echo "::error::Missing MX_PRIVATE_READ_TOKEN"; exit 1; }
+
+      - name: Checkout private extension source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply private Tencent patch
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f scripts/tencent_v20_manga_reply_patch.py
+          python3 scripts/tencent_v20_manga_reply_patch.py
+          rm scripts/tencent_v20_manga_reply_patch.py
+          git diff --quiet -- src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt && {
+            echo "::error::Tencent source was not modified"
+            exit 1
+          }
+
+      - name: Commit private source patch
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt scripts/tencent_v20_manga_reply_patch.py
+          git commit -m "feat(tencentcomics): add APP manga review replies"
+          git push origin HEAD:main
