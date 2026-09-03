@@ -63,6 +63,16 @@ jobs:
           test -f "source/src/zh/$source_name/build.gradle.kts"
           test -d "source/src/zh/$source_name/src"
 
+      - name: Apply trusted private maintenance patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_name="${{ steps.target.outputs.source }}"
+          if [[ "$source_name" == "tencentcomics" && -f source/scripts/tencent_v20_manga_reply_patch.py ]]; then
+            (cd source && python3 scripts/tencent_v20_manga_reply_patch.py)
+            grep -q 'private fun getTopicRepliesFromApp' source/src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+          fi
+
       - name: Set up Java
         uses: actions/setup-java@v5
         with:
@@ -104,6 +114,32 @@ jobs:
             ":src:zh:$source_name:assembleDebug" \
             ":src:zh:$source_name:assembleRelease" \
             ":src:zh:$source_name:lintRelease"
+
+      - name: Write verified Tencent patch back to private source
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_name="${{ steps.target.outputs.source }}"
+          source_ref="${{ steps.target.outputs.ref }}"
+          if [[ "$source_name" != "tencentcomics" ]]; then
+            exit 0
+          fi
+          rm -rf "source/src/zh/$source_name"
+          cp -a "upstream/src/zh/$source_name" "source/src/zh/$source_name"
+          rm -f source/scripts/tencent_v20_manga_reply_patch.py
+          rm -f source/.bootstrap/tencent-v20-reply.trigger
+          rm -f source/.github/workflows/tencent-v20-reply-patch.yml
+          rmdir source/.bootstrap 2>/dev/null || true
+          cd source
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No Tencent patch changes to write back"
+          else
+            git commit -m "feat(tencentcomics): add APP manga review replies"
+            git push origin "HEAD:$source_ref"
+          fi
 
       - name: Export whitespace-only formatting plan
         shell: bash
