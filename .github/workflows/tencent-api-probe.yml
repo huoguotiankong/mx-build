@@ -13,26 +13,36 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Inspect PC comment markup
+      - name: Probe PC chapter topic variants
         shell: bash
         run: |
           set -euo pipefail
-          url="https://ac.qq.com/Community/topicList?targetId=644371&page=1&_=$(date +%s%3N)"
-          curl -sS -L --connect-timeout 10 --max-time 30             -H 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36'             -H 'Referer: https://ac.qq.com/Comic/comicInfo/id/644371'             -H 'X-Requested-With: XMLHttpRequest'             "$url" -o topic.html
-          echo "bytes=$(wc -c < topic.html)"
-          python3 - <<'PY'
-          import re
-          html=open("topic.html","r",encoding="utf-8",errors="replace").read()
-          print("comment-content-detail count",html.count("comment-content-detail"))
-          print("comment-content-a count",html.count("comment-content-a"))
-          print("comment-userhead-wr count",html.count("comment-userhead-wr"))
-          for term in ["comment-content-detail","comment-content-a","comment-userhead-wr","commen-ft-ts"]:
-              print("\n#####",term,"#####")
-              start=0
-              for n in range(3):
-                  i=html.find(term,start)
-                  if i<0: break
-                  print(html[max(0,i-1800):min(len(html),i+3800)])
-                  print("\n---")
-                  start=i+len(term)
+          ua='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36'
+          comic=644371
+          chapter=1296
+          urls=(
+            "https://ac.qq.com/Community/topicList?targetId=$comic&page=1"
+            "https://ac.qq.com/Community/topicList?targetId=$comic&chapter_id=$chapter&page=1"
+            "https://ac.qq.com/Community/topicList?targetId=$comic&chapterId=$chapter&page=1"
+            "https://ac.qq.com/Community/topicList?targetId=$chapter&page=1"
+            "https://ac.qq.com/Community/topicList?comic_id=$comic&chapter_id=$chapter&page=1"
+          )
+          n=0
+          for url in "${urls[@]}"; do
+            n=$((n+1))
+            file="v$n.html"
+            curl -sS -L --connect-timeout 10 --max-time 30               -H "User-Agent: $ua"               -H "Referer: https://ac.qq.com/ComicView/index/id/$comic/cid/$chapter"               -H "X-Requested-With: XMLHttpRequest"               "$url&_=$(date +%s%3N)" -o "$file"
+            echo "=== $url ==="
+            python3 - "$file" "$chapter" <<'PY'
+          import re,sys,html
+          s=open(sys.argv[1],"r",encoding="utf-8",errors="replace").read()
+          total=re.search(r'class="commen-ft-ts"[^>]*>\s*([0-9,]+)',s)
+          comments=re.findall(r'class="comment-content-detail"[^>]*>(.*?)</a>',s,re.S)
+          clean=lambda x:re.sub(r'<[^>]+>','',html.unescape(x)).strip()
+          print("bytes",len(s),"total",total.group(1) if total else None,"comments",len(comments))
+          print("first",clean(comments[0])[:240] if comments else "")
+          print("chapter-id-occurrences",s.count(sys.argv[2]))
+          for pat in ["chapter_id","chapterId","cid=","data-chapter","chapter-topic"]:
+              print(pat,s.count(pat))
           PY
+          done
