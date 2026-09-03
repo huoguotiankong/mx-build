@@ -148,8 +148,9 @@ jobs:
               if first:
                   lines.append(prefix + ".item_keys=" + obj_keys(first))
                   for key in (
-                      "topic_id", "topicId", "date", "good_count", "goodCount",
-                      "comment_count", "commentCount", "is_essence", "isEssence",
+                      "topic_id", "topicId", "target_type", "targetType", "target_id", "targetId",
+                      "date", "good_count", "goodCount", "comment_count", "commentCount",
+                      "is_essence", "isEssence",
                   ):
                       if key in first:
                           lines.append(prefix + "." + key + "=" + str(first.get(key)))
@@ -223,8 +224,29 @@ jobs:
                       f"{feed}.content_type={result['content_type']}",
                       f"{feed}.bytes={result['bytes']}",
                   ]
-                  feed_lines, next_page, _ = summarize_topic_list(feed + ".page1", root)
+                  feed_lines, next_page, items = summarize_topic_list(feed + ".page1", root)
                   lines += feed_lines
+                  if feed == "recommend_topic" and items:
+                      first = first_dict(items)
+                      if first:
+                          topic_id = first.get("topic_id", first.get("topicId"))
+                          target_type = first.get("target_type", first.get("targetType", 1))
+                          if topic_id is not None:
+                              reply_path = (
+                                  f"/{VERSION}/Comment/getTopicCommentList"
+                                  f"/topic_id/{topic_id}/target_type/{target_type}"
+                                  f"/page/1/listcnt/20/comic_id/{COMIC_ID}"
+                              )
+                              reply = request(reply_path)["json"]
+                              reply_data = reply.get("data") if isinstance(reply, dict) else None
+                              lines.append("recommend_reply.error_code=" + str(reply.get("error_code", reply.get("errorCode"))))
+                              lines.append("recommend_reply.data_keys=" + obj_keys(reply_data))
+                              if isinstance(reply_data, dict):
+                                  reply_items = reply_data.get("list")
+                                  lines.append("recommend_reply.list_count=" + str(len(reply_items) if isinstance(reply_items, list) else -1))
+                                  for key in ("comment_count", "commentCount", "end_of_list", "endOfList"):
+                                      if key in reply_data:
+                                          lines.append("recommend_reply." + key + "=" + str(reply_data.get(key)))
                   if feed in ("recommend_topic", "new_publish_topic") and str(next_page) not in ("", "None", "0", "-1"):
                       next_path = (
                           f"/{VERSION}/CommunityTag/topicList"
