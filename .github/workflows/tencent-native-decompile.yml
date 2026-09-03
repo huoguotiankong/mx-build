@@ -43,10 +43,12 @@ jobs:
           import ghidra.app.decompiler.*;
           import ghidra.app.script.GhidraScript;
           import ghidra.program.model.address.Address;
+          import ghidra.program.model.address.AddressSet;
           import ghidra.program.model.listing.Function;
           import ghidra.program.model.listing.FunctionManager;
           import ghidra.program.model.symbol.Symbol;
           import ghidra.program.model.symbol.SymbolIterator;
+          import ghidra.program.model.symbol.SourceType;
           import java.io.*;
           import java.util.*;
 
@@ -104,6 +106,25 @@ jobs:
                       throw new RuntimeException("openProgram failed");
                   }
                   FunctionManager fm = currentProgram.getFunctionManager();
+
+                  Address gudStart = toAddr(0x17b658L);
+                  Address gudEnd = toAddr(0x17da00L);
+                  Function merged = fm.getFunctionContaining(gudStart);
+                  if (merged != null && !merged.getEntryPoint().equals(gudStart)) {
+                      out.println("REMOVING MERGED FUNCTION " + merged.getName() + " @ " + merged.getEntryPoint());
+                      fm.removeFunction(merged.getEntryPoint());
+                  }
+                  Function gud = fm.getFunctionAt(gudStart);
+                  if (gud == null) {
+                      gud = fm.createFunction(
+                          "JNI_gudKsDdgRDftyhRz",
+                          null,
+                          gudStart,
+                          new AddressSet(gudStart, gudEnd),
+                          SourceType.USER_DEFINED
+                      );
+                  }
+                  dumpOne(out, decomp, gud, true);
 
                   long[] addrs = new long[]{
                       0x1c4948L,
