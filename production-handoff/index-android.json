@@ -517,13 +517,13 @@
         "name": "Picacomic",
         "packageName": "eu.kanade.tachiyomi.extension.zh.picacomic",
         "resources": {
-          "apkUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.picacomic-v1.6.12.apk",
-          "iconUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/icon/eu.kanade.tachiyomi.extension.zh.picacomic-v106012.png",
-          "jarUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.picacomic-v1.6.12.jar"
+          "apkUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.picacomic-v1.6.13.apk",
+          "iconUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/icon/eu.kanade.tachiyomi.extension.zh.picacomic-v106013.png",
+          "jarUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.picacomic-v1.6.13.jar"
         },
         "extensionLib": "1.6",
-        "versionCode": "212012",
-        "versionName": "1.6.12",
+        "versionCode": "212013",
+        "versionName": "1.6.13",
         "contentWarning": "CONTENT_WARNING_NSFW",
         "sources": [
           {
