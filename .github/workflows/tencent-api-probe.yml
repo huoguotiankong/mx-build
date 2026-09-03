@@ -13,34 +13,27 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe signed app API
+      - name: Inspect PC comment markup
         shell: bash
         run: |
-          set -u
-          comic=644371
-          chapter=1296
-          version=12.19.9
-          channel=dm306015002
-          secret='4jo2YHMm0d2VGt59tVYndX9P7eFcw8TvRv5lMqFP1TT'
-          endpoint="Community/getChapterTopicList/comic_id/$comic/chapter_id/$chapter/page/1/type/1"
-          for host in a.ac.qq.com android.ac.qq.com; do
-            path="/$version/$endpoint"
-            url="https://$host$path"
-            for scmode in slash noslash nofake fakeonly; do
-              localtime=$(date +%s%3N)
-              case "$scmode" in
-                slash) sigbase="$path$host""0""$localtime$secret";;
-                noslash) sigbase="${path#/}$host""0""$localtime$secret";;
-                nofake) sigbase="$path$host$localtime$secret";;
-                fakeonly) sigbase="$path$host""0""$secret";;
-              esac
-              sc=$(printf '%s' "$sigbase" | md5sum | awk '{print $1}')
-              echo "=== host=$host scmode=$scmode ==="
-              tmp=$(mktemp)
-              code=$(curl -sS -L --connect-timeout 10 --max-time 20                 -H "Accept: application/json, text/plain, */*"                 -H "User-Agent: okhttp/4.12.0"                 -H "fakeduin: 0"                 -H "localtime: $localtime"                 -H "version: $version"                 -H "channel: $channel"                 -H "userstate: 1"                 -H "oversea: 1"                 -H "sc: $sc"                 -o "$tmp" -w '%{http_code}' "$url" || true)
-              echo "HTTP $code bytes=$(wc -c < "$tmp")"
-              head -c 3000 "$tmp" | tr '\n' ' '
-              echo
-              rm -f "$tmp"
-            done
-          done
+          set -euo pipefail
+          url="https://ac.qq.com/Community/topicList?targetId=644371&page=1&_=$(date +%s%3N)"
+          curl -sS -L --connect-timeout 10 --max-time 30             -H 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36'             -H 'Referer: https://ac.qq.com/Comic/comicInfo/id/644371'             -H 'X-Requested-With: XMLHttpRequest'             "$url" -o topic.html
+          echo "bytes=$(wc -c < topic.html)"
+          python3 - <<'PY'
+          from bs4 import BeautifulSoup
+          html=open("topic.html","rb").read()
+          soup=BeautifulSoup(html,"html.parser")
+          print("title/count:", soup.select_one(".commen-ft-ts"))
+          details=soup.select(".comment-content-detail")
+          print("detail count:",len(details))
+          for i,d in enumerate(details[:3]):
+              node=d
+              for _ in range(5):
+                  if node.parent is None: break
+                  node=node.parent
+              print("\n=== DETAIL",i,"TEXT ===")
+              print(d.get_text(" ", strip=True)[:600])
+              print("=== ANCESTOR HTML ===")
+              print(str(node)[:7000])
+          PY
