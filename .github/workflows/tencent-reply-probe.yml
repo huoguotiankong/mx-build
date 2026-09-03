@@ -15,16 +15,15 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Probe nested reply target semantics
+      - name: Probe topic comment nested replies
         shell: bash
         run: |
           set -euo pipefail
           host='a.ac.qq.com'
           version='12.19.9'
-          comment='634593'
           topic='49933575'
+          comment='634593'
           comic='644371'
-          chapter='1296'
           secret='4jo2YHMm0d2VGt59tVYndX9P7eFcw8TvRv5lMqFP1TT'
           key='42e0d587d5bda41326c2000d'
           keyhex=$(printf '%s' "$key" | xxd -p -c 256)
@@ -32,9 +31,8 @@ jobs:
 
           probe() {
             label="$1"
-            target="$2"
-            page="$3"
-            path="/$version/Comment/getReplyList/comment_id/$comment/page/$page/target_type/3/target_id/$target/comic_id/$comic"
+            last="$2"
+            path="/$version/Comment/getCommentReplyList/topic_id/$topic/comment_id/$comment/last_comment_id/$last"
             localtime=$(date +%s%3N)
             sc=$(printf '%s' "$path$host""0""$localtime$secret" | md5sum | awk '{print $1}')
             curl -sS -L --fail --connect-timeout 10 --max-time 30 \
@@ -50,44 +48,65 @@ jobs:
               -o "$label.enc" "https://$host$path"
             tr -d '\r\n\t ' < "$label.enc" | base64 -d > "$label.bin"
             openssl enc -des-ede3 -d -K "$keyhex" -nosalt -in "$label.bin" -out "$label.json"
-            LABEL="$label" TARGET="$target" PAGE="$page" python3 - <<'PY' >> result.txt
+            LABEL="$label" LAST="$last" python3 - <<'PY' >> result.txt
           import json,os
           obj=json.load(open(os.environ["LABEL"]+".json",encoding="utf-8"))
           data=obj.get("data")
           print("label="+os.environ["LABEL"])
-          print("target_id="+os.environ["TARGET"])
-          print("page="+os.environ["PAGE"])
+          print("last_comment_id="+os.environ["LAST"])
           print("error_code="+str(obj.get("error_code",obj.get("errorCode"))))
           print("msg="+str(obj.get("msg",""))[:100])
           print("data_type="+type(data).__name__)
+          items=[]
           if isinstance(data,dict):
               print("data_keys="+",".join(sorted(data.keys())))
               items=data.get("list") or data.get("reply_list") or data.get("replyList") or []
               print("list_count="+str(len(items) if isinstance(items,list) else -1))
-              for k in ("end_of_list","endOfList","reply_count","replyCount","total","total_count"):
+              for k in ("end_of_list","endOfList","total","reply_count","comment_count"):
                   if k in data: print(k+"="+str(data[k]))
-              if isinstance(items,list) and items:
-                  x=items[0]
-                  if isinstance(x,dict):
-                      print("item_keys="+",".join(sorted(x.keys())))
-                      print("ids="+",".join(str(v.get("comment_id",v.get("commentId",""))) for v in items if isinstance(v,dict)))
           elif isinstance(data,list):
-              print("list_count="+str(len(data)))
-              if data and isinstance(data[0],dict):
-                  print("item_keys="+",".join(sorted(data[0].keys())))
-                  print("ids="+",".join(str(v.get("comment_id",v.get("commentId",""))) for v in data if isinstance(v,dict)))
+              items=data
+              print("list_count="+str(len(items)))
+          if isinstance(items,list) and items:
+              print("item_keys="+",".join(sorted(items[0].keys())) if isinstance(items[0],dict) else "")
+              print("ids="+",".join(str(v.get("comment_id",v.get("commentId",""))) for v in items if isinstance(v,dict)))
+              for v in items[:3]:
+                  if isinstance(v,dict):
+                      print("sample="+str({k:v.get(k) for k in ("comment_id","host_qq","nick_name","from_nick","to_nick","date") if k in v}))
           print()
           PY
           }
 
-          probe topic-p1 "$topic" 1
-          probe topic-p2 "$topic" 2
-          probe comic-p1 "$comic" 1
-          probe chapter-p1 "$chapter" 1
+          probe last0 0
+
+          # Obtain the two embedded-preview reply IDs from getTopicCommentList.
+          path="/$version/Comment/getTopicCommentList/topic_id/$topic/target_type/3/page/1/listcnt/20/comic_id/$comic"
+          localtime=$(date +%s%3N)
+          sc=$(printf '%s' "$path$host""0""$localtime$secret" | md5sum | awk '{print $1}')
+          curl -sS -L --fail --connect-timeout 10 --max-time 30 \
+            -H 'Accept: application/json, text/plain, */*' -H 'User-Agent: okhttp/4.10.0' \
+            -H 'fakeduin: 0' -H "localtime: $localtime" -H "version: $version" \
+            -H 'channel: dm306015002' -H 'userstate: 1' -H 'oversea: 1' -H "sc: $sc" \
+            -o preview.enc "https://$host$path"
+          tr -d '\r\n\t ' < preview.enc | base64 -d > preview.bin
+          openssl enc -des-ede3 -d -K "$keyhex" -nosalt -in preview.bin -out preview.json
+          last_preview=$(python3 - <<'PY'
+          import json
+          d=json.load(open("preview.json",encoding="utf-8")).get("data") or {}
+          for c in d.get("list") or []:
+              if str(c.get("comment_id"))=="634593":
+                  r=c.get("reply_list") or []
+                  print((r[-1].get("comment_id") if r else 0))
+                  break
+          else:
+              print(0)
+          PY
+          )
+          probe after-preview "$last_preview"
 
           cat result.txt
           mkdir -p probe-results
-          cp result.txt probe-results/tencent-nested-reply-target.txt
+          cp result.txt probe-results/tencent-comment-reply-list.txt
 
       - name: Commit sanitized nested-reply result
         shell: bash
@@ -95,10 +114,10 @@ jobs:
           set -euo pipefail
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add probe-results/tencent-nested-reply-target.txt
+          git add probe-results/tencent-comment-reply-list.txt
           if git diff --cached --quiet; then
             echo "No changes"
           else
-            git commit -m "probe: record Tencent nested reply target"
+            git commit -m "probe: record Tencent comment reply list"
             git push
           fi
