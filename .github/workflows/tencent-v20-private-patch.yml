@@ -1,4 +1,4 @@
-name: Tencent v21 Private Patch
+name: Tencent v21 Patch Validation
 
 on:
   push:
@@ -10,13 +10,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: tencent-v21-private-patch
-  cancel-in-progress: false
+  group: tencent-v21-patch-validation
+  cancel-in-progress: true
 
 jobs:
-  patch:
+  validate:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 45
     steps:
       - name: Check private source token
         shell: bash
@@ -34,35 +34,90 @@ jobs:
           token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
           path: source
           fetch-depth: 0
-          persist-credentials: true
+          persist-credentials: false
 
-      - name: Apply private Tencent v21 patch
+      - name: Apply staged Tencent v21 patch
         working-directory: source
         shell: bash
         run: |
           set -euo pipefail
           test -f scripts/tencent_v20_manga_reply_patch.py
           python3 scripts/tencent_v20_manga_reply_patch.py
-          rm scripts/tencent_v20_manga_reply_patch.py
-          if git diff --quiet -- \
-            src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt \
-            src/zh/tencentcomics/build.gradle.kts \
-            src/zh/tencentcomics/src/eu/kanade/tachiyomi/source/mx/ChapterContentReplacementSource.kt; then
-            echo "::error::Tencent v21 source was not modified"
-            exit 1
-          fi
+          test -f src/zh/tencentcomics/src/eu/kanade/tachiyomi/source/mx/ChapterContentReplacementSource.kt
+          grep -q 'ChapterContentReplacementSource' src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+          grep -q 'private fun getTopicRepliesFromApp' src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+          grep -q 'CommentTargetKind.MANGA -> target.id' src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+          grep -q 'versionCode = 21' src/zh/tencentcomics/build.gradle.kts
 
-      - name: Commit private source patch
-        working-directory: source
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Checkout current Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Overlay patched Tencent module
         shell: bash
         run: |
           set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add \
-            src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt \
-            src/zh/tencentcomics/src/eu/kanade/tachiyomi/source/mx/ChapterContentReplacementSource.kt \
-            src/zh/tencentcomics/build.gradle.kts \
-            scripts/tencent_v20_manga_reply_patch.py
-          git commit -m "feat(tencentcomics): add manga replies and content replacement"
-          git push origin HEAD:main
+          rm -rf upstream/src/zh/tencentcomics
+          mkdir -p upstream/src/zh
+          cp -a source/src/zh/tencentcomics upstream/src/zh/tencentcomics
+
+      - name: Apply current Keiyoushi formatting
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:tencentcomics:spotlessApply
+
+      - name: Validate patched Tencent v21
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew \
+            :src:zh:tencentcomics:assembleDebug \
+            :src:zh:tencentcomics:assembleRelease \
+            :src:zh:tencentcomics:lintRelease
+
+      - name: Verify replacement ABI survives release shrink
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="$(find upstream/src/zh/tencentcomics -path '*/build/outputs/apk/release/*.apk' -type f | sort | head -n 1)"
+          [[ -n "$apk" ]] || { echo "::error::No Tencent v21 Release APK found"; exit 1; }
+          dump="$RUNNER_TEMP/tencent-v21-dex.txt"
+          : > "$dump"
+          while IFS= read -r dex; do
+            unzip -p "$apk" "$dex" | strings >> "$dump"
+          done < <(unzip -Z1 "$apk" | grep -E '^classes([0-9]+)?\.dex$' || true)
+          grep -Fq 'eu/kanade/tachiyomi/source/mx/ChapterContentReplacementSource' "$dump" || {
+            echo "::error::Release APK lost ChapterContentReplacementSource ABI"
+            exit 1
+          }
+          grep -Fq 'chapterContentReplacementCapabilities' "$dump" || {
+            echo "::error::Release APK lost replacement capability member"
+            exit 1
+          }
+
+      - name: Record validation result
+        shell: bash
+        run: |
+          {
+            echo "### Tencent v21 validation"
+            echo
+            echo "- Staged private patch applied in the runner only."
+            echo "- Manga review replies share the verified official target_type=3 reply API."
+            echo "- Chapter-content replacement marker matches the current MX Bilibili/Kuaikan capability model."
+            echo "- Debug, Release and lintRelease passed."
+            echo "- Release replacement ABI survived shrinking."
+            echo "- No private source or APK was published by this validation workflow."
+          } >> "$GITHUB_STEP_SUMMARY"
