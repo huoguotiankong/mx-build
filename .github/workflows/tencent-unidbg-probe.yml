@@ -125,7 +125,7 @@ jobs:
                   @Override
                   public int getStaticIntField(BaseVM baseVm, DvmClass dvmClass, String signature) {
                     if ("android/os/Build$VERSION->SDK_INT:I".equals(signature)) {
-                      return 35;
+                      return 27;
                     }
                     return super.getStaticIntField(baseVm, dvmClass, signature);
                   }
