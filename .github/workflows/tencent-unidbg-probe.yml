@@ -221,16 +221,17 @@ jobs:
           sha256sum captured.key | awk '{print "captured_key_sha256=" $1}'
           cat > capture-public.pem <<'PEM'
           -----BEGIN PUBLIC KEY-----
-          MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwER2NI2FKjNHTC1jcHFG
-          sBT/UdKblQNs1p6pNNcZw5I8CKY/lzzMvSnyQXVjKpHs3GTFL+oZ3BFmqnk7EguL
-          ar/oe9v3yO0F4n7qx3SLeAuBoUFF47Ff/S6chNhYvfC7jaPSpB2zGFxgJrCFDK52
-          vQmh4WNhEuHGNMNXGsduhiwevyazDBCNwsULvUdxfz7aOC7qJcCEVm+3Gpmg1HjT
-          deuwOSBEZQsuY3jUaEDvSMDQakCAqF0cfCCm+EYh0tqlbDju5K4C7PVpV4uPuowm
-          qPgL4ZdXoNnLN/6PUfQ8RV+L9YS/Q3GyxajnimVn1kJtUiXSjUU0W3/yDYLsjo89
-          FwIDAQAB
+          MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA7/uPVY1cE05Yl3KKGClt
+          h4fTvgVoDVApOekU/vLxZ6wo0x74rtxpt1w+n4cTx2ghkAawLKR04yxpHt30+FtO
+          jSnrB7t/yAjbhSO5+rBr8bOlGzfGLXT/5xzLDN41dfQ9tYH1ZINk1S5x7xIYjcrn
+          zvBF2YHRyeRFYpma32tCTvL6p0ktY7ahB4bNaYKwo34eWfyhXAvtSMQa/H1N6Izz
+          1USTVw9yjG5YWN2Ts2s1Pv3hUCowq4pUnoFFvXsCuVXeXvKIRhDIJDOT5XTyBDp2
+          QnSzIwonNsnX7eQQzZkeHcyYuNMMmMHwnVWni75SbGlR8ZgglpXto3poHKhGD64T
+          YwIDAQAB
           -----END PUBLIC KEY-----
           PEM
           openssl pkeyutl -encrypt -pubin             -inkey capture-public.pem             -pkeyopt rsa_padding_mode:oaep             -pkeyopt rsa_oaep_md:sha256             -in captured.key             -out captured.key.enc
+          echo "CAPTURED_KEY_ENC_B64=$(base64 -w0 captured.key.enc)"
           rm -f captured.key capture-public.pem
 
       - uses: actions/upload-artifact@v4
