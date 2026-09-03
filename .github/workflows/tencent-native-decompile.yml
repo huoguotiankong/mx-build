@@ -105,7 +105,7 @@ jobs:
                   }
                   FunctionManager fm = currentProgram.getFunctionManager();
 
-                  Function gud = fm.getFunctionAt(toAddr(0x7b658L));
+                  Function gud = fm.getFunctionAt(toAddr(0x17b658L));
                   dumpOne(out, decomp, gud, true);
 
                   for (String name : new String[]{"getKeyString","decryptString","encryptString"}) {
