@@ -37,6 +37,45 @@ jobs:
           PY
           sha256sum jm.apk
 
+      - name: Inspect packaged web assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import pathlib,re,zipfile
+          terms=[
+              "段评","段落评","页评","吐槽",
+              "/forum","/comment","comment_id","isSpoiler","is_spoiler",
+              "photo_id","photoId","pageComment","imageComment","paragraphComment",
+              "segmentComment","commentTotal","comment_total"
+          ]
+          rx=re.compile("|".join(re.escape(x) for x in terms),re.I)
+          with zipfile.ZipFile("jm.apk") as z:
+              names=[n for n in z.namelist() if n.startswith("assets/") and n.lower().endswith((".js",".json",".html",".css",".txt"))]
+              print("ASSET_TEXT_FILES="+str(len(names)))
+              hits=[]
+              for n in names:
+                  try: text=z.read(n).decode("utf-8","ignore")
+                  except Exception: continue
+                  ms=list(rx.finditer(text))
+                  if ms: hits.append((len(ms),n,text,ms))
+              hits.sort(key=lambda x:(-x[0],x[1]))
+              print("ASSET_MATCHED_FILES="+str(len(hits)))
+              emitted=0
+              for count,n,text,ms in hits:
+                  if emitted>=40: break
+                  print(f"\\n### ASSET {n} hits={count}")
+                  seen=[]
+                  for m in ms[:25]:
+                      a=max(0,m.start()-900); b=min(len(text),m.end()+1300)
+                      if any(abs(m.start()-x)<500 for x in seen): continue
+                      seen.append(m.start())
+                      snippet=text[a:b].replace("\\n"," ")
+                      print(snippet)
+                      print("---")
+                  emitted+=1
+          PY
+
       - name: Download JADX
         shell: bash
         run: |
