@@ -1,4 +1,4 @@
-name: Tencent v20 Private Patch
+name: Tencent v21 Private Patch
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: tencent-v20-private-patch
+  group: tencent-v21-private-patch
   cancel-in-progress: false
 
 jobs:
@@ -36,7 +36,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
-      - name: Apply private Tencent patch
+      - name: Apply private Tencent v21 patch
         working-directory: source
         shell: bash
         run: |
@@ -44,10 +44,13 @@ jobs:
           test -f scripts/tencent_v20_manga_reply_patch.py
           python3 scripts/tencent_v20_manga_reply_patch.py
           rm scripts/tencent_v20_manga_reply_patch.py
-          git diff --quiet -- src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt && {
-            echo "::error::Tencent source was not modified"
+          if git diff --quiet -- \
+            src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt \
+            src/zh/tencentcomics/build.gradle.kts \
+            src/zh/tencentcomics/src/eu/kanade/tachiyomi/source/mx/ChapterContentReplacementSource.kt; then
+            echo "::error::Tencent v21 source was not modified"
             exit 1
-          }
+          fi
 
       - name: Commit private source patch
         working-directory: source
@@ -56,6 +59,10 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt scripts/tencent_v20_manga_reply_patch.py
-          git commit -m "feat(tencentcomics): add APP manga review replies"
+          git add \
+            src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt \
+            src/zh/tencentcomics/src/eu/kanade/tachiyomi/source/mx/ChapterContentReplacementSource.kt \
+            src/zh/tencentcomics/build.gradle.kts \
+            scripts/tencent_v20_manga_reply_patch.py
+          git commit -m "feat(tencentcomics): add manga replies and content replacement"
           git push origin HEAD:main
