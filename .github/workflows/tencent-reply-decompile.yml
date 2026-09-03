@@ -1,0 +1,58 @@
+name: Tencent Reply API Decompile
+
+on:
+  push:
+    paths:
+      - ".github/workflows/tencent-reply-decompile.yml"
+      - ".github/tencent-reply-decompile-trigger"
+
+permissions:
+  contents: write
+
+jobs:
+  decompile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Download APK and jadx
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -A 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/126 Mobile Safari/537.36' \
+            -L --fail --retry 3 --connect-timeout 15 --max-time 240 \
+            -o tencent.apk \
+            'https://wap.pp.cn/app/dl/fs08/2026/07/31/6/110_1d0689776bd9df3cabc573c6ccee1db0.apk'
+          curl -L --fail --retry 3 --connect-timeout 15 --max-time 240 \
+            -o jadx.zip \
+            'https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip'
+          unzip -q jadx.zip -d jadx
+
+      - name: Decompile reply request classes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out probe-results
+          ./jadx/bin/jadx --single-class 'com.qq.ac.android.model.q3' --single-class-output out/q3.java tencent.apk
+          ./jadx/bin/jadx --single-class 'com.qq.ac.android.model.x0' --single-class-output out/x0.java tencent.apk
+          cp out/q3.java probe-results/tencent-reply-q3.java
+          cp out/x0.java probe-results/tencent-reply-x0.java
+          grep -n -A80 -B20 -E 'getTopicCommentList|getReplyList|getCommentReplyList' out/q3.java out/x0.java || true
+
+      - name: Commit selected decompile
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add probe-results/tencent-reply-q3.java probe-results/tencent-reply-x0.java
+          if git diff --cached --quiet; then
+            echo "No changes"
+          else
+            git commit -m "probe: decompile Tencent reply request classes"
+            git push
+          fi
