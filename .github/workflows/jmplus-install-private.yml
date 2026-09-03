@@ -1,0 +1,61 @@
+name: JMComic Plus Private Install Bridge
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/jmplus-install-private-trigger"
+      - ".github/workflows/jmplus-install-private.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check private token
+        shell: bash
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]] || { echo "::error::Missing MX_PRIVATE_READ_TOKEN"; exit 1; }
+
+      - name: Checkout staged handoff
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-build
+          ref: extension-staging
+          path: handoff
+          persist-credentials: false
+
+      - name: Checkout private source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Install staged source and documentation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f handoff/jmplus-handoff/src/zh/jmcomicplus/build.gradle.kts
+          test -f handoff/jmplus-handoff/src/zh/jmcomicplus/src/eu/kanade/tachiyomi/extension/zh/jmcomicplus/JmComicPlus.kt
+          test -f handoff/jmplus-handoff/docs/sources/jmcomicplus.md
+          rm -rf source/src/zh/jmcomicplus
+          cp -a handoff/jmplus-handoff/src/zh/jmcomicplus source/src/zh/
+          cp handoff/jmplus-handoff/docs/sources/jmcomicplus.md source/docs/sources/jmcomicplus.md
+          rm -rf source/.bootstrap/jmplus.part-* source/.bootstrap/jmplus.trigger
+          rm -f source/.github/workflows/bootstrap-jmplus.yml
+          cd source
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat(jmcomicplus): add dual-route Plus source"
+          git push origin HEAD:main
