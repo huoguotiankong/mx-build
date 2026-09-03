@@ -1,0 +1,85 @@
+name: Tencent Reply API Probe
+
+on:
+  push:
+    paths:
+      - ".github/workflows/tencent-reply-probe.yml"
+      - ".github/tencent-reply-probe-trigger"
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Fetch and decrypt topic comments
+        shell: bash
+        run: |
+          set -euo pipefail
+          host='a.ac.qq.com'
+          version='12.19.9'
+          topic='49933575'
+          comic='644371'
+          secret='4jo2YHMm0d2VGt59tVYndX9P7eFcw8TvRv5lMqFP1TT'
+          key='42e0d587d5bda41326c2000d'
+          path="/$version/Comment/getTopicCommentList/topic_id/$topic/target_type/3/page/1/listcnt/10/comic_id/$comic"
+          localtime=$(date +%s%3N)
+          sc=$(printf '%s' "$path$host""0""$localtime$secret" | md5sum | awk '{print $1}')
+          curl -sS -L --fail --connect-timeout 10 --max-time 30 \
+            -H 'Accept: application/json, text/plain, */*' \
+            -H 'User-Agent: okhttp/4.10.0' \
+            -H 'fakeduin: 0' \
+            -H "localtime: $localtime" \
+            -H "version: $version" \
+            -H 'channel: dm306015002' \
+            -H 'userstate: 1' \
+            -H 'oversea: 1' \
+            -H "sc: $sc" \
+            -o reply.enc "https://$host$path"
+          base64 -d reply.enc > reply.bin
+          keyhex=$(printf '%s' "$key" | xxd -p -c 256)
+          openssl enc -d -des-ede3 -K "$keyhex" -in reply.bin -out reply.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          obj=json.loads(Path("reply.json").read_text("utf-8"))
+          rows=[]
+          rows.append("top_keys="+",".join(sorted(obj.keys())))
+          rows.append("error_code="+str(obj.get("error_code",obj.get("errorCode"))))
+          data=obj.get("data")
+          rows.append("data_type="+type(data).__name__)
+          if isinstance(data,dict):
+              rows.append("data_keys="+",".join(sorted(data.keys())))
+              for k,v in data.items():
+                  if isinstance(v,list):
+                      rows.append(f"{k}_list_count={len(v)}")
+                      if v and isinstance(v[0],dict):
+                          rows.append(f"{k}_item_keys="+",".join(sorted(v[0].keys())))
+                  elif isinstance(v,(str,int,float,bool)) or v is None:
+                      rows.append(f"{k}_value="+str(v)[:120])
+          elif isinstance(data,list):
+              rows.append("data_list_count="+str(len(data)))
+              if data and isinstance(data[0],dict):
+                  rows.append("data_item_keys="+",".join(sorted(data[0].keys())))
+          out="\n".join(rows)+"\n"
+          print(out)
+          Path("probe-results").mkdir(exist_ok=True)
+          Path("probe-results/tencent-reply-shape.txt").write_text(out,encoding="utf-8")
+          PY
+
+      - name: Commit sanitized response shape
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add probe-results/tencent-reply-shape.txt
+          if git diff --cached --quiet; then
+            echo "No changes"
+          else
+            git commit -m "probe: record Tencent reply response shape"
+            git push
+          fi
