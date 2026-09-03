@@ -1,0 +1,165 @@
+name: MX Extension Test Store Promote
+
+run-name: MX Test Promote · ${{ github.event_name == 'push' && 'trusted-trigger' || inputs.source }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: "mx-dev source module name under src/zh/"
+        required: true
+        default: "tencentcomics"
+        type: string
+      expected_version:
+        description: "Expected extension versionName, e.g. 1.4.15"
+        required: true
+        default: "1.4.15"
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - ".github/mx-extension-test-promote-trigger"
+      - ".github/workflows/mx-extension-test-promote.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mx-extension-test-promote
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout build infrastructure
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Resolve trusted target
+        id: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            source_name="$(sed -n 's/^source=//p' .github/mx-extension-test-promote-trigger | head -n 1)"
+            expected_version="$(sed -n 's/^expected_version=//p' .github/mx-extension-test-promote-trigger | head -n 1)"
+          else
+            source_name="${{ inputs.source }}"
+            expected_version="${{ inputs.expected_version }}"
+          fi
+          [[ "$source_name" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || { echo "::error::Invalid source module"; exit 1; }
+          [[ "$expected_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Invalid version"; exit 1; }
+          echo "source=$source_name" >> "$GITHUB_OUTPUT"
+          echo "version=$expected_version" >> "$GITHUB_OUTPUT"
+
+      - name: Check repository token
+        shell: bash
+        env:
+          MX_REPO_TOKEN: ${{ secrets.MX_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_REPO_TOKEN" ]] || { echo "::error::Missing MX_REPO_TOKEN"; exit 1; }
+
+      - name: Checkout verified staging store
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-build
+          ref: extension-staging
+          path: staging
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify staged target
+        shell: bash
+        env:
+          SOURCE_NAME: ${{ steps.target.outputs.source }}
+          EXPECTED_VERSION: ${{ steps.target.outputs.version }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          data = json.loads(Path("staging/test/index.json").read_text("utf-8"))
+          package = "eu.kanade.tachiyomi.extension.zh." + os.environ["SOURCE_NAME"]
+          items = [x for x in data["extensionList"]["extensions"] if x.get("packageName") == package]
+          if len(items) != 1:
+              raise SystemExit(f"Expected one staged {package}, got {len(items)}")
+          item = items[0]
+          if item.get("versionName") != os.environ["EXPECTED_VERSION"]:
+              raise SystemExit(
+                  f"Staged version mismatch: expected {os.environ['EXPECTED_VERSION']}, got {item.get('versionName')}"
+              )
+          apk = item.get("resources", {}).get("apkUrl", "").rsplit("/", 1)[-1]
+          if not apk or not Path("staging/test/apk", apk).is_file():
+              raise SystemExit(f"Staged APK missing: {apk}")
+          print(f"Verified staged {package} {item.get('versionName')} ({item.get('versionCode')})")
+          PY
+
+      - name: Checkout public test store
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-repo
+          ref: repo
+          token: ${{ secrets.MX_REPO_TOKEN }}
+          path: repo
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Promote verified staging snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf repo/test
+          mkdir -p repo/test
+          cp -a staging/test/. repo/test/
+
+      - name: Commit public test store
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add test
+          if git diff --cached --quiet; then
+            echo "No test-store changes to publish"
+          else
+            git commit -m "Publish ${{ steps.target.outputs.source }} v${{ steps.target.outputs.version }} test store"
+            git push origin HEAD:repo
+          fi
+
+      - name: Verify published test store
+        shell: bash
+        env:
+          SOURCE_NAME: ${{ steps.target.outputs.source }}
+          EXPECTED_VERSION: ${{ steps.target.outputs.version }}
+        run: |
+          set -euo pipefail
+          base="https://raw.githubusercontent.com/huoguotiankong/mx-repo/repo/test"
+          for file in repo.json index.json; do
+            ok=0
+            for attempt in 1 2 3 4 5 6; do
+              status="$(curl -L -sS -o "/tmp/$file" -w '%{http_code}' "$base/$file" || true)"
+              if [[ "$status" == "200" ]]; then ok=1; break; fi
+              sleep $((attempt * 2))
+            done
+            [[ "$ok" -eq 1 ]] || { echo "::error::Published test endpoint unavailable: $file"; exit 1; }
+          done
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          data = json.loads(Path("/tmp/index.json").read_text("utf-8"))
+          package = "eu.kanade.tachiyomi.extension.zh." + os.environ["SOURCE_NAME"]
+          items = [x for x in data["extensionList"]["extensions"] if x.get("packageName") == package]
+          if len(items) != 1:
+              raise SystemExit(f"Expected one published {package}, got {len(items)}")
+          item = items[0]
+          if item.get("versionName") != os.environ["EXPECTED_VERSION"]:
+              raise SystemExit(
+                  f"Published version mismatch: expected {os.environ['EXPECTED_VERSION']}, got {item.get('versionName')}"
+              )
+          print(f"Published {package} versionName={item.get('versionName')} versionCode={item.get('versionCode')}")
+          PY
