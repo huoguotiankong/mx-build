@@ -1,0 +1,23 @@
+name: Fetch Jadx
+
+on:
+  push:
+    paths:
+      - ".github/workflows/fetch-jadx.yml"
+      - ".github/fetch-jadx-trigger"
+
+permissions:
+  contents: read
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download jadx
+        run: |
+          curl -L --fail --retry 3 -o jadx.zip https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jadx
+          path: jadx.zip
+          compression-level: 0
