@@ -1,4 +1,4 @@
-name: Patch JMComic Plus v5
+name: Patch JMComic Plus v6
 
 on:
   push:
@@ -48,7 +48,7 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Apply v5 real-device patch
+      - name: Apply real-device route repair
         shell: bash
         run: |
           set -euo pipefail
@@ -59,11 +59,24 @@ jobs:
           s = p.read_text('utf-8')
           s, n = re.subn(r'd = DOC\.read_text\("utf-8"\)nd = d\.replace\(', 'd = DOC.read_text("utf-8")\n' + 'd = d.replace(', s, count=1)
           if n != 1:
-              raise SystemExit(f'helper repair failed: {n}')
+              raise SystemExit(f'helper syntax repair failed: {n}')
+          old = 'g = replace_once(g, "versionCode = 4", "versionCode = 5", "versionCode")'
+          new = 'g = replace_once(g, "versionCode = 5", "versionCode = 6", "versionCode")'
+          if old not in s:
+              raise SystemExit('helper version rebase point missing')
+          s = s.replace(old, new, 1)
           p.write_text(s, 'utf-8')
           PY
           python3 -m py_compile buildrepo/scripts/patch_jmcomicplus_v5.py
           python3 buildrepo/scripts/patch_jmcomicplus_v5.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('source/docs/sources/jmcomicplus.md')
+          s = p.read_text('utf-8')
+          s = s.replace('`1.6.5`，Android `versionCode=106005`', '`1.6.6`，Android `versionCode=106006`')
+          s = s.replace('v5 正文解混淆修正：已按当前 Keiyoushi 禁漫天堂算法对照修改，待重新执行 Spotless、Release 编译、Lint 和固定签名测试发布。', 'v5 正文解混淆修正已合入；v6 在用户实机反馈基础上继续修复 APP/API 解压/请求头、Web 镜像/解析和扩展图标。')
+          p.write_text(s, 'utf-8')
+          PY
 
       - name: Validate source layout
         working-directory: source
@@ -84,7 +97,7 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Format, build and lint v5
+      - name: Format, build and lint v6
         working-directory: upstream
         shell: bash
         run: |
@@ -99,7 +112,7 @@ jobs:
           rsync -a --delete --exclude build/ upstream/src/zh/jmcomicplus/ source/src/zh/jmcomicplus/
           python3 source/scripts/validate_sources.py
 
-      - name: Commit and push v5 source
+      - name: Commit and push v6 source
         working-directory: source
         shell: bash
         run: |
@@ -109,5 +122,5 @@ jobs:
           git add src/zh/jmcomicplus docs/sources/jmcomicplus.md
           git diff --cached --check
           git diff --cached --quiet && exit 1
-          git commit -m "fix(jmcomicplus): repair APP and web routes v5"
+          git commit -m "fix(jmcomicplus): repair APP and web routes v6"
           git push origin HEAD:main
