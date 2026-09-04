@@ -1,0 +1,78 @@
+name: Kuaikan Post Reply Shape Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/kuaikan-post-reply-shape-probe-trigger"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Probe sanitized reply object shape and paging
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,urllib.parse,urllib.request
+          BASE='https://api.kkmh.com'; POST=401470311357030336
+          H={'User-Agent':'Kuaikan/5.75.0/575000(iPhone;Scale/3.00) (iPhone; CPU)','Accept':'application/json, text/plain, */*','X-Device':'0'}
+          def call(path,p=None):
+            u=BASE+path
+            if p: u+='?'+urllib.parse.urlencode(p)
+            with urllib.request.urlopen(urllib.request.Request(u,headers=H),timeout=25) as r:
+              return r.status,json.loads(r.read().decode())
+          def walk(o,p='r',d=0):
+            if d>4:return
+            if isinstance(o,dict):
+              print(p+'.keys='+','.join(sorted(o.keys())))
+              for k,v in o.items():
+                if k in ('id','idString','commentId','comment_id','replyCount','reply_count','likeCount','like_count','createTime','created_at','createTimeStr','isLiked','content','text') and not isinstance(v,(dict,list)):
+                  s=str(v); print(p+'.'+k+'='+s[:120])
+                if isinstance(v,dict) and k.lower() in ('user','author','postreply','reply','content','replieduser','replied_user'):
+                  walk(v,p+'.'+k,d+1)
+                elif isinstance(v,list) and k.lower() in ('content','replies','replylist','reply_list','childrencomments','children_comments'):
+                  print(p+'.'+k+'.len='+str(len(v)))
+                  for i,x in enumerate(v[:2]): walk(x,p+'.'+k+f'[{i}]',d+1)
+          path=f'/v1/graph/posts/{POST}/comments/v5'
+          st,o=call(path,{'since':0,'limit':20})
+          d=o.get('data') or {}; arr=d.get('commentList') or []
+          print(f'page1.http={st} code={o.get("code")} since={d.get("since")} count={len(arr)}')
+          for i,item in enumerate(arr[:2]):
+            print('item'+str(i)+'.keys='+','.join(sorted(item.keys())))
+            pr=item.get('postReply')
+            if isinstance(pr,dict): walk(pr,'item'+str(i)+'.postReply')
+          nxt=d.get('since')
+          if nxt not in (None,-1,0):
+            st2,o2=call(path,{'since':nxt,'limit':20}); d2=o2.get('data') or {}; a2=d2.get('commentList') or []
+            print(f'page2.http={st2} code={o2.get("code")} since={d2.get("since")} count={len(a2)}')
+          # Probe a nested reply endpoint when a comment id is discoverable.
+          cid=None
+          for item in arr:
+            pr=item.get('postReply') if isinstance(item,dict) else None
+            if isinstance(pr,dict):
+              for k in ('id','commentId','comment_id'):
+                v=pr.get(k)
+                if isinstance(v,(int,str)) and str(v).isdigit(): cid=int(v); break
+            if cid: break
+          if cid:
+            print('first_comment_id='+str(cid))
+            for path2 in (f'/v1/graph/comments/{cid}/reply/v2',f'/v1/graph/comments/{cid}/reply'):
+              try:
+                st3,o3=call(path2,{'since':0,'limit':20}); d3=o3.get('data') or {}
+                print(f'nested.path={path2} http={st3} code={o3.get("code")}')
+                if isinstance(d3,dict):
+                  print('nested.data_keys='+','.join(sorted(d3.keys())))
+                  for k,v in d3.items():
+                    if isinstance(v,list):
+                      print('nested.'+k+'.len='+str(len(v)))
+                      if v and isinstance(v[0],dict): walk(v[0],'nested.'+k+'[0]')
+              except Exception as e: print(f'nested.path={path2} error={type(e).__name__}:{str(e)[:100]}')
+          PY
