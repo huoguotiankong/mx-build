@@ -28,8 +28,10 @@ old = '''        val rawQuery = query.trim()
 '''
 s = replace_once(s, old, '''        val q = query.trim()
 ''', "clean search query")
-s = replace_once(s, "                if (metadataSearch) result.semanticDedupe() else result", "                result.semanticDedupe()", "app dedupe")
-s = replace_once(s, "                if (metadataSearch) result.semanticDedupe() else result", "                result.semanticDedupe()", "web dedupe")
+dedupe_old = "                if (metadataSearch) result.semanticDedupe() else result"
+if s.count(dedupe_old) != 2:
+    raise SystemExit(f"dedupe branches: expected 2 matches, found {s.count(dedupe_old)}")
+s = s.replace(dedupe_old, "                result.semanticDedupe()")
 s = replace_once(
     s,
     '''        val clean = mangas.distinctBy { manga ->
