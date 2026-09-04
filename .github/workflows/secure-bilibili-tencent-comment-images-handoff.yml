@@ -1,0 +1,127 @@
+name: Secure Bilibili Tencent comment image handoff
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/bilibili-tencent-comment-images-handoff-trigger"
+
+permissions:
+  contents: read
+
+jobs:
+  handoff:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check private source token
+        shell: bash
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]] || { echo "::error::Missing MX_PRIVATE_READ_TOKEN"; exit 1; }
+
+      - name: Checkout private source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Apply staged image patch
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/patch_comment_images_bilibili_tencent.py
+          git diff --check
+          grep -F 'versionCode = 22' src/zh/bilibilimanga/build.gradle.kts
+          grep -F 'versionCode = 24' src/zh/tencentcomics/build.gradle.kts
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Checkout current Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Format exact source handoff
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf upstream/src/zh/bilibilimanga upstream/src/zh/tencentcomics
+          mkdir -p upstream/src/zh
+          cp -a source/src/zh/bilibilimanga upstream/src/zh/bilibilimanga
+          cp -a source/src/zh/tencentcomics upstream/src/zh/tencentcomics
+          cd upstream
+          ./gradlew \
+            :src:zh:bilibilimanga:spotlessApply \
+            :src:zh:tencentcomics:spotlessApply
+          cd ..
+          cp upstream/src/zh/bilibilimanga/build.gradle.kts source/src/zh/bilibilimanga/build.gradle.kts
+          cp upstream/src/zh/bilibilimanga/src/eu/kanade/tachiyomi/extension/zh/bilibilimanga/BilibiliManga.kt \
+            source/src/zh/bilibilimanga/src/eu/kanade/tachiyomi/extension/zh/bilibilimanga/BilibiliManga.kt
+          cp upstream/src/zh/tencentcomics/build.gradle.kts source/src/zh/tencentcomics/build.gradle.kts
+          cp upstream/src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt \
+            source/src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+          git -C source diff --check
+
+      - name: Encrypt validated source handoff
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$RUNNER_TEMP/mx-secure-handoff"
+          cat > "$RUNNER_TEMP/mx-public.pem" <<'PEM'
+          -----BEGIN PUBLIC KEY-----
+          MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEA6vLB+2jCMW2yhDrkxlFl
+          ghFJFOZSfv6yROn4zTIP9AIAKy9TuzLRw0pXBT0F8M6VIhrhFn37PV0i+Dn9UaYn
+          3RByHlr3FRAHJKleud42a+I5Uh+8X+Mp/aqt/q2dzDLaD6z0mzmBKkkbeLTkeFS+
+          ALR6eBm7zx9MK6w1+pRtCyoxyg6OsEjQwe6yymYhwqhn7tnf04vI0MW2o2mOdBUi
+          HpgogfCS0NVAcFJh5OLcX29T9rHvh9xksvOc3rVBGNn4OUHIqXzLh2/eDeYB3JRC
+          nApGjmLdKVcZrlrZKT2X1UMSgCabSp350z3AMUvC5OFzjY7X9F/NPf/JDZ5zhIAw
+          1HdFo34szv29SEus5OTLTGv5/qkB/OPrCF2n7vgun5u8Zz5pbFOSSzUEnDikK8NP
+          ynAQVt+g99H+QX2PwQ5tNSMstGQgFPP1nxFaJnOhJ3XMzYA3QDSPEF+M67IzVA/P
+          /2u+/kbtORYTJFWrdX/VK/yIfdlz3S4tJdD+WA5A1+UbAgMBAAE=
+          -----END PUBLIC KEY-----
+          PEM
+          tar -C source -czf "$RUNNER_TEMP/mx-comment-images.tar.gz" \
+            src/zh/bilibilimanga/build.gradle.kts \
+            src/zh/bilibilimanga/src/eu/kanade/tachiyomi/extension/zh/bilibilimanga/BilibiliManga.kt \
+            docs/sources/bilibilimanga.md \
+            src/zh/tencentcomics/build.gradle.kts \
+            src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt \
+            docs/sources/tencentcomics.md
+          key="$(openssl rand -hex 32)"
+          iv="$(openssl rand -hex 16)"
+          openssl enc -aes-256-cbc -K "$key" -iv "$iv" \
+            -in "$RUNNER_TEMP/mx-comment-images.tar.gz" \
+            -out "$RUNNER_TEMP/mx-secure-handoff/source.tar.gz.enc"
+          printf '%s:%s' "$key" "$iv" > "$RUNNER_TEMP/mx-key.txt"
+          openssl pkeyutl -encrypt -pubin -inkey "$RUNNER_TEMP/mx-public.pem" \
+            -in "$RUNNER_TEMP/mx-key.txt" \
+            -out "$RUNNER_TEMP/mx-secure-handoff/key.enc" \
+            -pkeyopt rsa_padding_mode:oaep \
+            -pkeyopt rsa_oaep_md:sha256
+          sha256sum "$RUNNER_TEMP/mx-comment-images.tar.gz" | awk '{print $1}' > "$RUNNER_TEMP/mx-secure-handoff/plaintext-sha256.txt"
+          rm -f "$RUNNER_TEMP/mx-comment-images.tar.gz" "$RUNNER_TEMP/mx-key.txt" "$RUNNER_TEMP/mx-public.pem"
+
+      - name: Upload encrypted handoff only
+        uses: actions/upload-artifact@v4
+        with:
+          name: secure-bilibili-tencent-comment-images
+          path: ${{ runner.temp }}/mx-secure-handoff
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
