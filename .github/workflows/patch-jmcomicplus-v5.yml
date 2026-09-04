@@ -72,18 +72,22 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
 
-          # The Python helper previously emitted an invalid Kotlin single-quote char literal.
-          # Rewrite the generated line using only the delimiters we actually need to trim.
           kp = Path('source/src/zh/jmcomicplus/src/eu/kanade/tachiyomi/extension/zh/jmcomicplus/JmComicPlus.kt')
           lines = kp.read_text('utf-8').splitlines()
-          hits = 0
+          domain_hits = 0
+          bom_hits = 0
           for i, line in enumerate(lines):
+              indent = line[:len(line) - len(line.lstrip())]
               if 'DOMAIN_REGEX.findAll(html).map' in line:
-                  indent = line[:len(line) - len(line.lstrip())]
                   lines[i] = indent + "DOMAIN_REGEX.findAll(html).map { it.value.trimEnd('/', '\\\\', '\"') }.filterNot(::isLegacyWebBase).forEach(out::add)"
-                  hits += 1
-          if hits != 1:
-              raise SystemExit(f'generated Kotlin domain line repair expected 1 hit, found {hits}')
+                  domain_hits += 1
+              if 'val raw = response.body.string().trimStart(' in line:
+                  lines[i] = indent + "val raw = response.body.string().trimStart('\\uFEFF')"
+                  bom_hits += 1
+          if domain_hits != 1:
+              raise SystemExit(f'generated Kotlin domain line repair expected 1 hit, found {domain_hits}')
+          if bom_hits != 1:
+              raise SystemExit(f'generated Kotlin BOM line repair expected 1 hit, found {bom_hits}')
           kp.write_text('\n'.join(lines) + '\n', 'utf-8')
 
           dp = Path('source/docs/sources/jmcomicplus.md')
