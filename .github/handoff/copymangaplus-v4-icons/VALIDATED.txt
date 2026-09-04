@@ -1,0 +1,1 @@
+normalized from fumiama/copymanga mipmap-xxxhdpi ic_launcher.png with Pillow RGBA PNG
