@@ -1,0 +1,353 @@
+diff -ruN a/src/zh/jmcomicplus/build.gradle.kts b/src/zh/jmcomicplus/build.gradle.kts
+--- a/src/zh/jmcomicplus/build.gradle.kts	2026-09-04 04:31:58.000000000 +0000
++++ b/src/zh/jmcomicplus/build.gradle.kts	2026-09-04 07:28:58.095637301 +0000
+@@ -6,7 +6,7 @@
+ 
+ keiyoushi {
+     name = "JMComic Plus"
+-    versionCode = 6
++    versionCode = 7
+     contentWarning = ContentWarning.NSFW
+     libVersion = "1.6"
+ 
+diff -ruN a/src/zh/jmcomicplus/src/eu/kanade/tachiyomi/extension/zh/jmcomicplus/JmComicPlus.kt b/src/zh/jmcomicplus/src/eu/kanade/tachiyomi/extension/zh/jmcomicplus/JmComicPlus.kt
+--- a/src/zh/jmcomicplus/src/eu/kanade/tachiyomi/extension/zh/jmcomicplus/JmComicPlus.kt	2026-09-04 04:33:40.000000000 +0000
++++ b/src/zh/jmcomicplus/src/eu/kanade/tachiyomi/extension/zh/jmcomicplus/JmComicPlus.kt	2026-09-04 07:28:58.094577820 +0000
+@@ -243,7 +243,7 @@
+         val base = cachedWebBase()
+         val doc = parseWebDocument(html, base)
+         val title = doc.selectFirst("h1")?.text().orEmpty().ifBlank { "JM$id" }
+-        val image = doc.selectFirst(".thumb-overlay img,img")?.let { absoluteUrl(base, it.attr("data-original").ifBlank { it.attr("src") }) }
++        val image = webCoverUrl(doc, base, id)
+         val authors = (doc.select("a.web-author-tag").ifEmpty { doc.select("div.panel-body div.tag-block:eq(3) .btn-primary") }).map { it.text().trim() }.filter(String::isNotBlank).distinct()
+         val tags = doc.select("#intro-block [data-type=tags] a,[data-type=tags] a,.tag a,span[itemprop=genre] a").map { it.text().trim() }.filter(String::isNotBlank).filterNot { it in setOf("連載中", "连载中", "完結", "完结") }.distinct()
+         val description = doc.selectFirst(".intro-collapse-content,#intro-block .p-t-5.p-b-5")?.text()?.substringAfter("敘述：")?.trim()
+@@ -277,6 +277,9 @@
+                 "tags" to JsonArray(tags.map(::JsonPrimitive)),
+                 "description" to JsonPrimitive(description.orEmpty()),
+                 "image" to JsonPrimitive(image.orEmpty()),
++                "comment_total" to JsonPrimitive(
++                    doc.selectFirst("#total_video_comments")?.text()?.filter(Char::isDigit)?.toLongOrNull() ?: 0L,
++                ),
+             ),
+         )
+         val manga = SManga.create().apply {
+@@ -376,41 +379,182 @@
+ 
+     override val commentCapabilities = CommentCapabilities(true, true, true, true, false, true)
+ 
+-    override suspend fun getMangaCommentTarget(manga: SManga) = CommentTarget(albumId(manga.url), getMangaUrl(manga), CommentTargetKind.MANGA)
++    override suspend fun getMangaCommentTarget(manga: SManga): CommentTarget {
++        val aid = albumId(manga.url)
++        return CommentTarget(aid, getMangaUrl(manga), CommentTargetKind.MANGA)
++    }
+ 
+-    override suspend fun getChapterCommentTarget(manga: SManga, chapter: SChapter) = CommentTarget(photoId(chapter.url), getChapterUrl(chapter), CommentTargetKind.CHAPTER)
++    override suspend fun getChapterCommentTarget(manga: SManga, chapter: SChapter): CommentTarget {
++        val aid = albumId(manga.url)
++        val pid = photoId(chapter.url)
++        return CommentTarget("$aid:$pid", getChapterUrl(chapter), CommentTargetKind.CHAPTER)
++    }
+ 
+-    override suspend fun getComments(target: CommentTarget, page: Int): CommentPage = dual(
+-        app = { apiComments(target, page.coerceAtLeast(1)) },
+-        web = { webComments(target, page.coerceAtLeast(1)) },
+-    )
++    override suspend fun getComments(target: CommentTarget, page: Int): CommentPage {
++        val safePage = page.coerceAtLeast(1)
++        // JM 网页端 album_pagination 只提供本子评论；章节评论使用 APP/API forum 的章节作用域。
++        return if (target.kind == CommentTargetKind.CHAPTER) {
++            apiComments(target, safePage)
++        } else {
++            dual(
++                app = { apiComments(target, safePage) },
++                web = { webComments(target, safePage) },
++            )
++        }
++    }
+ 
+     private fun apiComments(target: CommentTarget, page: Int): CommentPage {
+-        val d = apiRequest("forum?aid=${enc(target.id)}&mode=all&page=$page")
+-        val box = d.asObjectLikeOrNull()
+-        val arr = when (d) {
+-            is JsonArray -> d
+-            is JsonObject -> d.array("content", "list", "comments", "data") ?: JsonArray(emptyList())
+-            else -> JsonArray(emptyList())
+-        }
+-        val comments = arr.mapNotNull { it as? JsonObject }.mapNotNull { commentFromJson(it, null, target.id) }
+-        val total = box?.long("total", "count", "total_count") ?: comments.size.toLong()
+-        return CommentPage(comments, comments.isNotEmpty() && (total > page * comments.size || comments.size >= COMMENT_PAGE_HINT), total)
++        val scope = commentScope(target)
++        val path = buildString {
++            append("forum?aid=${enc(scope.albumId)}&mode=all&page=$page")
++            scope.chapterId?.let { append("&ncid=${enc(it)}") }
++        }
++        val d = apiRequest(path)
++        val arr = commentArray(d)
++        val comments = arr.mapNotNull { it as? JsonObject }
++            .mapNotNull { commentFromJson(it, null, scope.cacheKey) }
++        val total = commentTotal(d) ?: comments.size.toLong()
++        val hasNext = total > page * COMMENT_PAGE_HINT || comments.size >= COMMENT_PAGE_HINT
++        return CommentPage(comments, hasNext, total)
+     }
+ 
+     private fun webComments(target: CommentTarget, page: Int): CommentPage {
+-        val raw = webRequest("ajax/album_pagination", "POST", mapOf("video_id" to target.id, "page" to page.toString(), "series" to "1", "with_ad_wcm" to "1"))
++        val scope = commentScope(target)
++        if (scope.chapterId != null) {
++            return apiComments(target, page)
++        }
++
++        val raw = webRequest(
++            "ajax/album_pagination",
++            "POST",
++            mapOf(
++                "video_id" to scope.albumId,
++                "page" to page.toString(),
++                "series" to "1",
++                "with_ad_wcm" to "1",
++            ),
++        )
+         val maybeJson = runCatching { json.parseToJsonElement(raw) }.getOrNull()
+-        val html = (maybeJson as? JsonObject)?.string("html", "content", "data", "result", "msg")?.takeIf { it.contains('<') } ?: raw
++        val html = (maybeJson as? JsonObject)
++            ?.string("code", "html", "content", "result", "msg")
++            ?.takeIf { it.contains('<') }
++            ?: raw
++
+         val doc = Jsoup.parse(html, cachedWebBase())
+-        val comments = doc.select("[id^=comment_],.forum-comment,.comment-list .media,.well").mapIndexedNotNull { index, e ->
+-            val id = (e.attr("data-id").ifBlank { e.id() }).replace(Regex("\\D+"), "").ifBlank { "w${page}_$index" }
+-            val name = e.selectFirst(".username,.author,.media-heading,strong")?.text()?.trim().orEmpty().ifBlank { "JM用户" }
+-            val body = e.selectFirst(".comment-content,.content,.forum-content,.media-body p")?.text()?.trim() ?: e.text().replace(name, "").trim()
++        val nodes = doc.select(
++            ".timeline[data-cid],[id^=comment_],.forum-comment,.comment-list .media,.well",
++        ).filter { element ->
++            !element.hasClass("timeline") || element.parents().none { it.hasClass("timeline") }
++        }
++
++        val comments = nodes.mapIndexedNotNull { index, e ->
++            val id = e.attr("data-cid")
++                .ifBlank { e.attr("data-id") }
++                .ifBlank { e.id() }
++                .replace(Regex("\\D+"), "")
++                .ifBlank { "w${page}_$index" }
++
++            val avatarNode = e.selectFirst(".timeline-avatar,img[data-userid],img[src*=/media/users/]")
++            val uid = avatarNode?.attr("data-userid")?.takeIf(String::isNotBlank)
++            val avatar = avatarNode?.let {
++                val rawAvatar = it.attr("data-original")
++                    .ifBlank { it.attr("data-src").ifBlank { it.attr("src") } }
++                absoluteUrl(cachedWebBase(), rawAvatar).takeIf(String::isNotBlank)
++            }
++
++            val userLink = e.selectFirst(".timeline-left a[href*=/user/],a[href*=/user/]")
++            val name = e.selectFirst(
++                ".timeline-username,.username,.author,.media-heading,.user-name,strong",
++            )?.text()?.trim()
++                ?.takeIf(String::isNotBlank)
++                ?: userLink?.text()?.trim()?.takeIf(String::isNotBlank)
++                ?: userLink?.attr("href")?.substringAfterLast('/')?.takeIf(String::isNotBlank)
++                ?: "JM用户"
++
++            val body = e.selectFirst(
++                ".timeline-content,.comment-content,.content,.forum-content,.media-body p",
++            )?.text()?.trim()
++                ?: e.ownText().trim()
+             if (body.isBlank()) return@mapIndexedNotNull null
+-            Comment(id, CommentAuthor(name = name), body, 0L)
++
++            val time = e.selectFirst(
++                ".timeline-time,.timeline-date,.comment-time,.text-muted,time",
++            )?.text()?.trim()?.takeIf(String::isNotBlank)
++
++            val likeCount = e.selectFirst(
++                "[data-likes],.like-count,.likes-count,.fa-thumbs-up + span",
++            )?.let {
++                it.attr("data-likes").ifBlank { it.text() }
++                    .filter(Char::isDigit)
++                    .toLongOrNull()
++            } ?: 0L
++
++            Comment(
++                id = id,
++                author = CommentAuthor(uid, name, avatar),
++                content = body,
++                createdAt = parseDate(time),
++                displayTime = time,
++                likeCount = likeCount,
++            )
+         }.distinctBy(Comment::id)
+-        return CommentPage(comments, comments.isNotEmpty(), comments.size.toLong())
++
++        val hasNext = doc.selectFirst(
++            "a.prevnext,a[id^=p_album_comments_],.pagination a[rel=next]",
++        ) != null
++        val total = runCatching {
++            detail(scope.albumId).meta.long("comment_total", "commentCount", "comment_count")
++        }.getOrNull() ?: comments.size.toLong()
++
++        return CommentPage(comments, hasNext, total)
++    }
++
++    private fun commentScope(target: CommentTarget): CommentScope {
++        if (target.kind == CommentTargetKind.MANGA) {
++            return CommentScope(target.id.substringBefore(':'), null)
++        }
++
++        val parts = target.id.split(':', limit = 2)
++        if (parts.size == 2 && parts[0].all(Char::isDigit) && parts[1].all(Char::isDigit)) {
++            return CommentScope(parts[0], parts[1])
++        }
++
++        val url = target.url.orEmpty()
++        val aid = Regex("[?&]jm_album=(\\d+)").find(url)?.groupValues?.getOrNull(1)
++        val pid = PHOTO_ID.find(url)?.groupValues?.getOrNull(1)
++            ?: target.id.takeIf { it.all(Char::isDigit) }
++        if (aid != null && pid != null) return CommentScope(aid, pid)
++
++        val legacy = target.id.substringBefore(':')
++        return CommentScope(legacy, null)
++    }
++
++    private fun commentArray(value: JsonElement): JsonArray {
++        if (value is JsonArray) return value
++        if (value !is JsonObject) return JsonArray(emptyList())
++
++        value.array("list", "content", "comments")?.let { return it }
++        val data = value["data"]
++        if (data is JsonArray) return data
++        if (data is JsonObject) {
++            data.array("list", "content", "comments", "data")?.let { return it }
++        }
++        val result = value["result"]
++        if (result is JsonArray) return result
++        if (result is JsonObject) {
++            result.array("list", "content", "comments", "data")?.let { return it }
++        }
++        return JsonArray(emptyList())
++    }
++
++    private fun commentTotal(value: JsonElement): Long? {
++        if (value !is JsonObject) return null
++        value.long("total", "count", "total_count", "comment_total")?.let { return it }
++        for (key in listOf("data", "result")) {
++            val child = value[key] as? JsonObject ?: continue
++            child.long("total", "count", "total_count", "comment_total")?.let { return it }
++        }
++        return null
+     }
+ 
+     private fun commentFromJson(o: JsonObject, parentId: String?, targetId: String): Comment? {
+@@ -444,9 +588,10 @@
+ 
+     override suspend fun getCommentReplies(target: CommentTarget, comment: Comment, page: Int): CommentPage {
+         if (page > 1) return CommentPage(emptyList(), false, comment.replyCount)
+-        replyCache["${target.id}:${comment.id}"]?.let { return CommentPage(it, false, comment.replyCount) }
++        val cacheKey = commentScope(target).cacheKey
++        replyCache["$cacheKey:${comment.id}"]?.let { return CommentPage(it, false, comment.replyCount) }
+         runCatching { getComments(target, 1) }
+-        val replies = replyCache["${target.id}:${comment.id}"].orEmpty()
++        val replies = replyCache["$cacheKey:${comment.id}"].orEmpty()
+         return CommentPage(replies, false, comment.replyCount.takeIf { it > 0 } ?: replies.size.toLong())
+     }
+ 
+@@ -458,23 +603,36 @@
+         val text = content.trim()
+         if (text.isBlank()) throw IOException("评论内容不能为空")
+         if (!hasCredentials() && storedAvs().isBlank()) throw IOException("请先在扩展设置中填写账号密码并登录")
++        val scope = commentScope(target)
+         val errors = mutableListOf<String>()
+-        val webOk = runCatching {
+-            ensureWebLogin()
+-            val form = linkedMapOf("video_id" to target.id, "comment" to text, "originator" to "")
+-            if (parent == null) {
+-                form["status"] = "true"
+-            } else {
+-                form["comment_id"] = parent.id
+-                form["is_reply"] = "1"
+-                form["forum_subject"] = "1"
+-            }
+-            val raw = webRequest("ajax/album_comment", "POST", form)
+-            val o = runCatching { json.parseToJsonElement(raw) as? JsonObject }.getOrNull()
+-            if (o?.boolLike("err") == true || o?.string("status") in setOf("0", "false")) throw IOException(o.string("msg", "error") ?: "发表评论失败")
+-        }.onFailure { errors += "Web: ${it.message}" }.isSuccess
++        val webOk = if (scope.chapterId == null) {
++            runCatching {
++                ensureWebLogin()
++                val form = linkedMapOf("video_id" to scope.albumId, "comment" to text, "originator" to "")
++                if (parent == null) {
++                    form["status"] = "true"
++                } else {
++                    form["comment_id"] = parent.id
++                    form["is_reply"] = "1"
++                    form["forum_subject"] = "1"
++                }
++                val raw = webRequest("ajax/album_comment", "POST", form)
++                val o = runCatching { json.parseToJsonElement(raw) as? JsonObject }.getOrNull()
++                if (o?.boolLike("err") == true || o?.string("status") in setOf("0", "false")) {
++                    throw IOException(o.string("message", "msg", "error") ?: "发表评论失败")
++                }
++            }.onFailure { errors += "Web: ${it.message}" }.isSuccess
++        } else {
++            false
++        }
+         if (!webOk) {
+-            runCatching { apiRequest("comment", "POST", mapOf("aid" to target.id, "comment" to text, "comment_id" to (parent?.id ?: "0"))) }
++            val form = linkedMapOf(
++                "aid" to scope.albumId,
++                "comment" to text,
++                "comment_id" to (parent?.id ?: "0"),
++            )
++            scope.chapterId?.let { form["ncid"] = it }
++            runCatching { apiRequest("comment", "POST", form) }
+                 .onFailure { errors += "APP/API: ${it.message}" }
+                 .getOrElse { throw IOException("发送失败：${errors.joinToString(" | ")}") }
+         }
+@@ -867,6 +1025,27 @@
+ 
+     private fun imageShunt() = preferences.getString(PREF_SHUNT, "1").orEmpty().ifBlank { "1" }
+ 
++    private fun webCoverUrl(doc: Document, base: String, id: String): String? {
++        val img = doc.selectFirst(".thumb-overlay > img") ?: return null
++        val raw = img.attr("data-original")
++            .ifBlank { img.attr("data-src").ifBlank { img.attr("data-cfsrc").ifBlank { img.attr("src") } } }
++        val absolute = absoluteUrl(base, raw).substringBefore('?')
++        if (absolute.isBlank()) return null
++
++        val file = absolute.substringAfterLast('/')
++        if (Regex("_3x4\\.[A-Za-z0-9]+$", RegexOption.IGNORE_CASE).containsMatchIn(file)) {
++            return absolute
++        }
++
++        val dot = absolute.lastIndexOf('.')
++        val slash = absolute.lastIndexOf('/')
++        return if (dot > slash) {
++            absolute.substring(0, dot) + "_3x4" + absolute.substring(dot)
++        } else {
++            "${absolute.trimEnd('/')}_3x4.jpg"
++        }
++    }
++
+     private fun coverUrl(o: JsonObject, id: String): String {
+         val raw = o.string("image", "pic_s", "cover", "thumb").orEmpty()
+         if (raw.startsWith("http://") || raw.startsWith("https://")) return raw
+@@ -940,6 +1119,9 @@
+     private data class DetailBundle(val manga: SManga, val chapters: List<SChapter>, val meta: JsonObject, val route: String)
+     private data class CachedDetail(val time: Long, val value: DetailBundle)
+     private data class PageBundle(val images: List<String>, val scrambleId: Int)
++    private data class CommentScope(val albumId: String, val chapterId: String?) {
++        val cacheKey: String get() = if (chapterId == null) albumId else "$albumId:$chapterId"
++    }
+ 
+     companion object {
+         private const val UA_WEB = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+@@ -950,7 +1132,7 @@
+         private const val APP_VERSION = "2.1.2"
+         private val APP_VERSIONS = listOf("2.1.2", "2.0.20")
+         private const val DATA_SECRET = "185Hcomic3PAPP7R"
+-        private val TOKEN_SECRETS = listOf("185Hcomic3PAPP7R")
++        private val TOKEN_SECRETS = listOf("18comicAPP", "185Hcomic3PAPP7R")
+         private const val CONTENT_SECRET = "18comicAPPContent"
+         private const val DOMAIN_SECRET = "diosfjckwpqpdfjkvnqQjsik"
+         private val API_DOMAIN_SERVERS = listOf("https://rup4a04-c01.tos-ap-southeast-1.bytepluses.com/newsvr-2025.txt", "https://rup4a04-c02.tos-cn-hongkong.bytepluses.com/newsvr-2025.txt", "https://rup4a04-c03.tos-cn-beijing.bytepluses.com.cn/newsvr-2025.txt")
