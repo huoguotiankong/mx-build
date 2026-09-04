@@ -1,0 +1,146 @@
+name: Kuaikan Native Comments V2 Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/kuaikan-native-comments-v2-probe.yml"
+      - ".github/kuaikan-native-comments-v2-probe-trigger"
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - name: Probe exact Kuaikan 8.22 native comment routes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, urllib.parse, urllib.request
+          from pathlib import Path
+
+          BASE='https://api.kkmh.com'
+          TOPIC=766
+          COMIC=196392
+          UAS={
+              'app822':'Kuaikan/8.22.0/822000(Android;Scale/3.00)',
+              'legacy':'Kuaikan/5.75.0/575000(iPhone;Scale/3.00) (iPhone; CPU)',
+          }
+
+          def call(method,path,params=None,body=None,ua='app822'):
+              url=BASE+path
+              if params: url += '?' + urllib.parse.urlencode(params)
+              payload=None
+              headers={
+                  'User-Agent':UAS[ua],
+                  'Accept':'application/json, text/plain, */*',
+                  'X-Device':'0',
+                  'Referer':'https://www.kuaikanmanhua.com/',
+              }
+              if body is not None:
+                  payload=json.dumps(body,separators=(',',':')).encode()
+                  headers['Content-Type']='application/json; charset=utf-8'
+              req=urllib.request.Request(url,data=payload,headers=headers,method=method)
+              try:
+                  with urllib.request.urlopen(req,timeout=25) as r:
+                      raw=r.read()
+                      try: obj=json.loads(raw.decode())
+                      except: obj=None
+                      return r.status,len(raw),obj
+              except Exception as e:
+                  return None,0,{'_error':type(e).__name__+':'+str(e)}
+
+          def keystr(v): return ','.join(sorted(v.keys())) if isinstance(v,dict) else ''
+          def find_list(v,depth=0):
+              if depth>6:return None
+              if isinstance(v,dict):
+                  for k in ('commentFloors','comment_floors','floors','models','feeds','posts','list'):
+                      if isinstance(v.get(k),list): return v[k]
+                  for x in v.values():
+                      if isinstance(x,(dict,list)):
+                          r=find_list(x,depth+1)
+                          if r is not None:return r
+              if isinstance(v,list):
+                  for x in v[:10]:
+                      r=find_list(x,depth+1)
+                      if r is not None:return r
+              return None
+          def find_scalar(v,names,depth=0):
+              if depth>6:return None
+              if isinstance(v,dict):
+                  for k in names:
+                      if k in v and not isinstance(v[k],(dict,list)):return v[k]
+                  for x in v.values():
+                      if isinstance(x,(dict,list)):
+                          r=find_scalar(x,names,depth+1)
+                          if r is not None:return r
+              if isinstance(v,list):
+                  for x in v[:10]:
+                      r=find_scalar(x,names,depth+1)
+                      if r is not None:return r
+              return None
+
+          lines=[]
+          for ua in UAS:
+              for source in range(0,6):
+                  for order in ('score','time'):
+                      tag=f'floor.{ua}.source{source}.{order}'
+                      st,n,o=call('GET','/v2/comments/cruel/floor_list',{
+                          'target_type':'comic','target_id':COMIC,'order':order,
+                          'offset':0,'limit':20,'total':'false','source':source,
+                      },ua=ua)
+                      code=o.get('code') if isinstance(o,dict) else None
+                      msg=o.get('message') if isinstance(o,dict) else None
+                      d=o.get('data') if isinstance(o,dict) else None
+                      arr=find_list(d)
+                      lines.append(f'{tag}.http={st} bytes={n} code={code} message={str(msg)[:80]}')
+                      if isinstance(d,dict): lines.append(f'{tag}.data_keys={keystr(d)}')
+                      lines.append(f'{tag}.count={len(arr) if isinstance(arr,list) else -1}')
+                      lines.append(f'{tag}.since={find_scalar(d,{"since","offset"})}')
+                      lines.append(f'{tag}.total={find_scalar(d,{"total","normalTotal","normal_total"})}')
+                      if isinstance(arr,list) and arr and isinstance(arr[0],dict):
+                          lines.append(f'{tag}.first_keys={keystr(arr[0])}')
+
+          bodies=[]
+          for page_id in (6,7):
+              bodies += [
+                  (f'p{page_id}.minimal',{'feedType':50,'since':0,'limit':20,'topicId':TOPIC,'pageId':page_id}),
+                  (f'p{page_id}.full',{'feedType':50,'since':0,'limit':20,'topicId':TOPIC,'pageId':page_id,'otherWebSiteComic':False}),
+                  (f'p{page_id}.snake',{'feed_type':50,'since':0,'limit':20,'topic_id':TOPIC,'page_id':page_id}),
+              ]
+          for ua in UAS:
+              for name,body in bodies:
+                  tag=f'unified.{ua}.{name}'
+                  st,n,o=call('POST','/v1/graph/unified_feed',body=body,ua=ua)
+                  code=o.get('code') if isinstance(o,dict) else None
+                  msg=o.get('message') if isinstance(o,dict) else None
+                  d=o.get('data') if isinstance(o,dict) else None
+                  arr=find_list(d)
+                  lines.append(f'{tag}.http={st} bytes={n} code={code} message={str(msg)[:80]}')
+                  if isinstance(d,dict): lines.append(f'{tag}.data_keys={keystr(d)}')
+                  lines.append(f'{tag}.count={len(arr) if isinstance(arr,list) else -1}')
+                  lines.append(f'{tag}.since={find_scalar(d,{"since","nextSince","next_since"})}')
+                  if isinstance(arr,list) and arr and isinstance(arr[0],dict):
+                      lines.append(f'{tag}.first_keys={keystr(arr[0])}')
+
+          out='\n'.join(lines)+'\n'
+          print(out)
+          Path('probe-results').mkdir(exist_ok=True)
+          Path('probe-results/kuaikan-native-comments-v2-probe.txt').write_text(out,encoding='utf-8')
+          PY
+      - name: Commit sanitized summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git pull --rebase origin main
+          git add probe-results/kuaikan-native-comments-v2-probe.txt
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "probe: record Kuaikan native comment v2 routes"
+          git push
