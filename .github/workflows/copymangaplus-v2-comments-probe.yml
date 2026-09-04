@@ -1,0 +1,187 @@
+name: CopyManga Plus v2 Comments Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/copymangaplus-v2-comments-probe.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout private MX source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Probe v2 comment endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, datetime as dt, gzip, hashlib, hmac, json, random, re, string, time
+          import urllib.error, urllib.parse, urllib.request
+          from pathlib import Path
+
+          src=Path('source/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt').read_text('utf-8')
+          def const(name):
+              m=re.search(rf'private const val {re.escape(name)} = "([^"]+)"',src)
+              if not m: raise SystemExit(f'missing {name}')
+              return m.group(1)
+          secret=const('SECRET_B64'); um=const('UMSTRING')
+          COPY_VERSION='3.0.9'
+          COPY_HOSTS=['api.copy202601.com','api.copy-manga.com','api.copy2000.online','api.mangacopy.com']
+          HOT_VERSION='2024.4.28'
+          HOT_HOSTS=['api.2024manga.com','mapi.hotmangasg.com','mapi.hotmangasd.com','mapi.hotmangasf.com']
+          HOT_UA='Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36 Edg/141.0.0.0'
+
+          def rand_text(n):
+              a=string.ascii_letters+string.digits
+              return ''.join(random.choice(a) for _ in range(n))
+          def copy_headers():
+              ts=str(int(time.time())); sig=hmac.new(base64.b64decode(secret),ts.encode(),hashlib.sha256).hexdigest()
+              dev=f'AA{random.randrange(10)}A.'+''.join(str(random.randrange(10)) for _ in range(6))+'.'+''.join(str(random.randrange(10)) for _ in range(3))
+              return {
+                  'User-Agent':f'COPY/{COPY_VERSION}','source':'copyApp',
+                  'deviceinfo':f'{random.randrange(1000000,10000000)}V-{random.randrange(1000,10000)}',
+                  'dt':dt.datetime.now().strftime('%Y.%m.%d'),'platform':'3',
+                  'referer':f'com.copymanga.app-{COPY_VERSION}','version':COPY_VERSION,'device':dev,
+                  'pseudoid':rand_text(16),'Accept':'application/json','region':'0','authorization':'Token',
+                  'umstring':um,'x-auth-timestamp':ts,'x-auth-signature':sig,
+              }
+          def hot_headers():
+              return {'User-Agent':HOT_UA,'Accept':'application/json','webp':'1','platform':'3','version':HOT_VERSION,'X-Requested-With':'com.manga2020.app','authorization':'Token'}
+          def req(host,path,kind,timeout=8):
+              headers=copy_headers() if kind=='copy' else hot_headers()
+              request=urllib.request.Request('https://'+host+path,headers=headers)
+              t=time.monotonic()
+              try:
+                  with urllib.request.urlopen(request,timeout=timeout) as r:
+                      status=r.status; body=r.read(); enc=r.headers.get('Content-Encoding','')
+              except urllib.error.HTTPError as e:
+                  status=e.code; body=e.read(); enc=e.headers.get('Content-Encoding','')
+              elapsed=round(time.monotonic()-t,3)
+              if 'gzip' in (enc or '').lower(): body=gzip.decompress(body)
+              text=body.decode('utf-8','replace')
+              try: data=json.loads(text)
+              except Exception: data={'raw':text[:500]}
+              return {'http':status,'elapsed':elapsed,'data':data,'bytes':len(body)}
+          def summarize(r):
+              d=r['data'] if isinstance(r.get('data'),dict) else {}
+              res=d.get('results') if isinstance(d,dict) else None
+              out={'http':r['http'],'elapsed':r['elapsed'],'bytes':r['bytes'],'code':d.get('code'),'message':d.get('message')}
+              if isinstance(res,dict):
+                  out['result_keys']=sorted(res.keys())
+                  if isinstance(res.get('list'),list):
+                      out['list_count']=len(res['list']); out['total']=res.get('total'); out['offset']=res.get('offset'); out['limit']=res.get('limit')
+                      if res['list']:
+                          item=res['list'][0]
+                          if isinstance(item,dict): out['first_keys']=sorted(item.keys())
+              elif res is not None: out['results_type']=type(res).__name__
+              if 'raw' in d: out['raw']=d['raw']
+              return out
+
+          report={'copy_version':COPY_VERSION,'hot_version':HOT_VERSION,'routes':{},'samples':[]}
+          chosen=None
+          for kind,hosts in [('copy',COPY_HOSTS),('hot',HOT_HOSTS)]:
+              report['routes'][kind]={}
+              for host in hosts:
+                  try:
+                      r=req(host,'/api/v3/comics?limit=12&offset=0&ordering=-popular&platform=3',kind)
+                      s=summarize(r); report['routes'][kind][host]={'list':s}
+                      data=r['data']; items=((data.get('results') or {}).get('list') or []) if isinstance(data,dict) else []
+                      if r['http']==200 and data.get('code')==200 and items:
+                          chosen=(kind,host,items); break
+                  except Exception as e:
+                      report['routes'][kind][host]={'exception':repr(e)}
+              if chosen: break
+          if not chosen: raise SystemExit('no working route')
+          kind,host,items=chosen; report['working']={'kind':kind,'host':host}
+
+          comment_sample=None
+          for raw in items[:12]:
+              item=raw.get('comic') if isinstance(raw,dict) and isinstance(raw.get('comic'),dict) else raw
+              if not isinstance(item,dict): continue
+              path=item.get('path_word')
+              if not path: continue
+              d=req(host,'/api/v3/comic2/'+urllib.parse.quote(str(path))+'?platform=3',kind)
+              detail=d['data']; results=(detail.get('results') or {}) if isinstance(detail,dict) else {}; comic=(results.get('comic') or {}) if isinstance(results,dict) else {}
+              ids=[]
+              for key in ('uuid','id','path_word'):
+                  v=comic.get(key)
+                  if v is not None and str(v) not in [str(x[1]) for x in ids]: ids.append((key,v))
+              sample={'path_word':path,'comic_ids':ids,'comment_attempts':[]}
+              groups=results.get('groups') if isinstance(results,dict) else None
+              chapter_id=None
+              candidates=[]
+              if isinstance(groups,dict):
+                  for k,v in groups.items():
+                      candidates.append((v.get('path_word') if isinstance(v,dict) else None) or k)
+              candidates=list(dict.fromkeys(candidates+['default']))
+              for gw in candidates[:6]:
+                  try:
+                      cr=req(host,f'/api/v3/comic/{urllib.parse.quote(str(path))}/group/{urllib.parse.quote(str(gw))}/chapters?limit=5&offset=0&platform=3',kind)
+                      arr=((cr['data'].get('results') or {}).get('list') or []) if isinstance(cr['data'],dict) else []
+                      if arr and isinstance(arr[0],dict): chapter_id=arr[0].get('uuid'); break
+                  except Exception: pass
+              sample['chapter_id']=chapter_id
+
+              for key,value in ids:
+                  q=urllib.parse.quote(str(value))
+                  for extra in ('', '&_update=true'):
+                      try:
+                          r=req(host,f'/api/v3/comments?comic_id={q}&limit=20&offset=0{extra}',kind)
+                          ss=summarize(r); ss['target']=key; ss['update']=bool(extra); sample['comment_attempts'].append(ss)
+                          if ss.get('http')==200 and ss.get('code')==200 and (ss.get('list_count') or 0)>0:
+                              comment_sample=(str(value), r['data'], sample); break
+                      except Exception as e:
+                          sample['comment_attempts'].append({'target':key,'update':bool(extra),'exception':repr(e)})
+                  if comment_sample: break
+              if chapter_id:
+                  try:
+                      r=req(host,f'/api/v3/comments?comic_id={urllib.parse.quote(str(chapter_id))}&limit=20&offset=0',kind)
+                      sample['chapter_comments']=summarize(r)
+                  except Exception as e: sample['chapter_comments']={'exception':repr(e)}
+              report['samples'].append(sample)
+              if comment_sample: break
+
+          if comment_sample:
+              comic_id, data, sample=comment_sample
+              lst=((data.get('results') or {}).get('list') or [])
+              first=lst[0] if lst and isinstance(lst[0],dict) else None
+              if first and first.get('id') is not None:
+                  cid=str(first['id'])
+                  attempts=[]
+                  for path in (
+                      f'/api/v3/comments?comic_id={urllib.parse.quote(comic_id)}&reply_id={urllib.parse.quote(cid)}&limit=20&offset=0',
+                      f'/api/v3/comments?comic_id={urllib.parse.quote(comic_id)}&parent_id={urllib.parse.quote(cid)}&limit=20&offset=0',
+                  ):
+                      try: attempts.append({'path':path,'summary':summarize(req(host,path,kind))})
+                      except Exception as e: attempts.append({'path':path,'exception':repr(e)})
+                  report['reply_probe']=attempts
+          else:
+              report['warning']='no non-empty manga comment sample found in first 12 popular comics'
+
+          Path('copymanga-v2-comments.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),'utf-8')
+          print(json.dumps(report,ensure_ascii=False,indent=2))
+          PY
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: copymangaplus-v2-comments-probe
+          path: copymanga-v2-comments.json
+          if-no-files-found: warn
+          retention-days: 7
