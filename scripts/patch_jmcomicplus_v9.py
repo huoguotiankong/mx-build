@@ -32,22 +32,19 @@ dedupe_old = "                if (metadataSearch) result.semanticDedupe() else r
 if s.count(dedupe_old) != 2:
     raise SystemExit(f"dedupe branches: expected 2 matches, found {s.count(dedupe_old)}")
 s = s.replace(dedupe_old, "                result.semanticDedupe()")
-s = replace_once(
-    s,
-    '''        val clean = mangas.distinctBy { manga ->
-            manga.title.lowercase(Locale.ROOT)
-                .replace(Regex("[\\s\\p{Punct}·・]+"), "")
-        }
-''',
-    '''        val clean = mangas.distinctBy { manga ->
+start = s.index("    private fun MangasPage.semanticDedupe(): MangasPage {")
+end = s.index("    private fun appList(path: String, page: Int): MangasPage {", start)
+s = s[:start] + '''    private fun MangasPage.semanticDedupe(): MangasPage {
+        val clean = mangas.distinctBy { manga ->
             val normalizedTitle = manga.title.lowercase(Locale.ROOT)
                 .replace(Regex("[\\s\\p{Punct}·・]+"), "")
             val coverKey = manga.thumbnail_url.orEmpty().substringAfterLast('/').substringBefore('?')
             normalizedTitle + "|" + coverKey
         }
-''',
-    "dedupe key",
-)
+        return MangasPage(clean, hasNextPage)
+    }
+
+''' + s[end:]
 s = replace_once(
     s,
     '''            addClickable("作者", authors, META_AUTHOR_PREFIX)
