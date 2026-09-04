@@ -27,7 +27,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: huoguotiankong/mx-dev
-          ref: 5685b2b68ccf6b273e244fdd8f0a7f9b26a3589c
+          ref: d2770d3c617bb3b19ec83d2b7aa79bf13e4e5f59
           token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
           path: source
           fetch-depth: 1
