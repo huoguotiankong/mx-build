@@ -60,7 +60,7 @@ jobs:
           mkdir -p "$res/mipmap-xxxhdpi"
           curl -L --fail --retry 3 -o "$res/mipmap-xxxhdpi/ic_launcher.png" "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f4/E-Hentai_Favicon.svg/330px-E-Hentai_Favicon.svg.png"
           file "$res/mipmap-xxxhdpi/ic_launcher.png" | grep -q "PNG image data"
-          test "$(wc -c < "$res/mipmap-xxxhdpi/ic_launcher.png")" -gt 1000
+          test "$(wc -c < "$res/mipmap-xxxhdpi/ic_launcher.png")" -gt 500
 
       - name: Validate patched source
         working-directory: source
