@@ -1,0 +1,220 @@
+name: Patch CopyManga Plus v5
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/patch-copymangaplus-v5.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check private source token
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+        run: test -n "$MX_PRIVATE_READ_TOKEN"
+
+      - name: Checkout private source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Checkout current Keiyoushi
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Apply v5 real-device repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          kp = Path('source/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt')
+          s = kp.read_text('utf-8')
+          old = '''        } else {
+            val timestamp = (System.currentTimeMillis() / 1000L).toString()
+            builder.set("User-Agent", COPY_UA)
+            builder.set("Accept", "application/json")
+            builder.set("webp", "1")
+            builder.set("region", "1")
+            builder.set("platform", "3")
+            builder.set("source", "copyApp")
+            builder.set("version", COPY_VERSION)
+            builder.set("referer", "com.copymanga.app-$COPY_REFERER_VERSION")
+            builder.set("deviceinfo", copyDeviceInfo())
+            builder.set("device", copyDevice())
+            builder.set("pseudoid", copyPseudoId())
+            builder.set("dt", SimpleDateFormat("yyyy.MM.dd", Locale.US).format(Date()))
+            builder.set("umstring", COPY_UMSTRING)
+            builder.set("x-auth-timestamp", timestamp)
+            builder.set("x-auth-signature", copySignature(timestamp))
+            builder.set(
+                "Authorization",
+                if (includeToken && token().isNotBlank()) "Token ${token()}" else "Token",
+            )
+        }
+'''
+          new = '''        } else {
+            builder.set("User-Agent", COPY_UA)
+            builder.set("Accept", "application/json")
+            builder.set("webp", "1")
+            builder.set("region", "1")
+            builder.set("platform", "3")
+            builder.set("source", "copyApp")
+            builder.set("version", COPY_VERSION)
+            builder.set("referer", "com.copymanga.app-$COPY_REFERER_VERSION")
+            if (includeToken && token().isNotBlank()) builder.set("Authorization", "Token ${token()}")
+        }
+'''
+          if old not in s:
+              raise SystemExit('global Copy header block no longer matches expected v4 source')
+          s = s.replace(old, new, 1)
+          if 'private const val ROUTE_SCHEMA = 3' not in s:
+              raise SystemExit('ROUTE_SCHEMA v4 anchor missing')
+          s = s.replace('private const val ROUTE_SCHEMA = 3', 'private const val ROUTE_SCHEMA = 4', 1)
+          kp.write_text(s, 'utf-8')
+
+          gp = Path('source/src/zh/copymangaplus/build.gradle.kts')
+          g = gp.read_text('utf-8')
+          if 'versionCode = 4' not in g:
+              raise SystemExit('versionCode 4 anchor missing')
+          gp.write_text(g.replace('versionCode = 4', 'versionCode = 5', 1), 'utf-8')
+
+          dp = Path('source/docs/sources/copymangaplus.md')
+          d = dp.read_text('utf-8')
+          d = d.replace('- 源码 `versionCode = 4`', '- 源码 `versionCode = 5`', 1)
+          d = d.replace('- Android APK versionCode：`106004`', '- Android APK versionCode：`106005`', 1)
+          d = d.replace('- APK versionName：`1.6.4`', '- APK versionName：`1.6.5`', 1)
+          d += '''\n\n## v5 实机反馈与定向修复（2026-09-05）\n\n用户安装 v4 后确认：繁体转简体正常、热辣线路仍正常，但 Copy 首页/最近更新变成“没有结果”；评论页仍显示“请先登录 / 漫画源设置”；v4 图标仍不是用户确认的官方蓝底白色图标。\n\nv5 只修复扩展侧已确认回归：\n\n1. 普通 Copy 内容请求恢复 v3 已经实机通过的轻量移动请求头：`COPY/3.0.0`、`version=3.0.9`、`source=copyApp`、`platform=3`、`region=1`、`webp=1`。不再把 v4 为详情诊断增加的 device/signature 请求头注入首页、搜索、排行、章节和评论等普通请求。\n2. v4 的独立详情 `copyDetailHeaders()` 保持不变，详情仍可单独使用其签名契约；从而隔离“首页已验证契约”和“详情专用契约”。\n3. 路由 schema 从 3 增加到 4，v5 首次运行清除 v4 保存的 Copy 动态节点和最近成功节点缓存。\n4. 扩展图标改用用户确认的 `com.copymanga.app` 蓝底白色原子状图标 PNG，不再使用 fumiama 第三方客户端的黄底图标资源。\n\n评论页长期登录提示属于 MX App 宿主 UI，不通过扩展伪报 `requiresLoginToPost=false` 隐藏；当前 MX App `main` 源码已经把 `state.loginRequired` 的底栏分支改为 `Unit`，用户截图说明实机仍在使用未包含该 APP 修改的构建，需要单独升级 MX App。\n\n由于 v4 已经公开发布签名测试 APK，v5 必须使用新的 `versionCode=5` / Android `106005`。\n'''
+          dp.write_text(d, 'utf-8')
+          PY
+
+          icon_dir="source/src/zh/copymangaplus/res"
+          rm -rf "$icon_dir/drawable-anydpi" "$icon_dir/mipmap-anydpi-v26"
+          find "$icon_dir" -type f -name 'ic_launcher.*' -delete || true
+          mkdir -p "$icon_dir/mipmap-anydpi"
+          curl -L --fail --retry 3 \
+            -o "$icon_dir/mipmap-anydpi/ic_launcher.png" \
+            'https://dl.memuplay.com/new_market/img/com.copymanga.app.icon.2024-11-14-11-25-38.png'
+          python3 - <<'PY'
+          from pathlib import Path
+          import struct
+          p = Path('source/src/zh/copymangaplus/res/mipmap-anydpi/ic_launcher.png')
+          b = p.read_bytes()
+          if b[:8] != b'\x89PNG\r\n\x1a\n':
+              raise SystemExit('launcher is not PNG')
+          if b[12:16] != b'IHDR':
+              raise SystemExit('launcher missing IHDR')
+          w, h = struct.unpack('>II', b[16:24])
+          if (w, h) != (512, 512):
+              raise SystemExit(f'unexpected launcher size {w}x{h}')
+          print(f'Validated official-style CopyManga launcher: {w}x{h}, {len(b)} bytes')
+          PY
+
+      - name: Probe restored Copy list contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, subprocess
+          hosts = [
+              'api.copy2000.online', 'api.copy-manga.com', 'api.2026copy.com',
+              'api.copy4000.com', 'api.mangacopy.com', 'api.copy3000.com', 'mapi.copy20.com',
+          ]
+          ok = 0
+          for host in hosts:
+              url = f'https://{host}/api/v3/comics?limit=2&offset=0&ordering=-popular&_update=true'
+              cmd = [
+                  'curl','-L','-sS','--max-time','12', url,
+                  '-H','User-Agent: COPY/3.0.0',
+                  '-H','Accept: application/json',
+                  '-H','webp: 1', '-H','region: 1', '-H','platform: 3',
+                  '-H','source: copyApp', '-H','version: 3.0.9',
+                  '-H','referer: com.copymanga.app-3.0.0',
+              ]
+              try:
+                  raw = subprocess.check_output(cmd, text=True)
+                  data = json.loads(raw)
+                  items = ((data.get('results') or {}).get('list') or [])
+                  good = data.get('code') == 200 and len(items) > 0
+                  print(host, 'code=', data.get('code'), 'items=', len(items), 'OK' if good else 'NO')
+                  ok += int(good)
+              except Exception as e:
+                  print(host, 'ERROR', type(e).__name__, str(e)[:120])
+          if ok == 0:
+              raise SystemExit('restored Copy list contract returned no usable node')
+          print('usable Copy nodes:', ok)
+          PY
+
+      - name: Validate private source layout
+        working-directory: source
+        run: python3 scripts/validate_sources.py
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Overlay v5 module
+        shell: bash
+        run: |
+          rm -rf upstream/src/zh/copymangaplus
+          cp -a source/src/zh/copymangaplus upstream/src/zh/copymangaplus
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Format, build and lint v5
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:copymangaplus:spotlessApply
+          ./gradlew :src:zh:copymangaplus:spotlessCheck :src:zh:copymangaplus:assembleDebug :src:zh:copymangaplus:lintRelease
+
+      - name: Copy formatted module back
+        shell: bash
+        run: |
+          set -euo pipefail
+          rsync -a --delete --exclude build/ upstream/src/zh/copymangaplus/ source/src/zh/copymangaplus/
+          python3 source/scripts/validate_sources.py
+
+      - name: Upload v5 handoff
+        uses: actions/upload-artifact@v4
+        with:
+          name: copymangaplus-v5-source
+          path: |
+            source/src/zh/copymangaplus
+            source/docs/sources/copymangaplus.md
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Commit and push v5 source
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/zh/copymangaplus docs/sources/copymangaplus.md
+          git diff --cached --check
+          git diff --cached --quiet && { echo 'No v5 changes'; exit 1; }
+          git commit -m "fix(copymangaplus): restore Copy content routes v5"
+          git push origin HEAD:main
