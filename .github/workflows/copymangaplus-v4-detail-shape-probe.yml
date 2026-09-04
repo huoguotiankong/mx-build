@@ -1,0 +1,50 @@
+name: CopyManga Plus v4 Detail Shape Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/copymangaplus-v4-detail-shape-probe-trigger"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Inspect detail response shape
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, urllib.request, urllib.error
+          host='api.copy2000.online'
+          path='modujingbingdenuli'
+          variants={
+            'copy': {
+              'User-Agent':'COPY/3.0.0','Accept':'application/json','webp':'1','region':'1','platform':'3','source':'copyApp','version':'3.0.9','referer':'com.copymanga.app-3.0.0'
+            },
+            'fumiama': {
+              'User-Agent':'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36 Edg/141.0.0.0',
+              'Accept':'application/json','Accept-Encoding':'gzip','webp':'1','platform':'3','version':'2024.4.28','x-requested-with':'com.manga2020.app','authorization':'Token'
+            },
+          }
+          for name,h in variants.items():
+            print('\nVARIANT', name)
+            req=urllib.request.Request(f'https://{host}/api/v3/comic2/{path}?platform=3',headers=h)
+            try:
+              with urllib.request.urlopen(req,timeout=15) as r:
+                raw=r.read().decode('utf-8','replace'); status=r.status
+            except urllib.error.HTTPError as e:
+              raw=e.read().decode('utf-8','replace'); status=e.code
+            print('http',status,'rawlen',len(raw),'rawprefix',raw[:1000])
+            try:
+              d=json.loads(raw)
+              print('root keys',list(d.keys()) if isinstance(d,dict) else type(d).__name__)
+              res=d.get('results') if isinstance(d,dict) else None
+              print('results type',type(res).__name__,'results repr prefix',repr(res)[:1200])
+            except Exception as e:
+              print('json error',repr(e))
+          PY
