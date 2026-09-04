@@ -1,0 +1,27 @@
+name: Export Official E-Hentai Favicon
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/export-ehentai-official-icon.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Fetch and print favicon as base64
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -L --fail --retry 3 -o /tmp/eh.png "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f4/E-Hentai_Favicon.svg/330px-E-Hentai_Favicon.svg.png"
+          file /tmp/eh.png
+          echo 'EH_ICON_BASE64_BEGIN'
+          base64 -w0 /tmp/eh.png
+          echo
+          echo 'EH_ICON_BASE64_END'
