@@ -1,4 +1,4 @@
-name: Validate MX paid-only whole-manga replacement
+name: Validate MX comment rich images
 
 on:
   push:
@@ -18,246 +18,11 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: huoguotiankong/mx-app
-          ref: fix/paid-only-whole-manga-replacement
+          ref: fix/comment-rich-images-after-paid-only
           token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
           path: source
           fetch-depth: 0
           persist-credentials: true
-
-      - name: Apply paid-only whole-manga replacement patch
-        working-directory: source
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          def read_lines(path):
-              return Path(path).read_text().splitlines()
-
-          def write_lines(path, lines):
-              Path(path).write_text("\n".join(lines) + "\n")
-
-          reader = "app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderViewModel.kt"
-          lines = read_lines(reader)
-
-          starts = [
-              i for i, line in enumerate(lines)
-              if line.strip() == "val targetChapter = findReplacementChapter("
-              and any("offset = chapterOffset," in candidate for candidate in lines[i:i + 16])
-          ]
-          if len(starts) != 1:
-              raise SystemExit(f"Reader whole-binding target block: expected 1 start, found {len(starts)}")
-          start = starts[0]
-          end = next(
-              (i for i in range(start, min(start + 40, len(lines)))
-               if "reader_replace_content_loader_unavailable" in lines[i]),
-              None,
-          )
-          if end is None:
-              raise SystemExit("Reader whole-binding target block: loader end not found")
-
-          indent = lines[start][:len(lines[start]) - len(lines[start].lstrip())]
-          block = lines[start:end + 1]
-          wrapped = [
-              indent + "val replaceCurrentChapter = isWholeMangaReplacementEligible(currentChapter.chapter.name)",
-              indent + "if (replaceCurrentChapter) {",
-              *[(indent + "    " + line[len(indent):]) for line in block],
-              indent + "}",
-          ]
-          lines[start:end + 1] = wrapped
-
-          active_id_matches = [i for i, line in enumerate(lines) if line.strip() == "activeChapterContentSourceId = selection.source.id,"]
-          active_name_matches = [i for i, line in enumerate(lines) if line.strip() == "activeChapterContentSourceName = selection.source.name,"]
-          if len(active_id_matches) != 1 or len(active_name_matches) != 1:
-              raise SystemExit(
-                  f"Reader active source state mismatch: id={len(active_id_matches)} name={len(active_name_matches)}",
-              )
-          i = active_id_matches[0]
-          prefix = lines[i][:len(lines[i]) - len(lines[i].lstrip())]
-          lines[i] = prefix + "activeChapterContentSourceId = selection.source.id.takeIf { replaceCurrentChapter },"
-          i = active_name_matches[0]
-          prefix = lines[i][:len(lines[i]) - len(lines[i].lstrip())]
-          lines[i] = prefix + "activeChapterContentSourceName = selection.source.name.takeIf { replaceCurrentChapter },"
-
-          load_body = next((i for i, line in enumerate(lines) if line.strip() == "private suspend fun loadChapterBody("), None)
-          if load_body is None:
-              raise SystemExit("Reader loadChapterBody not found")
-          binding_matches = [
-              i for i in range(load_body, min(load_body + 120, len(lines)))
-              if lines[i].strip() == "val binding = manga?.let(::getChapterContentBinding)"
-          ]
-          if len(binding_matches) != 1:
-              raise SystemExit(f"Reader load binding mismatch: {len(binding_matches)}")
-          binding_line = binding_matches[0]
-          if lines[binding_line + 1].strip() != "if (binding == null) {":
-              raise SystemExit("Reader binding guard has unexpected shape")
-          guard_prefix = lines[binding_line + 1][:len(lines[binding_line + 1]) - len(lines[binding_line + 1].lstrip())]
-          lines[binding_line + 1] = (
-              guard_prefix + "if (binding == null || !isWholeMangaReplacementEligible(chapter.chapter.name)) {"
-          )
-          write_lines(reader, lines)
-
-          matcher = "app/src/main/java/eu/kanade/tachiyomi/ui/reader/ChapterContentMatcher.kt"
-          lines = read_lines(matcher)
-          marker_matches = [i for i, line in enumerate(lines) if line.startswith("private fun normalizeChapterMainTitle(")]
-          if len(marker_matches) != 1:
-              raise SystemExit(f"Matcher insertion point mismatch: {len(marker_matches)}")
-          i = marker_matches[0]
-          helper = [
-              "/**",
-              " * Whole-manga replacement is entitlement-aware: only chapters explicitly marked as still",
-              " * requiring purchase may be substituted automatically. Free and account-unlocked chapters",
-              " * remain on the original source. Persisted single-chapter replacement is handled separately.",
-              " */",
-              "internal fun isWholeMangaReplacementEligible(chapterName: String): Boolean {",
-              "    return chapterName.trimStart().startsWith(\"🔒\")",
-              "}",
-              "",
-          ]
-          lines[i:i] = helper
-          write_lines(matcher, lines)
-
-          manga = "app/src/main/java/eu/kanade/tachiyomi/ui/manga/MangaScreen.kt"
-          lines = read_lines(manga)
-          import_matches = [i for i, line in enumerate(lines) if line == "import eu.kanade.tachiyomi.ui.reader.findBestReplacementChapter"]
-          if len(import_matches) != 1:
-              raise SystemExit(f"MangaScreen import mismatch: {len(import_matches)}")
-          lines.insert(import_matches[0] + 1, "import eu.kanade.tachiyomi.ui.reader.isWholeMangaReplacementEligible")
-
-          marker_matches = [i for i, line in enumerate(lines) if line.strip() == "isChapterContentReplaced = { chapter ->"]
-          if len(marker_matches) != 1:
-              raise SystemExit(f"MangaScreen replacement marker block mismatch: {len(marker_matches)}")
-          i = marker_matches[0]
-          if lines[i + 1].strip() != "hasWholeMangaContentBinding || chapter.id.toString() in replacedChapterIds" or lines[i + 2].strip() != "},":
-              raise SystemExit("MangaScreen replacement marker block has unexpected shape")
-          prefix = lines[i + 1][:len(lines[i + 1]) - len(lines[i + 1].lstrip())]
-          lines[i + 1:i + 2] = [
-              prefix + "val directReplacement = chapter.id.toString() in replacedChapterIds",
-              prefix + "val wholeMangaReplacement = hasWholeMangaContentBinding &&",
-              prefix + "    isWholeMangaReplacementEligible(chapter.name)",
-              prefix + "directReplacement || wholeMangaReplacement",
-          ]
-          write_lines(manga, lines)
-
-          item = "app/src/main/java/eu/kanade/presentation/manga/components/MangaChapterListItem.kt"
-          lines = read_lines(item)
-          when_matches = [
-              i for i, line in enumerate(lines)
-              if line.strip() == "text = when {"
-              and i + 4 < len(lines)
-              and "contentReplaced && title.trimStart().startsWith" in lines[i + 1]
-          ]
-          if len(when_matches) != 1:
-              raise SystemExit(f"Chapter item title block mismatch: {len(when_matches)}")
-          i = when_matches[0]
-          prefix = lines[i][:len(lines[i]) - len(lines[i].lstrip())]
-          lines[i:i + 5] = [prefix + "text = chapterContentDisplayTitle(title, contentReplaced),"]
-
-          swipe_matches = [i for i, line in enumerate(lines) if line.startswith("internal fun getSwipeAction(")]
-          if len(swipe_matches) != 1:
-              raise SystemExit(f"Chapter item helper insertion mismatch: {len(swipe_matches)}")
-          i = swipe_matches[0]
-          helper = [
-              "internal fun chapterContentDisplayTitle(title: String, contentReplaced: Boolean): String {",
-              "    if (!contentReplaced) return title",
-              "",
-              "    val leadingWhitespace = title.takeWhile(Char::isWhitespace)",
-              "    val body = title.drop(leadingWhitespace.length)",
-              "    val content = CHAPTER_CONTENT_ACCESS_PREFIXES",
-              "        .firstOrNull(body::startsWith)",
-              "        ?.let { prefix -> body.removePrefix(prefix).trimStart() }",
-              "        ?: body",
-              "",
-              "    return buildString {",
-              "        append(leadingWhitespace)",
-              "        append(\"🔁\")",
-              "        if (content.isNotBlank()) {",
-              "            append(' ')",
-              "            append(content)",
-              "        }",
-              "    }",
-              "}",
-              "",
-              "private val CHAPTER_CONTENT_ACCESS_PREFIXES = listOf(\"🔒\", \"✅\", \"🔓\", \"🆓\")",
-              "",
-          ]
-          lines[i:i] = helper
-          write_lines(item, lines)
-
-          test = "app/src/test/java/eu/kanade/tachiyomi/ui/reader/ChapterContentMatcherTest.kt"
-          lines = read_lines(test)
-          junit_test = next((i for i, line in enumerate(lines) if line == "import org.junit.jupiter.api.Test"), None)
-          if junit_test is None:
-              raise SystemExit("Matcher test JUnit import not found")
-          lines[junit_test:junit_test] = [
-              "import org.junit.jupiter.api.Assertions.assertFalse",
-              "import org.junit.jupiter.api.Assertions.assertTrue",
-          ]
-          helper_matches = [i for i, line in enumerate(lines) if line.strip().startswith("private fun chapter(name: String")]
-          if len(helper_matches) != 1:
-              raise SystemExit(f"Matcher test helper mismatch: {len(helper_matches)}")
-          i = helper_matches[0]
-          new_test = [
-              "    @Test",
-              "    fun `whole manga replacement only applies to chapters that still require purchase`() {",
-              "        assertTrue(isWholeMangaReplacementEligible(\"🔒 第10话\"))",
-              "        assertFalse(isWholeMangaReplacementEligible(\"✅ 第10话\"))",
-              "        assertFalse(isWholeMangaReplacementEligible(\"🔓 第10话\"))",
-              "        assertFalse(isWholeMangaReplacementEligible(\"第10话\"))",
-              "    }",
-              "",
-          ]
-          lines[i:i] = new_test
-          write_lines(test, lines)
-
-          display_test = Path("app/src/test/java/eu/kanade/presentation/manga/components/MangaChapterListItemTest.kt")
-          display_test.parent.mkdir(parents=True, exist_ok=True)
-          display_test.write_text("""package eu.kanade.presentation.manga.components
-
-          import org.junit.jupiter.api.Assertions.assertEquals
-          import org.junit.jupiter.api.Test
-
-          class MangaChapterListItemTest {
-
-              @Test
-              fun `replacement marker replaces existing access marker`() {
-                  assertEquals("🔁 第10话", chapterContentDisplayTitle("🔒 第10话", true))
-                  assertEquals("🔁 第10话", chapterContentDisplayTitle("✅ 第10话", true))
-                  assertEquals("🔁 第10话", chapterContentDisplayTitle("🔓 第10话", true))
-              }
-
-              @Test
-              fun `replacement marker is added to free chapter only for explicit replacement`() {
-                  assertEquals("🔁 第10话", chapterContentDisplayTitle("第10话", true))
-                  assertEquals("第10话", chapterContentDisplayTitle("第10话", false))
-              }
-          }
-          """)
-
-          docs = Path("docs/CHAPTER_CONTENT.md")
-          text = docs.read_text()
-          old = "- The manga chapter list now treats an active whole-manga content binding as replaced content, so the existing `🔁` marker and highlighted replacement action are visible instead of only marking manually mapped single chapters."
-          new = "- The manga chapter list now marks only chapters that are actually replaced. Under a whole-manga binding, only original chapters marked `🔒` are shown as `🔁`; free and already-unlocked chapters keep their original status."
-          if text.count(old) != 1:
-              raise SystemExit(f"Docs marker statement mismatch: {text.count(old)}")
-          text = text.replace(old, new, 1)
-          text += """
-
-          ## Whole-manga entitlement policy
-
-          Whole-manga replacement is deliberately narrower than single-chapter replacement:
-
-          - `🔒` on the **original source chapter** means the current account still needs to buy/unlock that chapter. An active whole-manga binding may replace it automatically and the chapter list shows `🔁` instead of `🔒`.
-          - `✅` / `🔓` means the current account already has reading permission. Whole-manga binding must keep using the original source and must not replace it.
-          - a chapter with no paid-access marker is treated as free/original content and whole-manga binding must keep using the original source.
-          - an explicit persisted **single-chapter replacement** remains the only way to force replacement of a free or already-unlocked chapter; it has priority over the whole-manga rule.
-          - if an original source cannot expose a reliable `🔒` state, MX takes the safe path and does not auto-replace that chapter through a whole-manga binding.
-          - chapter-list replacement markers reflect the chapter that will actually be loaded, not merely the existence of a whole-manga binding.
-
-          This policy is host-side and does not bypass source entitlement checks. The original extension remains responsible for accurately marking free, unlocked, and still-paywalled chapters after account state is refreshed.
-          """
-          docs.write_text(text)
-          PY
 
       - name: Set up Java
         uses: actions/setup-java@v5
@@ -267,14 +32,35 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          build-root-directory: source
 
       - name: Apply Spotless
         working-directory: source
         run: ./gradlew spotlessApply
 
+      - name: Commit formatting
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! git diff --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt \
+              app/src/test/java/eu/kanade/presentation/manga/comments/CommentRichContentTest.kt \
+              i18n-kmk/src/commonMain/moko-resources/base/strings.xml
+            git commit -m "style: format comment rich image rendering"
+            git push origin HEAD:fix/comment-rich-images-after-paid-only
+          fi
+
       - name: Spotless check
         working-directory: source
         run: ./gradlew spotlessCheck
+
+      - name: Comment rich content tests
+        working-directory: source
+        run: ./gradlew testReleaseUnitTest --tests eu.kanade.presentation.manga.comments.CommentRichContentTest
 
       - name: Unit tests
         working-directory: source
@@ -283,21 +69,3 @@ jobs:
       - name: Build Preview APK
         working-directory: source
         run: ./gradlew assemblePreview -Pdisable-code-shrink --no-configuration-cache
-
-      - name: Commit validated fix
-        working-directory: source
-        shell: bash
-        run: |
-          set -euo pipefail
-          git diff --check
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderViewModel.kt \
-            app/src/main/java/eu/kanade/tachiyomi/ui/reader/ChapterContentMatcher.kt \
-            app/src/main/java/eu/kanade/tachiyomi/ui/manga/MangaScreen.kt \
-            app/src/main/java/eu/kanade/presentation/manga/components/MangaChapterListItem.kt \
-            app/src/test/java/eu/kanade/tachiyomi/ui/reader/ChapterContentMatcherTest.kt \
-            app/src/test/java/eu/kanade/presentation/manga/components/MangaChapterListItemTest.kt \
-            docs/CHAPTER_CONTENT.md
-          git commit -m "fix: limit whole-manga replacement to locked chapters"
-          git push origin HEAD:fix/paid-only-whole-manga-replacement
