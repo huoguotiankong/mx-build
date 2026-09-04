@@ -50,6 +50,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 buildrepo/.github/scripts/fix_ehentaiplus_v3.py
+          python3 buildrepo/.github/scripts/fix_ehentaiplus_v3_compile.py
           python3 source/scripts/validate_sources.py
           grep -q 'versionCode = 3' source/src/zh/ehentaiplus/build.gradle.kts
           grep -q 'header("Cookie", it)' source/src/zh/ehentaiplus/src/eu/kanade/tachiyomi/extension/zh/ehentaiplus/EHentaiPlus.kt
