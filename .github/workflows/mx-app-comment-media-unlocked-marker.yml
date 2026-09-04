@@ -1,0 +1,152 @@
+name: MX App Comment Media And Access Marker
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/mx-app-comment-media-unlocked-marker-trigger"
+
+permissions:
+  contents: read
+
+jobs:
+  patch-and-check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout MX App feature branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-app
+          ref: fix/comment-media-unlocked-marker
+          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Patch chapter access marker preservation
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("app/src/main/java/eu/kanade/presentation/manga/MangaScreen.kt")
+          text = path.read_text(encoding="utf-8")
+
+          old_title = '''                    title = if (manga.displayMode == Manga.CHAPTER_DISPLAY_NUMBER) {
+                        stringResource(
+                            MR.strings.display_mode_chapter,
+                            formatChapterNumber(item.chapter.chapterNumber),
+                        )
+                    } else {
+                        item.chapter.name
+                    },
+          '''
+          new_title = '''                    title = if (manga.displayMode == Manga.CHAPTER_DISPLAY_NUMBER) {
+                        chapterNumberDisplayTitle(
+                            sourceTitle = item.chapter.name,
+                            numberTitle = stringResource(
+                                MR.strings.display_mode_chapter,
+                                formatChapterNumber(item.chapter.chapterNumber),
+                            ),
+                        )
+                    } else {
+                        item.chapter.name
+                    },
+          '''
+
+          helper_anchor = '''private fun onChapterItemClick(
+          '''
+          helper = '''internal fun chapterNumberDisplayTitle(sourceTitle: String, numberTitle: String): String {
+              val body = sourceTitle.trimStart()
+              val marker = CHAPTER_ACCESS_MARKERS.firstOrNull(body::startsWith)
+              return marker?.let { "$it $numberTitle" } ?: numberTitle
+          }
+
+          private val CHAPTER_ACCESS_MARKERS = listOf("🔒", "✅", "🔓", "🆓")
+
+          '''
+
+          if new_title not in text:
+              if text.count(old_title) != 1:
+                  raise SystemExit(f"chapter title anchor mismatch: {text.count(old_title)}")
+              text = text.replace(old_title, new_title, 1)
+
+          if helper not in text:
+              if text.count(helper_anchor) != 1:
+                  raise SystemExit(f"chapter helper anchor mismatch: {text.count(helper_anchor)}")
+              text = text.replace(helper_anchor, helper + helper_anchor, 1)
+
+          path.write_text(text, encoding="utf-8")
+
+          test = Path("app/src/test/java/eu/kanade/presentation/manga/MangaScreenChapterTitleTest.kt")
+          test.parent.mkdir(parents=True, exist_ok=True)
+          test.write_text('''package eu.kanade.presentation.manga
+
+          import org.junit.jupiter.api.Assertions.assertEquals
+          import org.junit.jupiter.api.Test
+
+          class MangaScreenChapterTitleTest {
+              @Test
+              fun `number display preserves source access markers`() {
+                  assertEquals("✅ Chapter 10", chapterNumberDisplayTitle("✅ 第10话", "Chapter 10"))
+                  assertEquals("🔒 Chapter 10", chapterNumberDisplayTitle("🔒 第10话", "Chapter 10"))
+                  assertEquals("🔓 Chapter 10", chapterNumberDisplayTitle("🔓 第10话", "Chapter 10"))
+                  assertEquals("🆓 Chapter 10", chapterNumberDisplayTitle("🆓 第10话", "Chapter 10"))
+                  assertEquals("Chapter 10", chapterNumberDisplayTitle("第10话", "Chapter 10"))
+              }
+          }
+          ''', encoding="utf-8")
+          PY
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          build-root-directory: source
+
+      - name: Apply Spotless
+        working-directory: source
+        run: ./gradlew spotlessApply
+
+      - name: Spotless check
+        working-directory: source
+        run: ./gradlew spotlessCheck
+
+      - name: Focused unit tests
+        working-directory: source
+        run: >-
+          ./gradlew :app:testDebugUnitTest
+          --tests eu.kanade.presentation.manga.comments.CommentRichContentTest
+          --tests eu.kanade.presentation.manga.MangaScreenChapterTitleTest
+
+      - name: Build Preview APK
+        working-directory: source
+        run: ./gradlew assemblePreview -Pdisable-code-shrink
+
+      - name: Commit validated feature branch
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            app/src/main/java/eu/kanade/presentation/manga/MangaScreen.kt \
+            app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt \
+            app/src/test/java/eu/kanade/presentation/manga/MangaScreenChapterTitleTest.kt \
+            app/src/test/java/eu/kanade/presentation/manga/comments/CommentRichContentTest.kt
+          if git diff --cached --quiet; then
+            echo "No feature changes to commit"
+          else
+            git commit -m "fix: preserve paid chapter access markers"
+            git push origin HEAD:fix/comment-media-unlocked-marker
+          fi
