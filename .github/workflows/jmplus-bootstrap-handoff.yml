@@ -66,16 +66,17 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           root = Path("upstream/src/zh/jmcomicplus")
           src = root / "src/eu/kanade/tachiyomi/extension/zh/jmcomicplus/JmComicPlus.kt"
           text = src.read_text(encoding="utf-8")
 
-          old_pref = "Preference(screen.context)"
-          count = text.count(old_pref)
-          if count != 6:
-              raise SystemExit(f"expected 6 Preference(context) calls, found {count}")
-          text = text.replace(old_pref, "Preference()")
+          pref_pattern = re.compile(r"(?m)^(\s*)Preference\(screen\.context\)")
+          matches = pref_pattern.findall(text)
+          if len(matches) != 6:
+              raise SystemExit(f"expected 6 standalone Preference(context) calls, found {len(matches)}")
+          text = pref_pattern.sub(r"\1Preference()", text)
 
           old_account = "override suspend fun getSourceAccount(): SourceAccount? {"
           if text.count(old_account) != 1:
