@@ -1,0 +1,36 @@
+{
+  "name": "MX Test",
+  "badgeLabel": "TEST",
+  "signingKey": "1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620",
+  "contact": {
+    "website": "https://github.com/huoguotiankong/mx-repo",
+    "discord": null
+  },
+  "extensionList": {
+    "extensions": [
+      {
+        "name": "JMComic Plus",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.jmcomicplus",
+        "resources": {
+          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.jmcomicplus-v1.6.8.apk",
+          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.jmcomicplus-v106008.png"
+        },
+        "extensionLib": "1.6",
+        "versionCode": 106008,
+        "versionName": "1.6.8",
+        "contentWarning": "NSFW",
+        "sources": [
+          {
+            "id": 5337195273790213207,
+            "name": "禁漫天堂 Plus",
+            "language": "zh",
+            "homeUrl": "https://18comic.vip",
+            "mirrorUrls": [],
+            "message": null
+          }
+        ]
+      }
+    ]
+  },
+  "extensionListUrl": null
+}
