@@ -11,9 +11,9 @@ permissions:
   contents: write
 
 jobs:
-  unpack:
+  install:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Check private source token
         shell: bash
@@ -30,47 +30,36 @@ jobs:
           ref: main
           token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
           path: source
-          fetch-depth: 1
-          persist-credentials: false
-
-      - name: Reconstruct JMComic Plus payload
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/jmplus-unpacked"
-          cat source/.bootstrap/jmplus.part-* | base64 -d > "$RUNNER_TEMP/jmplus_payload.tar.gz"
-          echo "8ca003bb3a75f504f6afe288273ba471d0cc2bd4c411881ac47868a96bd5af7e  $RUNNER_TEMP/jmplus_payload.tar.gz" | sha256sum -c -
-          tar -xzf "$RUNNER_TEMP/jmplus_payload.tar.gz" -C "$RUNNER_TEMP/jmplus-unpacked"
-          test -f "$RUNNER_TEMP/jmplus-unpacked/src/zh/jmcomicplus/build.gradle.kts"
-          test -f "$RUNNER_TEMP/jmplus-unpacked/src/zh/jmcomicplus/src/eu/kanade/tachiyomi/extension/zh/jmcomicplus/JmComicPlus.kt"
-          test -f "$RUNNER_TEMP/jmplus-unpacked/src/zh/jmcomicplus/src/eu/kanade/tachiyomi/extension/zh/jmcomicplus/ScrambledImageInterceptor.kt"
-          test -f "$RUNNER_TEMP/jmplus-unpacked/docs/sources/jmcomicplus.md"
-          find "$RUNNER_TEMP/jmplus-unpacked" -type f | sort
-
-      - name: Checkout handoff branch
-        uses: actions/checkout@v5
-        with:
-          repository: huoguotiankong/mx-build
-          ref: extension-staging
-          token: ${{ github.token }}
-          path: handoff
           fetch-depth: 0
           persist-credentials: true
 
-      - name: Commit unpacked source handoff
+      - name: Reconstruct and install JMComic Plus
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf handoff/jmplus-handoff
-          mkdir -p handoff/jmplus-handoff
-          cp -a "$RUNNER_TEMP/jmplus-unpacked/." handoff/jmplus-handoff/
-          cd handoff
+          cat source/.bootstrap/jmplus.part-* | base64 -d > "$RUNNER_TEMP/jmplus_payload.tar.gz"
+          echo "8ca003bb3a75f504f6afe288273ba471d0cc2bd4c411881ac47868a96bd5af7e  $RUNNER_TEMP/jmplus_payload.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/jmplus_payload.tar.gz" -C source
+          test -f source/src/zh/jmcomicplus/build.gradle.kts
+          test -f source/src/zh/jmcomicplus/src/eu/kanade/tachiyomi/extension/zh/jmcomicplus/JmComicPlus.kt
+          test -f source/src/zh/jmcomicplus/src/eu/kanade/tachiyomi/extension/zh/jmcomicplus/ScrambledImageInterceptor.kt
+          test -f source/docs/sources/jmcomicplus.md
+          grep -q 'supportsChapterComments = true' source/src/zh/jmcomicplus/src/eu/kanade/tachiyomi/extension/zh/jmcomicplus/JmComicPlus.kt
+          if grep -Eqi 'paragraph(comment|review)|segment(comment|review)|段评' source/src/zh/jmcomicplus/src/eu/kanade/tachiyomi/extension/zh/jmcomicplus/JmComicPlus.kt; then
+            echo "::error::Unexpected paragraph-comment implementation found"
+            exit 1
+          fi
+
+      - name: Commit JMComic Plus to private source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          rm -f .bootstrap/jmplus.part-* .bootstrap/jmplus.trigger
+          rm -f .github/workflows/bootstrap-jmplus.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add jmplus-handoff
-          if git diff --cached --quiet; then
-            echo "No JMComic Plus handoff changes"
-          else
-            git commit -m "Stage JMComic Plus bootstrap handoff"
-            git push origin HEAD:extension-staging
-          fi
+          git add -A
+          git status --short
+          git commit -m "feat(jmcomicplus): add dual-route Plus source"
+          git push origin HEAD:main
