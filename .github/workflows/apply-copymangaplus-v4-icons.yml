@@ -1,0 +1,82 @@
+name: Apply CopyManga Plus v4 normalized icons
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/apply-copymangaplus-v4-icons.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout build handoff
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Checkout private extension source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply validated density icons
+        shell: bash
+        run: |
+          set -euo pipefail
+          handoff=".github/handoff/copymangaplus-v4-icons"
+          root="source/src/zh/copymangaplus/res"
+          declare -A sizes=(
+            [mdpi]=48
+            [hdpi]=72
+            [xhdpi]=96
+            [xxhdpi]=144
+            [xxxhdpi]=192
+          )
+          for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            mkdir -p "$root/mipmap-$density"
+            base64 -d "$handoff/$density.b64" > "$root/mipmap-$density/ic_launcher.png"
+          done
+          rm -rf "$root/mipmap-anydpi" "$root/mipmap-anydpi-v26"
+          rm -f source/.github/tmp-marker.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          import struct
+          root = Path('source/src/zh/copymangaplus/res')
+          sizes = {'mdpi':48,'hdpi':72,'xhdpi':96,'xxhdpi':144,'xxxhdpi':192}
+          for density, expected in sizes.items():
+              p = root / f'mipmap-{density}' / 'ic_launcher.png'
+              data = p.read_bytes()
+              if data[:8] != b'\x89PNG\r\n\x1a\n':
+                  raise SystemExit(f'bad PNG signature: {p}')
+              width, height = struct.unpack('>II', data[16:24])
+              if (width, height) != (expected, expected):
+                  raise SystemExit(f'bad PNG dimensions: {p} {(width,height)}')
+              print(p, len(data), width, height)
+          PY
+
+      - name: Commit normalized icons to private source
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A src/zh/copymangaplus/res .github/tmp-marker.txt || true
+          if git diff --cached --quiet; then
+            echo "No icon changes"
+            exit 0
+          fi
+          git commit -m "fix(copymangaplus): normalize launcher icon PNGs"
+          git pull --rebase origin main
+          git push origin HEAD:main
