@@ -70,6 +70,14 @@ jobs:
         working-directory: upstream
         run: ./gradlew :src:zh:jmcomicplus:spotlessCheck
 
-      - name: Build Debug extension
+      - name: Build and lint extension
         working-directory: upstream
-        run: ./gradlew :src:zh:jmcomicplus:assembleDebug
+        run: ./gradlew :src:zh:jmcomicplus:assembleDebug :src:zh:jmcomicplus:lintRelease
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: jmcomicplus-v3-debug-apk
+          path: upstream/src/zh/jmcomicplus/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 7
