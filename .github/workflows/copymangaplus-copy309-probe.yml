@@ -1,0 +1,127 @@
+name: CopyManga Plus 3.0.9 Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/copymangaplus-copy309-probe.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout private source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Probe CopyManga 3.0.9
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, datetime as dt, gzip, hashlib, hmac, json, random, re, string, time
+          import urllib.error, urllib.parse, urllib.request
+          from pathlib import Path
+
+          src=Path('source/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt').read_text('utf-8')
+          def const(n):
+              m=re.search(rf'private const val {re.escape(n)} = "([^"]+)"',src)
+              if not m: raise SystemExit(f'missing {n}')
+              return m.group(1)
+          secret=const('SECRET_B64'); um=const('UMSTRING')
+          ver='3.0.9'
+          hosts=['api.copy202601.com','api.copy-manga.com','api.copy2000.online','api.mangacopy.com']
+
+          def headers():
+              ts=str(int(time.time()))
+              sig=hmac.new(base64.b64decode(secret),ts.encode(),hashlib.sha256).hexdigest()
+              alpha=string.ascii_letters+string.digits
+              pseudo=''.join(random.choice(alpha) for _ in range(16))
+              dev=f'AA{random.randrange(10)}A.'+''.join(str(random.randrange(10)) for _ in range(6))+'.'+''.join(str(random.randrange(10)) for _ in range(3))
+              return {
+                  'User-Agent':f'COPY/{ver}', 'source':'copyApp',
+                  'deviceinfo':f'{random.randrange(1000000,10000000)}V-{random.randrange(1000,10000)}',
+                  'dt':dt.datetime.now().strftime('%Y.%m.%d'), 'platform':'3',
+                  'referer':f'com.copymanga.app-{ver}', 'version':ver, 'device':dev,
+                  'pseudoid':pseudo, 'Accept':'application/json', 'region':'0',
+                  'authorization':'Token', 'umstring':um,
+                  'x-auth-timestamp':ts, 'x-auth-signature':sig,
+              }
+
+          def get(host,path):
+              req=urllib.request.Request('https://'+host+path,headers=headers())
+              try:
+                  with urllib.request.urlopen(req,timeout=15) as r:
+                      status=r.status; body=r.read(); enc=r.headers.get('Content-Encoding','')
+              except urllib.error.HTTPError as e:
+                  status=e.code; body=e.read(); enc=e.headers.get('Content-Encoding','')
+              if 'gzip' in enc.lower(): body=gzip.decompress(body)
+              text=body.decode('utf-8','replace')
+              try: data=json.loads(text)
+              except Exception: data={'raw':text[:250]}
+              return {'http':status,'code':data.get('code') if isinstance(data,dict) else None,'message':data.get('message') if isinstance(data,dict) else None,'results':data.get('results') if isinstance(data,dict) else None}
+
+          report={'version':ver,'hosts':{}}
+          chosen=None
+          for host in hosts:
+              row={}
+              try:
+                  r=get(host,'/api/v3/comics?limit=3&offset=0&ordering=-popular&platform=3')
+                  row['list']={'http':r['http'],'code':r['code'],'message':r['message']}
+                  items=((r.get('results') or {}).get('list') or []) if isinstance(r.get('results'),dict) else []
+                  row['list_count']=len(items)
+                  if items:
+                      raw=items[0]; item=raw.get('comic') if isinstance(raw,dict) and isinstance(raw.get('comic'),dict) else raw
+                      pw=item.get('path_word') if isinstance(item,dict) else None
+                      row['path_word']=pw
+                      if pw:
+                          d=get(host,'/api/v3/comic2/'+urllib.parse.quote(pw)+'?platform=3')
+                          row['detail']={'http':d['http'],'code':d['code'],'message':d['message']}
+                          res=d.get('results') if isinstance(d.get('results'),dict) else {}
+                          groups=res.get('groups') if isinstance(res,dict) else None
+                          gw='default'
+                          if isinstance(groups,dict) and groups:
+                              key,val=next(iter(groups.items()))
+                              gw=(val.get('path_word') if isinstance(val,dict) else None) or key
+                          c=get(host,f'/api/v3/comic/{urllib.parse.quote(pw)}/group/{urllib.parse.quote(str(gw))}/chapters?limit=100&offset=0&platform=3')
+                          box=c.get('results') if isinstance(c.get('results'),dict) else {}
+                          arr=box.get('list') if isinstance(box,dict) else None
+                          row['chapters']={'http':c['http'],'code':c['code'],'message':c['message'],'count':len(arr) if isinstance(arr,list) else None,'group':gw}
+                          if isinstance(arr,list) and arr:
+                              cid=arr[0].get('uuid')
+                              p=get(host,f'/api/v3/comic/{urllib.parse.quote(pw)}/chapter/{urllib.parse.quote(cid)}?platform=3')
+                              pbox=p.get('results') if isinstance(p.get('results'),dict) else {}
+                              chapter=pbox.get('chapter') if isinstance(pbox,dict) else None
+                              contents=chapter.get('contents') if isinstance(chapter,dict) else None
+                              row['pages']={'http':p['http'],'code':p['code'],'message':p['message'],'count':len(contents) if isinstance(contents,list) else None}
+                              if isinstance(contents,list) and contents:
+                                  chosen=host
+              except Exception as e:
+                  row['exception']=str(e)
+              report['hosts'][host]=row
+              if chosen: break
+          report['working_host']=chosen
+          Path('copy309-probe.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),'utf-8')
+          print(json.dumps(report,ensure_ascii=False,indent=2))
+          if not chosen: raise SystemExit('No CopyManga 3.0.9 route completed list/detail/chapters/pages')
+          PY
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: copymangaplus-copy309-probe
+          path: copy309-probe.json
+          if-no-files-found: warn
+          retention-days: 7
