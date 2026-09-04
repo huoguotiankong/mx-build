@@ -1,0 +1,68 @@
+name: CopyManga Plus v4 Detail Update Probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/copymangaplus-v4-detail-update-probe.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Probe exact detail request variants
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import datetime, hashlib, hmac, json, random, string, time, urllib.error, urllib.request
+
+          hosts = [
+            'api.copy2000.online','api.copy-manga.com','api.2026copy.com',
+            'api.copy4000.com','api.mangacopy.com','api.copy3000.com','mapi.copy20.com'
+          ]
+          paths = ['quanzhiduzheshijiao','modujingbingdenuli']
+          key=b'3af08590311032efe0660500a0563a53'
+          deviceinfo=f'{random.randint(1000000,9999999)}V-{random.randint(1000,9999)}'
+          A=lambda: random.choice(string.ascii_uppercase)
+          D=lambda: random.choice(string.digits)
+          device=A()+A()+D()+A()+'.'+''.join(D() for _ in range(6))+'.'+''.join(D() for _ in range(3))
+          pseudo=''.join(random.choice(string.ascii_letters+string.digits) for _ in range(16))
+          dt=datetime.datetime.now().strftime('%Y.%m.%d')
+
+          def headers():
+            ts=str(int(time.time()))
+            sig=hmac.new(key,ts.encode(),hashlib.sha256).hexdigest()
+            return {
+              'User-Agent':'COPY/3.0.0','Accept':'application/json','webp':'1','region':'1','platform':'3',
+              'source':'copyApp','version':'3.0.9','referer':'com.copymanga.app-3.0.0',
+              'deviceinfo':deviceinfo,'device':device,'pseudoid':pseudo,'dt':dt,
+              'umstring':'b4c89ca4104ea9a97750314d791520ac',
+              'x-auth-timestamp':ts,'x-auth-signature':sig,'Authorization':'Token'
+            }
+
+          for path in paths:
+            print('===',path,'===')
+            for host in hosts:
+              for suffix in ['?platform=3&_update=true','?platform=3','?_update=true','']:
+                url=f'https://{host}/api/v3/comic2/{path}{suffix}'
+                req=urllib.request.Request(url,headers=headers())
+                try:
+                  with urllib.request.urlopen(req,timeout=12) as r:
+                    raw=r.read().decode('utf-8','replace'); status=r.status
+                except urllib.error.HTTPError as e:
+                  raw=e.read().decode('utf-8','replace'); status=e.code
+                except Exception as e:
+                  print(host,suffix or '<none>','ERROR',repr(e)); continue
+                try: data=json.loads(raw)
+                except Exception:
+                  print(host,suffix or '<none>','http',status,'NONJSON',raw[:100]); continue
+                res=data.get('results') if isinstance(data,dict) else None
+                comic=res.get('comic') if isinstance(res,dict) else None
+                groups=res.get('groups') if isinstance(res,dict) else None
+                print(host,suffix or '<none>','http',status,'code',data.get('code'),'comic',bool(comic),'name',(comic or {}).get('name') if isinstance(comic,dict) else None,'groups',len(groups) if isinstance(groups,dict) else None,'msg',data.get('message'))
+          PY
