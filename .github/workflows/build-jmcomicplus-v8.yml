@@ -1,0 +1,242 @@
+name: Build JMComic Plus v8
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/build-jmcomicplus-v8.yml"
+      - "scripts/patch_jmcomicplus_v8.py"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-jmcomicplus-v8
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check required secrets
+        env:
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "$MANGA_SIGNING_BUNDLE" ]] || { echo "::error::Missing MANGA_SIGNING_BUNDLE"; exit 1; }
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]] || { echo "::error::Missing MX_PRIVATE_READ_TOKEN"; exit 1; }
+
+      - name: Checkout build helpers
+        uses: actions/checkout@v5
+        with:
+          path: buildrepo
+          fetch-depth: 0
+
+      - name: Checkout validated v7 source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-build
+          ref: handoff/jmcomicplus-v7-source
+          path: source
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Apply v8 real-device repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 buildrepo/scripts/patch_jmcomicplus_v8.py
+          grep -q 'versionCode = 8' source/src/zh/jmcomicplus/build.gradle.kts
+          grep -q 'mode=\$mode' source/src/zh/jmcomicplus/src/eu/kanade/tachiyomi/extension/zh/jmcomicplus/JmComicPlus.kt
+          grep -q 'SCRAMBLE_ID = 220980' source/src/zh/jmcomicplus/src/eu/kanade/tachiyomi/extension/zh/jmcomicplus/ScrambledImageInterceptor.kt
+
+      - name: Checkout current Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Overlay and format v8
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf upstream/src/zh/jmcomicplus
+          cp -a source/src/zh/jmcomicplus upstream/src/zh/jmcomicplus
+          cd upstream
+          ./gradlew :src:zh:jmcomicplus:spotlessApply
+          ./gradlew :src:zh:jmcomicplus:spotlessCheck
+
+      - name: Copy formatted source back
+        shell: bash
+        run: |
+          set -euo pipefail
+          rsync -a --delete --exclude build/ upstream/src/zh/jmcomicplus/ source/src/zh/jmcomicplus/
+          grep -q 'versionCode = 8' source/src/zh/jmcomicplus/build.gradle.kts
+
+      - name: Preserve v8 source candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: jmcomicplus-v8-source-candidate
+          path: |
+            source/src/zh/jmcomicplus
+            source/docs/sources/jmcomicplus.md
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: true
+
+      - name: Prepare stable signing key
+        env:
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, json, os
+          from pathlib import Path
+          bundle = json.loads(os.environ['MANGA_SIGNING_BUNDLE'])
+          required = ('signingKey', 'alias', 'storePassword', 'keyPassword')
+          missing = [k for k in required if not bundle.get(k)]
+          if missing:
+              raise SystemExit('Signing bundle missing fields: ' + ', '.join(missing))
+          Path('upstream/signingkey.jks').write_bytes(base64.b64decode(bundle['signingKey']))
+          with Path(os.environ['GITHUB_ENV']).open('a', encoding='utf-8') as f:
+              for env_name, key in (('ALIAS','alias'),('KEY_STORE_PASSWORD','storePassword'),('KEY_PASSWORD','keyPassword')):
+                  value = str(bundle[key])
+                  print(f'::add-mask::{value}')
+                  f.write(f'{env_name}<<__SIGNING_EOF__\n{value}\n__SIGNING_EOF__\n')
+          PY
+
+      - name: Build release and lint
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:jmcomicplus:assembleRelease :src:zh:jmcomicplus:lintRelease
+
+      - name: Verify stable signing certificate
+        id: signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(keytool -exportcert -alias "$ALIAS" -keystore upstream/signingkey.jks -storepass "$KEY_STORE_PASSWORD" | sha256sum | awk '{print $1}')"
+          expected="$(printf '%s' "$expected" | tr '[:upper:]' '[:lower:]')"
+          designated="1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620"
+          [[ "$expected" == "$designated" ]] || { echo "::error::Wrong signing certificate"; exit 1; }
+          echo "fingerprint=$expected" >> "$GITHUB_OUTPUT"
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          apk="$(find upstream/src/zh/jmcomicplus -path '*/build/outputs/apk/release/*.apk' -type f | head -n 1)"
+          [[ -n "$apk" ]] || { echo "::error::No release APK found"; exit 1; }
+          "$apksigner" verify --print-certs "$apk" > /tmp/certs.txt
+          actual="$(python3 - <<'PY'
+          import re
+          text=open('/tmp/certs.txt',encoding='utf-8',errors='ignore').read().replace(':','')
+          m=re.search(r'(?i)(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])', '\n'.join(x for x in text.splitlines() if 'sha-256' in x.lower()))
+          print(m.group(0).lower() if m else '')
+          PY
+          )"
+          [[ "$actual" == "$expected" ]] || { cat /tmp/certs.txt; echo "::error::APK signing mismatch"; exit 1; }
+
+      - name: Preserve signed v8 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: jmcomicplus-v8-signed-test-apk
+          path: upstream/src/zh/jmcomicplus/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Checkout private dev helpers
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: dev
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Generate isolated v8 test store
+        env:
+          SIGNING_FINGERPRINT: ${{ steps.signing.outputs.fingerprint }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p teststore
+          printf '%s\n' 'zh/jmcomicplus' > jm-targets.txt
+          python3 dev/scripts/publish_test_repo.py \
+            --targets jm-targets.txt \
+            --upstream-root upstream \
+            --source-root source \
+            --repo-dir teststore \
+            --owner huoguotiankong \
+            --repository mx-repo \
+            --signing-key "$SIGNING_FINGERPRINT"
+          test -f teststore/apk/tachiyomi-zh.jmcomicplus-v1.6.8.apk
+          test -f teststore/icon/eu.kanade.tachiyomi.extension.zh.jmcomicplus-v106008.png
+          grep -Eq '1\.6\.8|106008|versionCode[^0-9]*8' teststore/index.json teststore/repo.json
+
+      - name: Preserve v8 test store
+        uses: actions/upload-artifact@v4
+        with:
+          name: jmcomicplus-v8-test-store
+          path: teststore
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Stage v8 source handoff branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/v8-source
+          mkdir -p /tmp/v8-source
+          cp -a source/src /tmp/v8-source/
+          mkdir -p /tmp/v8-source/docs/sources
+          cp source/docs/sources/jmcomicplus.md /tmp/v8-source/docs/sources/jmcomicplus.md
+          cd /tmp/v8-source
+          git init
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b handoff/jmcomicplus-v8-source
+          git add -A
+          git commit -m "Handoff validated JMComic Plus v8 source"
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/huoguotiankong/mx-build.git"
+          git push --force origin HEAD:refs/heads/handoff/jmcomicplus-v8-source
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Stage v8 test-store handoff branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/v8-store
+          cp -a teststore /tmp/v8-store
+          cd /tmp/v8-store
+          git init
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b handoff/jmcomicplus-v8
+          git add -A
+          git commit -m "Handoff JMComic Plus v8 test store"
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/huoguotiankong/mx-build.git"
+          git push --force origin HEAD:refs/heads/handoff/jmcomicplus-v8
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Cleanup signing material
+        if: always()
+        run: rm -f upstream/signingkey.jks
