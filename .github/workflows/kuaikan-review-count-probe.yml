@@ -1,0 +1,84 @@
+name: Kuaikan Review Count Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/kuaikan-review-count-probe-trigger"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Probe sanitized review count fields
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, urllib.parse, urllib.request
+
+          API='https://api.kkmh.com'
+          UA='Kuaikan/5.75.0/575000(iPhone;Scale/3.00) (iPhone; CPU)'
+          H={'User-Agent':UA,'Accept':'application/json, text/plain, */*','X-Device':'0'}
+
+          def call(method,path,params=None,body=None):
+              url=API+path
+              if params: url += '?' + urllib.parse.urlencode(params)
+              headers=dict(H); data=None
+              if body is not None:
+                  data=json.dumps(body,separators=(',',':')).encode()
+                  headers['Content-Type']='application/json; charset=utf-8'
+              req=urllib.request.Request(url,data=data,headers=headers,method=method)
+              with urllib.request.urlopen(req,timeout=25) as r:
+                  return r.status,json.loads(r.read().decode())
+
+          def count_scalars(value,prefix='data',depth=0):
+              if depth>8: return []
+              out=[]
+              if isinstance(value,dict):
+                  for k,v in value.items():
+                      key=k.lower()
+                      p=f'{prefix}.{k}'
+                      if isinstance(v,(int,float,bool)) and any(s in key for s in ('count','num','total','post','review','score','feed')):
+                          out.append(f'{p}={v}')
+                      elif isinstance(v,str) and len(v)<80 and any(s in key for s in ('count','num','total','post','review','score','feed')):
+                          out.append(f'{p}={v}')
+                      if isinstance(v,(dict,list)):
+                          out += count_scalars(v,p,depth+1)
+              elif isinstance(value,list):
+                  for i,v in enumerate(value[:3]):
+                      if isinstance(v,(dict,list)): out += count_scalars(v,f'{prefix}[{i}]',depth+1)
+              return out
+
+          for topic in (906,766):
+              print(f'=== topic={topic} ===')
+              for name,path in (
+                  ('head','/v1/graph/topic/score/head'),
+                  ('tip','/v1/graph/topic/score/tip'),
+              ):
+                  try:
+                      st,o=call('GET',path,{'topicId':topic})
+                      print(f'{name}.http={st} code={o.get("code")}')
+                      d=o.get('data') or {}
+                      for line in sorted(set(count_scalars(d))): print(name+'.'+line)
+                  except Exception as e:
+                      print(f'{name}.error={type(e).__name__}:{str(e)[:100]}')
+
+              for page_id in (6,7):
+                  try:
+                      st,o=call('POST','/v1/graph/unified_feed',body={'feedType':50,'since':0,'limit':20,'topicId':topic,'pageId':page_id})
+                      d=o.get('data') or {}
+                      models=d.get('universalModels')
+                      model_count=len(models) if isinstance(models,list) else -1
+                      print(f'feed.p{page_id}.http={st} code={o.get("code")} models={model_count} since={d.get("since")} newFeedCount={d.get("newFeedCount")} isNewData={d.get("isNewData")}')
+                      for line in sorted(set(count_scalars(d))): print(f'feed.p{page_id}.'+line)
+                  except Exception as e:
+                      print(f'feed.p{page_id}.error={type(e).__name__}:{str(e)[:100]}')
+          PY
