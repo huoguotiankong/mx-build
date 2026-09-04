@@ -31,6 +31,28 @@
         ]
       },
       {
+        "name": "CopyManga Plus",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.copymangaplus",
+        "resources": {
+          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.copymangaplus-v1.6.1.apk",
+          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.copymangaplus-v106001.png"
+        },
+        "extensionLib": "1.6",
+        "versionCode": 106001,
+        "versionName": "1.6.1",
+        "contentWarning": "NSFW",
+        "sources": [
+          {
+            "id": 4890981838474778925,
+            "name": "拷贝漫画 Plus",
+            "language": "zh",
+            "homeUrl": "https://www.mangacopy.com",
+            "mirrorUrls": [],
+            "message": null
+          }
+        ]
+      },
+      {
         "name": "JMComic Plus",
         "packageName": "eu.kanade.tachiyomi.extension.zh.jmcomicplus",
         "resources": {
