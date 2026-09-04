@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/publish-jmcomicplus-test-store.yml"
+      - "scripts/patch_jmcomicplus_v5.py"
   workflow_dispatch:
 
 permissions:
@@ -14,7 +15,7 @@ concurrency:
   group: publish-jmcomicplus-test-store
   cancel-in-progress: false
 
-# Triggered after successful jmcomicplus v4 validation from mx-dev b7c7333; publish signed test build.
+# Build and publish the real-device repair candidate from mx-dev v5 + the validated v6 patch.
 jobs:
   publish:
     runs-on: ubuntu-24.04
@@ -32,15 +33,79 @@ jobs:
           [[ -n "$MANGA_SIGNING_BUNDLE" ]] || { echo "::error::Missing MANGA_SIGNING_BUNDLE"; exit 1; }
           [[ -n "$MX_REPO_TOKEN" ]] || { echo "::error::Missing MX_REPO_TOKEN"; exit 1; }
 
+      - name: Checkout build helpers
+        uses: actions/checkout@v5
+        with:
+          path: buildrepo
+          persist-credentials: false
+
       - name: Checkout private MX source
         uses: actions/checkout@v5
         with:
           repository: huoguotiankong/mx-dev
-          ref: b7c7333599a2e9dda3f5e07fdbc9e101063a651b
+          ref: 5dbfc785a4811037e3b5bd46971843a031adbdcf
           token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
           path: source
           fetch-depth: 1
           persist-credentials: false
+
+      - name: Apply validated v6 route repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          p = Path('buildrepo/scripts/patch_jmcomicplus_v5.py')
+          s = p.read_text('utf-8')
+          s, n = re.subn(
+              r'd = DOC\.read_text\("utf-8"\)nd = d\.replace\(',
+              'd = DOC.read_text("utf-8")\n' + 'd = d.replace(',
+              s,
+              count=1,
+          )
+          if n != 1:
+              raise SystemExit(f'helper syntax repair failed: {n}')
+          old = 'g = replace_once(g, "versionCode = 4", "versionCode = 5", "versionCode")'
+          new = 'g = replace_once(g, "versionCode = 5", "versionCode = 6", "versionCode")'
+          if old not in s:
+              raise SystemExit('helper version rebase point missing')
+          s = s.replace(old, new, 1)
+          p.write_text(s, 'utf-8')
+          PY
+          python3 -m py_compile buildrepo/scripts/patch_jmcomicplus_v5.py
+          python3 buildrepo/scripts/patch_jmcomicplus_v5.py
+          python3 - <<'PY'
+          from pathlib import Path
+
+          kp = Path('source/src/zh/jmcomicplus/src/eu/kanade/tachiyomi/extension/zh/jmcomicplus/JmComicPlus.kt')
+          lines = kp.read_text('utf-8').splitlines()
+          domain_hits = 0
+          bom_hits = 0
+          for i, line in enumerate(lines):
+              indent = line[:len(line) - len(line.lstrip())]
+              if 'DOMAIN_REGEX.findAll(html).map' in line:
+                  lines[i] = indent + "DOMAIN_REGEX.findAll(html).map { it.value.trimEnd('/', '\\\\', '\"') }.filterNot(::isLegacyWebBase).forEach(out::add)"
+                  domain_hits += 1
+              if 'val raw = response.body.string().trimStart(' in line:
+                  lines[i] = indent + "val raw = response.body.string().trimStart('\\uFEFF')"
+                  bom_hits += 1
+          if domain_hits != 1:
+              raise SystemExit(f'generated Kotlin domain line repair expected 1 hit, found {domain_hits}')
+          if bom_hits != 1:
+              raise SystemExit(f'generated Kotlin BOM line repair expected 1 hit, found {bom_hits}')
+          kp.write_text('\n'.join(lines) + '\n', 'utf-8')
+
+          dp = Path('source/docs/sources/jmcomicplus.md')
+          s = dp.read_text('utf-8')
+          s = s.replace('`1.6.5`，Android `versionCode=106005`', '`1.6.6`，Android `versionCode=106006`')
+          s = s.replace(
+              'v5 正文解混淆修正：已按当前 Keiyoushi 禁漫天堂算法对照修改，待重新执行 Spotless、Release 编译、Lint 和固定签名测试发布。',
+              'v5 正文解混淆修正已合入；v6 在用户实机反馈基础上继续修复 APP/API 解压/请求头、Web 镜像/解析和扩展图标。',
+          )
+          dp.write_text(s, 'utf-8')
+          PY
 
       - name: Validate target source
         shell: bash
@@ -48,6 +113,7 @@ jobs:
           set -euo pipefail
           python3 source/scripts/validate_sources.py
           test -f source/src/zh/jmcomicplus/build.gradle.kts
+          grep -q 'versionCode = 6' source/src/zh/jmcomicplus/build.gradle.kts
           printf '%s\n' 'zh/jmcomicplus' > jm-targets.txt
 
       - name: Set up Java
@@ -73,6 +139,23 @@ jobs:
           cd upstream
           ./gradlew :src:zh:jmcomicplus:spotlessApply
           ./gradlew :src:zh:jmcomicplus:spotlessCheck
+
+      - name: Copy formatted v6 source back
+        shell: bash
+        run: |
+          set -euo pipefail
+          rsync -a --delete --exclude build/ upstream/src/zh/jmcomicplus/ source/src/zh/jmcomicplus/
+          python3 source/scripts/validate_sources.py
+
+      - name: Preserve exact v6 source candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: jmcomicplus-v6-source-candidate
+          path: |
+            source/src/zh/jmcomicplus
+            source/docs/sources/jmcomicplus.md
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Prepare stable extension signing key
         shell: bash
@@ -138,7 +221,7 @@ jobs:
       - name: Preserve signed APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: jmcomicplus-v4-signed-test-apk
+          name: jmcomicplus-v6-signed-test-apk
           path: upstream/src/zh/jmcomicplus/build/outputs/apk/release/*.apk
           if-no-files-found: error
           retention-days: 14
@@ -170,7 +253,7 @@ jobs:
       - name: Preserve generated test store artifact
         uses: actions/upload-artifact@v4
         with:
-          name: jmcomicplus-v4-test-store
+          name: jmcomicplus-v6-test-store
           path: repo/test
           if-no-files-found: error
           retention-days: 14
@@ -187,7 +270,7 @@ jobs:
             echo "No test-store changes to publish"
             exit 0
           fi
-          git commit -m "Publish JMComic Plus test v4 from ${GITHUB_SHA:0:7}"
+          git commit -m "Publish JMComic Plus test v6 from ${GITHUB_SHA:0:7}"
           git push origin HEAD:repo
 
       - name: Verify published test store endpoints
@@ -210,6 +293,7 @@ jobs:
           python3 -m json.tool /tmp/repo.json >/dev/null
           python3 -m json.tool /tmp/index.json >/dev/null
           grep -q 'jmcomicplus' /tmp/index.json || { echo "::error::JMComic Plus missing from published test index"; exit 1; }
+          grep -Eq '1\.6\.6|106006|versionCode[^0-9]*6' /tmp/index.json /tmp/repo.json || { echo "::error::Published test metadata does not show v6"; exit 1; }
 
       - name: Cleanup signing material
         if: always()
