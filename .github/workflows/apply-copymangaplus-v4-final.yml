@@ -1,0 +1,80 @@
+name: Apply CopyManga Plus v4 final source
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/apply-copymangaplus-v4-final.yml"
+      - ".github/copymangaplus-v4-final-trigger"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout validated handoff
+        uses: actions/checkout@v5
+        with:
+          path: helper
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Confirm validated v4 handoff
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'validated: finalized v4 Spotless + assembleDebug + lintRelease' \
+            helper/.github/handoff/copymangaplus-v4-opencc/VALIDATED.txt
+          grep -q 'private fun requestDetailJson(pathWord: String)' \
+            helper/.github/handoff/copymangaplus-v4-opencc/CopyMangaPlus.kt
+          grep -q 'COPY_DETAIL_VERSION = "3.0.6"' \
+            helper/.github/handoff/copymangaplus-v4-opencc/CopyMangaPlus.kt
+          grep -q 'PREF_TRAD_TO_SIMP' \
+            helper/.github/handoff/copymangaplus-v4-opencc/CopyMangaPlus.kt
+          grep -q 'versionCode = 4' \
+            helper/.github/handoff/copymangaplus-v4-opencc/build.gradle.kts
+
+      - name: Checkout private source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply validated v4 text files
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp helper/.github/handoff/copymangaplus-v4-opencc/CopyMangaPlus.kt \
+            source/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt
+          cp helper/.github/handoff/copymangaplus-v4-opencc/build.gradle.kts \
+            source/src/zh/copymangaplus/build.gradle.kts
+          cp helper/.github/handoff/copymangaplus-v4-opencc/copymangaplus.md \
+            source/docs/sources/copymangaplus.md
+          python3 source/scripts/validate_sources.py
+          git -C source diff --check
+
+      - name: Commit v4 to private source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C source config user.name "github-actions[bot]"
+          git -C source config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C source add \
+            src/zh/copymangaplus/build.gradle.kts \
+            src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt \
+            docs/sources/copymangaplus.md
+          if git -C source diff --cached --quiet; then
+            echo "CopyManga Plus v4 source is already current"
+          else
+            git -C source commit -m "fix(copymangaplus): finalize v4 detail and simplified Chinese"
+            git -C source pull --rebase origin main
+            git -C source push origin HEAD:main
+          fi
