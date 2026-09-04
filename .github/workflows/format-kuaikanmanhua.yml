@@ -1,4 +1,4 @@
-name: Format Kuaikan Manhua
+name: Patch and Format Kuaikan Manhua
 
 on:
   workflow_dispatch:
@@ -36,6 +36,14 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
+      - name: Apply Kuaikan v25 reply patch
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/patch_kuaikan_v24_comment_images.py
+          git diff --check
+
       - name: Set up Java
         uses: actions/setup-java@v5
         with:
@@ -64,7 +72,7 @@ jobs:
           set -euo pipefail
           ./gradlew :src:zh:kuaikanmanhua:spotlessApply
 
-      - name: Copy formatting back to private source
+      - name: Copy formatting back and commit v25
         shell: bash
         run: |
           set -euo pipefail
@@ -72,14 +80,9 @@ jobs:
           cp -a upstream/src/zh/kuaikanmanhua source/src/zh/kuaikanmanhua
 
           cd source
-          changed="$(git status --short -- src/zh/kuaikanmanhua)"
-          if [[ -z "$changed" ]]; then
-            echo "No formatting changes"
-            exit 0
-          fi
-
+          git diff --check
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/zh/kuaikanmanhua
-          git commit -m "style(kuaikanmanhua): apply Keiyoushi formatting"
+          git add src/zh/kuaikanmanhua docs/sources/kuaikanmanhua.md
+          git commit -m "fix(kuaikanmanhua): restore comment replies v25"
           git push origin HEAD:main
