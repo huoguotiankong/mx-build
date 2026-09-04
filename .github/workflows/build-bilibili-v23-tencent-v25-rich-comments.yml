@@ -1,0 +1,237 @@
+name: Build Bilibili v23 and Tencent v25 rich comments
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/build-bilibili-v23-tencent-v25-rich-comments.yml"
+      - ".github/bilibili-v23-tencent-v25-build-trigger"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-bilibili-v23-tencent-v25-rich-comments
+  cancel-in-progress: false
+
+jobs:
+  build-stage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout build infrastructure
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Check required secrets
+        shell: bash
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]] || { echo "::error::Missing MX_PRIVATE_READ_TOKEN"; exit 1; }
+          [[ -n "$MANGA_SIGNING_BUNDLE" ]] || { echo "::error::Missing MANGA_SIGNING_BUNDLE"; exit 1; }
+
+      - name: Checkout private source baseline
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout validated handoff
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-build
+          ref: extension-staging
+          path: staging
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Verify handoff base and overlay validated files
+        shell: bash
+        run: |
+          set -euo pipefail
+          handoff="staging/source-handoff/bilibili-v23-tencent-v25"
+          test -f "$handoff/BASE_SOURCE_SHA.txt"
+          base_sha="$(tr -d '\r\n' < "$handoff/BASE_SOURCE_SHA.txt")"
+          git -C source cat-file -e "$base_sha^{commit}"
+          git -C source diff --quiet "$base_sha" HEAD -- \
+            src/zh/bilibilimanga \
+            src/zh/tencentcomics \
+            docs/sources/bilibilimanga.md \
+            docs/sources/tencentcomics.md || {
+              echo "::error::Target source files changed after validated handoff base $base_sha"; exit 1;
+            }
+          rm -rf source/src/zh/bilibilimanga source/src/zh/tencentcomics
+          cp -a "$handoff/src/zh/bilibilimanga" source/src/zh/bilibilimanga
+          cp -a "$handoff/src/zh/tencentcomics" source/src/zh/tencentcomics
+          cp "$handoff/docs/sources/bilibilimanga.md" source/docs/sources/bilibilimanga.md
+          cp "$handoff/docs/sources/tencentcomics.md" source/docs/sources/tencentcomics.md
+          grep -F 'versionCode = 23' source/src/zh/bilibilimanga/build.gradle.kts
+          grep -F 'versionCode = 25' source/src/zh/tencentcomics/build.gradle.kts
+          python3 source/scripts/validate_sources.py
+          printf 'zh/bilibilimanga\nzh/tencentcomics\n' > "$RUNNER_TEMP/mx-test-targets.txt"
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Checkout current Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Overlay validated modules
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf upstream/src/zh/bilibilimanga upstream/src/zh/tencentcomics
+          cp -a source/src/zh/bilibilimanga upstream/src/zh/bilibilimanga
+          cp -a source/src/zh/tencentcomics upstream/src/zh/tencentcomics
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          build-root-directory: upstream
+
+      - name: Verify formatting and build release
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew \
+            :src:zh:bilibilimanga:spotlessCheck \
+            :src:zh:tencentcomics:spotlessCheck
+
+      - name: Prepare stable extension signing key
+        shell: bash
+        env:
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, json, os
+          from pathlib import Path
+          bundle = json.loads(os.environ["MANGA_SIGNING_BUNDLE"])
+          required = ("signingKey", "alias", "storePassword", "keyPassword")
+          missing = [key for key in required if not bundle.get(key)]
+          if missing:
+              raise SystemExit(f"Signing bundle missing fields: {', '.join(missing)}")
+          Path("upstream/signingkey.jks").write_bytes(base64.b64decode(bundle["signingKey"]))
+          values = {
+              "ALIAS": str(bundle["alias"]),
+              "KEY_STORE_PASSWORD": str(bundle["storePassword"]),
+              "KEY_PASSWORD": str(bundle["keyPassword"]),
+          }
+          with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as f:
+              for name, value in values.items():
+                  print(f"::add-mask::{value}")
+                  f.write(f"{name}<<__MX_EXT_SIGNING_EOF__\n{value}\n__MX_EXT_SIGNING_EOF__\n")
+          PY
+
+      - name: Verify signing identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620"
+          actual="$(keytool -exportcert -alias "$ALIAS" -keystore upstream/signingkey.jks -storepass "$KEY_STORE_PASSWORD" | sha256sum | awk '{print $1}')"
+          actual="$(printf '%s' "$actual" | tr '[:upper:]' '[:lower:]')"
+          [[ "$actual" == "$expected" ]] || { echo "::error::Extension signing certificate mismatch"; exit 1; }
+          echo "SIGNING_FINGERPRINT=$actual" >> "$GITHUB_ENV"
+
+      - name: Build signed release APKs
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew \
+            :src:zh:bilibilimanga:assembleRelease \
+            :src:zh:tencentcomics:assembleRelease
+
+      - name: Verify signed APKs and rich media payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          [[ -n "$apksigner" ]] || { echo "::error::apksigner not found"; exit 1; }
+          for module in bilibilimanga tencentcomics; do
+            apk="$(find "upstream/src/zh/$module" -path '*/build/outputs/apk/release/*.apk' -type f | sort | head -n 1)"
+            [[ -f "$apk" ]] || { echo "::error::No $module Release APK"; exit 1; }
+            cert_output="$("$apksigner" verify --print-certs "$apk" 2>&1)"
+            normalized="$(printf '%s' "$cert_output" | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')"
+            [[ "$normalized" == *"$SIGNING_FINGERPRINT"* ]] || { echo "::error::$module APK signing certificate mismatch"; exit 1; }
+            dump="$RUNNER_TEMP/$module-dex.txt"
+            : > "$dump"
+            while IFS= read -r dex; do unzip -p "$apk" "$dex" | strings >> "$dump"; done < <(unzip -Z1 "$apk" | grep -E '^classes([0-9]+)?\.dex$' || true)
+            if [[ "$module" == "bilibilimanga" ]]; then
+              grep -Fq 'rich_text_nodes' "$dump"
+              grep -Fq 'emote' "$dump"
+            else
+              grep -Fq 'picUrl' "$dump"
+              grep -Fq 'attach' "$dump"
+            fi
+          done
+
+      - name: Generate combined test store snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 source/scripts/publish_test_repo.py \
+            --targets "$RUNNER_TEMP/mx-test-targets.txt" \
+            --upstream-root upstream \
+            --source-root source \
+            --repo-dir staging/test \
+            --owner huoguotiankong \
+            --repository mx-repo \
+            --signing-key "$SIGNING_FINGERPRINT"
+
+      - name: Verify staged versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('staging/test/index.json').read_text('utf-8'))
+          versions = {x['packageName']: (x['versionName'], x['versionCode']) for x in data['extensionList']['extensions']}
+          expected = {
+              'eu.kanade.tachiyomi.extension.zh.bilibilimanga': ('1.6.23', 106023),
+              'eu.kanade.tachiyomi.extension.zh.tencentcomics': ('1.4.25', 104025),
+          }
+          for pkg, version in expected.items():
+              if versions.get(pkg) != version:
+                  raise SystemExit(f'{pkg}: expected {version}, got {versions.get(pkg)}')
+          print('Bilibili v23 and Tencent v25 staged versions verified')
+          PY
+          test -f staging/test/apk/tachiyomi-zh.bilibilimanga-v1.6.23.apk
+          test -f staging/test/apk/tachiyomi-zh.tencentcomics-v1.4.25.apk
+
+      - name: Commit staged test store
+        working-directory: staging
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add test
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git commit -m "Stage Bilibili v23 and Tencent v25 rich comment tests"
+            git push origin HEAD:extension-staging
+          fi
+
+      - name: Cleanup signing material
+        if: always()
+        shell: bash
+        run: rm -f upstream/signingkey.jks
