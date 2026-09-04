@@ -1,0 +1,100 @@
+name: Kuaikan v23 APP Comment Patch Check
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/kuaikan-v23-patch-check-trigger"
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout build infrastructure
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Checkout private source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Checkout current Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Overlay Kuaikan module
+        shell: bash
+        run: |
+          rm -rf upstream/src/zh/kuaikanmanhua
+          cp -a source/src/zh/kuaikanmanhua upstream/src/zh/kuaikanmanhua
+      - name: Apply candidate APP-first comment patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('upstream/src/zh/kuaikanmanhua/src/eu/kanade/tachiyomi/extension/zh/kuaikanmanhua/Kuaikanmanhua.kt')
+          s=p.read_text('utf-8')
+          def rep(old,new,label):
+              global s
+              n=s.count(old)
+              if n!=1: raise SystemExit(f'{label}: expected 1 marker, got {n}')
+              s=s.replace(old,new,1)
+
+          rep('import okhttp3.HttpUrl.Companion.toHttpUrl\nimport okhttp3.Request\n', 'import okhttp3.HttpUrl.Companion.toHttpUrl\nimport okhttp3.MediaType.Companion.toMediaType\nimport okhttp3.Request\nimport okhttp3.RequestBody.Companion.toRequestBody\n', 'imports')
+          rep('    private val chapterCommentCursors = ConcurrentHashMap<String, ConcurrentHashMap<Int, Long>>()\n', '    private val chapterCommentCursors = ConcurrentHashMap<String, ConcurrentHashMap<Int, Long>>()\n    private val mangaCommentCursors = ConcurrentHashMap<String, ConcurrentHashMap<Int, Long>>()\n    private val mangaReplyCursors = ConcurrentHashMap<String, ConcurrentHashMap<Int, Long>>()\n', 'cursor maps')
+
+          old='''    override suspend fun getComments(\n        target: CommentTarget,\n        page: Int,\n        sortId: String,\n    ): CommentPage = when (sortId) {\n        SORT_HOT -> getHotComments(target, page)\n        SORT_LATEST -> getLatestComments(target, page)\n        else -> getDefaultComments(target, page)\n    }\n'''
+          new='''    override suspend fun getComments(\n        target: CommentTarget,\n        page: Int,\n        sortId: String,\n    ): CommentPage {\n        runCatching { getAppComments(target, page, sortId) }.getOrNull()?.let { return it }\n        return when (sortId) {\n            SORT_HOT -> getHotComments(target, page)\n            SORT_LATEST -> getLatestComments(target, page)\n            else -> getDefaultComments(target, page)\n        }\n    }\n\n    private fun getAppComments(target: CommentTarget, page: Int, sortId: String): CommentPage? = when (target.kind) {\n        CommentTargetKind.MANGA -> getMangaAppComments(\n            target.id,\n            page.coerceAtLeast(1),\n            if (sortId == SORT_LATEST) APP_REVIEW_LATEST_PAGE_ID else APP_REVIEW_HOT_PAGE_ID,\n        )\n        CommentTargetKind.CHAPTER -> getChapterAppComments(\n            target.id,\n            page.coerceAtLeast(1),\n            sortId,\n            if (sortId == SORT_LATEST) "time" else "score",\n        )\n    }\n\n    private fun getMangaAppComments(topicId: String, page: Int, pageId: Int): CommentPage? {\n        val topic = topicId.toLongOrNull() ?: return null\n        val key = "$topicId:$pageId"\n        val cursors = mangaCommentCursors.getOrPut(key) { ConcurrentHashMap() }\n        val cursor = if (page <= 1) {\n            cursors.clear()\n            cursors[1] = 0L\n            0L\n        } else {\n            cursors[page] ?: ((page - 1L) * COMMENT_PAGE_SIZE)\n        }\n        val body = """{"feedType":$APP_REVIEW_FEED_TYPE,"since":$cursor,"limit":$COMMENT_PAGE_SIZE,"topicId":$topic,"pageId":$pageId}"""\n        val root = postJson("$apiUrl/v1/graph/unified_feed", body)\n        if (root.long("code") != 200L) return null\n        val data = root.obj("data") ?: return null\n        val comments = (data.array("universalModels") ?: JsonArray(emptyList()))\n            .mapNotNull { it as? JsonObject }\n            .mapNotNull { it.obj("post") }\n            .mapNotNull(::appPostToComment)\n            .distinctBy(Comment::id)\n        if (comments.isEmpty()) return if (page > 1 || data.long("since") == -1L) CommentPage(emptyList(), false, null) else null\n        val next = data.long("since")?.takeIf { it >= 0L && it != cursor }\n        val hasNext = comments.size >= COMMENT_PAGE_SIZE && next != null\n        if (hasNext) cursors[page + 1] = next!! else cursors.keys.filter { it > page }.forEach(cursors::remove)\n        return CommentPage(comments, hasNext, null)\n    }\n\n    private fun getChapterAppComments(targetId: String, page: Int, sortId: String, order: String): CommentPage? {\n        val cursor = chapterCommentCursor(targetId, sortId, page)\n        val url = "$apiUrl/v2/comments/cruel/floor_list".toHttpUrl().newBuilder()\n            .addQueryParameter("target_type", "comic")\n            .addQueryParameter("target_id", targetId)\n            .addQueryParameter("order", order)\n            .addQueryParameter("offset", cursor.toString())\n            .addQueryParameter("limit", COMMENT_PAGE_SIZE.toString())\n            .addQueryParameter("total", "false")\n            .addQueryParameter("source", "0")\n            .build().toString()\n        val root = getJson(url)\n        if (root.long("code") != 200L) return null\n        val data = root.obj("data") ?: return null\n        val floors = data.array("comment_floors") ?: JsonArray(emptyList())\n        val comments = floors.mapNotNull { it as? JsonObject }.mapNotNull(::appFloorToComment).distinctBy(Comment::id)\n        if (comments.isEmpty()) return if (data.long("since") == -1L || page > 1) CommentPage(emptyList(), false, data.long("normal_total")) else null\n        return chapterCommentPage(targetId, sortId, root, comments, page, cursor, data.long("normal_total"))\n    }\n\n    private fun appPostToComment(post: JsonObject): Comment? {\n        val id = post.long("id") ?: return null\n        val user = post.obj("user") ?: return null\n        val title = post.string("title")?.trim().orEmpty()\n        val body = contentText(post.array("content")).ifBlank { post.string("summary")?.trim().orEmpty() }\n        val text = listOf(title, body).filter(String::isNotBlank).distinct().joinToString("\\n")\n        if (text.isBlank()) return null\n        return Comment(\n            id = id.toString(),\n            author = CommentAuthor(\n                id = user.long("id")?.toString() ?: user.string("id"),\n                name = user.string("nickname") ?: user.string("name") ?: "快看用户",\n                avatarUrl = normalizeUrl(user.string("avatar_url") ?: user.string("avatar")),\n            ),\n            content = text,\n            createdAt = normalizeEpoch(post.long("createTime") ?: 0L),\n            displayTime = post.string("createTimeStr"),\n            likeCount = post.long("likeCount") ?: 0L,\n            replyCount = post.long("commentCount") ?: 0L,\n            likedByMe = post.boolish("isLiked") == true,\n        )\n    }\n\n    private fun appFloorToComment(floor: JsonObject): Comment? {\n        val root = floor.obj("root") ?: return null\n        return appReplyObjectToComment(root, null, floor.long("children_total") ?: 0L)\n    }\n\n    private fun appReplyObjectToComment(obj: JsonObject, parentId: String?, replyCount: Long = 0L): Comment? {\n        val id = obj.long("id") ?: return null\n        val user = obj.obj("user") ?: return null\n        val text = contentText(obj.array("contents")).ifBlank {\n            contentText(obj.array("content_info")).ifBlank { obj.string("content") ?: obj.string("text") ?: "" }\n        }\n        if (text.isBlank()) return null\n        return Comment(\n            id = id.toString(),\n            author = CommentAuthor(\n                id = user.long("id")?.toString() ?: user.string("id"),\n                name = user.string("nickname") ?: user.string("name") ?: "快看用户",\n                avatarUrl = normalizeUrl(user.string("avatar_url") ?: user.string("avatar")),\n            ),\n            content = text,\n            createdAt = normalizeEpoch(obj.long("created_at") ?: obj.long("createTime") ?: 0L),\n            displayTime = obj.string("created_at_info") ?: obj.string("createTimeStr"),\n            likeCount = obj.long("likes_count") ?: obj.long("likeCount") ?: 0L,\n            replyCount = replyCount,\n            likedByMe = obj.boolish("is_liked") == true || obj.boolish("isLiked") == true,\n            parentId = parentId,\n        )\n    }\n\n    private fun contentText(items: JsonArray?): String = (items ?: JsonArray(emptyList()))\n        .mapNotNull { item ->\n            when (item) {\n                is JsonObject -> item.string("content") ?: item.string("text")\n                is JsonPrimitive -> item.contentOrNull\n                else -> null\n            }\n        }\n        .map(String::trim)\n        .filter(String::isNotBlank)\n        .joinToString("\\n")\n'''
+          rep(old,new,'getComments dispatcher')
+
+          old='''    override suspend fun getCommentReplies(\n        target: CommentTarget,\n        comment: Comment,\n        page: Int,\n    ): CommentPage {\n        if (comment.replyCount <= 0L) return CommentPage(emptyList(), false, 0)\n        val offset = (page.coerceAtLeast(1) - 1) * COMMENT_PAGE_SIZE\n'''
+          new='''    override suspend fun getCommentReplies(\n        target: CommentTarget,\n        comment: Comment,\n        page: Int,\n    ): CommentPage {\n        if (comment.replyCount <= 0L) return CommentPage(emptyList(), false, 0)\n        if (target.kind == CommentTargetKind.MANGA && comment.parentId == null && comment.id.toLongOrNull() != null) {\n            runCatching { getMangaAppReplies(comment, page.coerceAtLeast(1)) }.getOrNull()?.let { return it }\n        }\n        val offset = (page.coerceAtLeast(1) - 1) * COMMENT_PAGE_SIZE\n'''
+          rep(old,new,'reply entry')
+
+          marker='''    private fun chapterCommentCursor(targetId: String, sortId: String, page: Int): Long {\n'''
+          helper='''    private fun getMangaAppReplies(comment: Comment, page: Int): CommentPage? {\n        val key = comment.id\n        val cursors = mangaReplyCursors.getOrPut(key) { ConcurrentHashMap() }\n        val cursor = if (page <= 1) {\n            cursors.clear()\n            cursors[1] = 0L\n            0L\n        } else {\n            cursors[page] ?: ((page - 1L) * COMMENT_PAGE_SIZE)\n        }\n        val url = "$apiUrl/v1/graph/posts/${comment.id}/comments/v5".toHttpUrl().newBuilder()\n            .addQueryParameter("since", cursor.toString())\n            .addQueryParameter("limit", COMMENT_PAGE_SIZE.toString())\n            .build().toString()\n        val root = getJson(url)\n        if (root.long("code") != 200L) return null\n        val data = root.obj("data") ?: return null\n        val list = data.array("commentList") ?: JsonArray(emptyList())\n        val replies = list.mapNotNull { it as? JsonObject }.mapNotNull { card ->\n            val floor = card.obj("postReply") ?: return@mapNotNull null\n            val reply = floor.obj("root") ?: return@mapNotNull null\n            appReplyObjectToComment(reply, comment.id, floor.long("children_total") ?: 0L)\n        }.distinctBy(Comment::id)\n        if (replies.isEmpty()) return if (data.long("since") == -1L || page > 1) CommentPage(emptyList(), false, comment.replyCount) else null\n        val next = data.long("since")?.takeIf { it >= 0L && it != cursor }\n        val hasNext = replies.size >= COMMENT_PAGE_SIZE && next != null\n        if (hasNext) cursors[page + 1] = next!! else cursors.keys.filter { it > page }.forEach(cursors::remove)\n        return CommentPage(replies, hasNext, comment.replyCount)\n    }\n\n'''+marker
+          rep(marker,helper,'reply helper')
+
+          old='''    private fun getJson(url: String): JsonObject = apiClient.newCall(Request.Builder().url(url).headers(apiHeaders()).get().build()).execute().use {\n        if (!it.isSuccessful) throw IOException("快看漫画请求失败：HTTP " + it.code)\n        runCatching {\n            JSON.parseToJsonElement(it.body.string()).jsonObject\n        }.getOrElse { e ->\n            throw IOException("快看漫画 JSON 解析失败", e)\n        }\n    }\n'''
+          new=old+'''\n    private fun postJson(url: String, body: String): JsonObject = apiClient.newCall(\n        Request.Builder().url(url).headers(apiHeaders()).post(body.toRequestBody(JSON_MEDIA_TYPE)).build(),\n    ).execute().use {\n        if (!it.isSuccessful) throw IOException("快看漫画 APP 请求失败：HTTP " + it.code)\n        runCatching { JSON.parseToJsonElement(it.body.string()).jsonObject }\n            .getOrElse { e -> throw IOException("快看漫画 APP JSON 解析失败", e) }\n    }\n'''
+          rep(old,new,'postJson')
+
+          rep('''        const val COMMENT_PAGE_SIZE = 20\n''','''        const val COMMENT_PAGE_SIZE = 20\n        const val APP_REVIEW_FEED_TYPE = 50\n        const val APP_REVIEW_HOT_PAGE_ID = 6\n        const val APP_REVIEW_LATEST_PAGE_ID = 7\n        val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()\n''','constants')
+          p.write_text(s,'utf-8')
+          print('candidate patch applied successfully')
+          PY
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+      - name: Build Debug, Release and lint
+        working-directory: upstream
+        shell: bash
+        run: |
+          ./gradlew :src:zh:kuaikanmanhua:assembleDebug :src:zh:kuaikanmanhua:assembleRelease :src:zh:kuaikanmanhua:lintRelease
+      - name: Verify APP comment code survives R8
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="$(find upstream/src/zh/kuaikanmanhua -path '*/build/outputs/apk/release/*.apk' -type f | head -n1)"
+          unzip -p "$apk" classes.dex | strings > /tmp/dex.txt || true
+          while IFS= read -r d; do unzip -p "$apk" "$d" | strings >> /tmp/dex.txt; done < <(unzip -Z1 "$apk" | grep -E '^classes[0-9]+\.dex$' || true)
+          grep -Fq '/v1/graph/unified_feed' /tmp/dex.txt
+          grep -Fq '/v2/comments/cruel/floor_list' /tmp/dex.txt
+          grep -Fq '/comments/v5' /tmp/dex.txt
