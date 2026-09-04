@@ -1,0 +1,76 @@
+name: Validate MX paid-only whole-manga replacement v2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/mx-app-paid-only-trigger"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout build helpers
+        uses: actions/checkout@v5
+        with:
+          path: build
+
+      - name: Checkout private MX App feature
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-app
+          ref: fix/paid-only-whole-manga-replacement
+          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply paid-only patch
+        run: python3 build/scripts/apply_mx_paid_only_patch.py source
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Apply Spotless
+        working-directory: source
+        run: ./gradlew spotlessApply
+
+      - name: Spotless check
+        working-directory: source
+        run: ./gradlew spotlessCheck
+
+      - name: Unit tests
+        working-directory: source
+        run: ./gradlew testReleaseUnitTest
+
+      - name: Build Preview APK
+        working-directory: source
+        run: ./gradlew assemblePreview -Pdisable-code-shrink --no-configuration-cache
+
+      - name: Commit validated fix
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderViewModel.kt \
+            app/src/main/java/eu/kanade/tachiyomi/ui/reader/ChapterContentMatcher.kt \
+            app/src/main/java/eu/kanade/tachiyomi/ui/manga/MangaScreen.kt \
+            app/src/main/java/eu/kanade/presentation/manga/components/MangaChapterListItem.kt \
+            app/src/test/java/eu/kanade/tachiyomi/ui/reader/ChapterContentMatcherTest.kt \
+            app/src/test/java/eu/kanade/presentation/manga/components/MangaChapterListItemTest.kt \
+            docs/CHAPTER_CONTENT.md
+          git commit -m "fix: limit whole-manga replacement to locked chapters"
+          git push origin HEAD:fix/paid-only-whole-manga-replacement
