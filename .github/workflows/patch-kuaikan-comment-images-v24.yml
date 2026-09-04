@@ -15,13 +15,13 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - name: Check private source token
+      - name: Check private write token
         shell: bash
         env:
-          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          MX_DEV_WRITE_TOKEN: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
         run: |
           set -euo pipefail
-          [[ -n "$MX_PRIVATE_READ_TOKEN" ]]
+          [[ -n "$MX_DEV_WRITE_TOKEN" ]]
 
       - name: Checkout build helper
         uses: actions/checkout@v5
@@ -33,7 +33,7 @@ jobs:
         with:
           repository: huoguotiankong/mx-dev
           ref: main
-          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
           path: source
           fetch-depth: 0
           persist-credentials: true
