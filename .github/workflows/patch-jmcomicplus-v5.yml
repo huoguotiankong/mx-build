@@ -71,11 +71,26 @@ jobs:
           python3 buildrepo/scripts/patch_jmcomicplus_v5.py
           python3 - <<'PY'
           from pathlib import Path
-          p = Path('source/docs/sources/jmcomicplus.md')
-          s = p.read_text('utf-8')
+
+          # The Python helper previously emitted an invalid Kotlin single-quote char literal.
+          # Rewrite the generated line using only the delimiters we actually need to trim.
+          kp = Path('source/src/zh/jmcomicplus/src/eu/kanade/tachiyomi/extension/zh/jmcomicplus/JmComicPlus.kt')
+          lines = kp.read_text('utf-8').splitlines()
+          hits = 0
+          for i, line in enumerate(lines):
+              if 'DOMAIN_REGEX.findAll(html).map' in line:
+                  indent = line[:len(line) - len(line.lstrip())]
+                  lines[i] = indent + "DOMAIN_REGEX.findAll(html).map { it.value.trimEnd('/', '\\\\', '\"') }.filterNot(::isLegacyWebBase).forEach(out::add)"
+                  hits += 1
+          if hits != 1:
+              raise SystemExit(f'generated Kotlin domain line repair expected 1 hit, found {hits}')
+          kp.write_text('\n'.join(lines) + '\n', 'utf-8')
+
+          dp = Path('source/docs/sources/jmcomicplus.md')
+          s = dp.read_text('utf-8')
           s = s.replace('`1.6.5`，Android `versionCode=106005`', '`1.6.6`，Android `versionCode=106006`')
           s = s.replace('v5 正文解混淆修正：已按当前 Keiyoushi 禁漫天堂算法对照修改，待重新执行 Spotless、Release 编译、Lint 和固定签名测试发布。', 'v5 正文解混淆修正已合入；v6 在用户实机反馈基础上继续修复 APP/API 解压/请求头、Web 镜像/解析和扩展图标。')
-          p.write_text(s, 'utf-8')
+          dp.write_text(s, 'utf-8')
           PY
 
       - name: Validate source layout
