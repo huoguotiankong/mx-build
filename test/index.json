@@ -12,12 +12,12 @@
         "name": "Bilibili Manga",
         "packageName": "eu.kanade.tachiyomi.extension.zh.bilibilimanga",
         "resources": {
-          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.bilibilimanga-v1.6.22.apk",
-          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.bilibilimanga-v106022.png"
+          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.bilibilimanga-v1.6.23.apk",
+          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.bilibilimanga-v106023.png"
         },
         "extensionLib": "1.6",
-        "versionCode": 106022,
-        "versionName": "1.6.22",
+        "versionCode": 106023,
+        "versionName": "1.6.23",
         "contentWarning": "SAFE",
         "sources": [
           {
@@ -122,12 +122,12 @@
         "name": "Tencent Comics (ac.qq.com)",
         "packageName": "eu.kanade.tachiyomi.extension.zh.tencentcomics",
         "resources": {
-          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.tencentcomics-v1.4.24.apk",
-          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.tencentcomics-v104024.png"
+          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.tencentcomics-v1.4.25.apk",
+          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.tencentcomics-v104025.png"
         },
         "extensionLib": "1.4",
-        "versionCode": 104024,
-        "versionName": "1.4.24",
+        "versionCode": 104025,
+        "versionName": "1.4.25",
         "contentWarning": "MIXED",
         "sources": [
           {
