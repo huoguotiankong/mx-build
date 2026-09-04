@@ -1,0 +1,198 @@
+name: Build And Stage E-Hentai Plus v2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/build-stage-ehentaiplus-v2.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-stage-ehentaiplus-v2
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout build helpers
+        uses: actions/checkout@v5
+        with:
+          path: buildrepo
+          persist-credentials: true
+
+      - name: Check secrets
+        shell: bash
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]]
+          [[ -n "$MANGA_SIGNING_BUNDLE" ]]
+
+      - name: Checkout E-Hentai Plus source candidate
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: feat/ehentai-plus
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Apply v2 real-device patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 buildrepo/.github/scripts/fix_ehentaiplus_v2.py
+          res="source/src/zh/ehentaiplus/res"
+          rm -rf "$res/mipmap-anydpi" "$res/mipmap-mdpi" "$res/mipmap-hdpi" "$res/mipmap-xhdpi" "$res/mipmap-xxhdpi" "$res/mipmap-xxxhdpi"
+          mkdir -p "$res/mipmap-xxxhdpi"
+          curl -L --fail --retry 3 -o "$res/mipmap-xxxhdpi/ic_launcher.png" "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f4/E-Hentai_Favicon.svg/330px-E-Hentai_Favicon.svg.png"
+          file "$res/mipmap-xxxhdpi/ic_launcher.png" | grep -q "PNG image data"
+          test "$(wc -c < "$res/mipmap-xxxhdpi/ic_launcher.png")" -gt 500
+          python3 source/scripts/validate_sources.py
+          grep -q 'versionCode = 2' source/src/zh/ehentaiplus/build.gradle.kts
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Checkout current Keiyoushi
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Overlay and Spotless
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf upstream/src/zh/ehentaiplus
+          cp -a source/src/zh/ehentaiplus upstream/src/zh/ehentaiplus
+          cd upstream
+          ./gradlew :src:zh:ehentaiplus:spotlessApply
+          ./gradlew :src:zh:ehentaiplus:spotlessCheck
+          cd ..
+          rsync -a --delete --exclude build/ upstream/src/zh/ehentaiplus/ source/src/zh/ehentaiplus/
+          python3 source/scripts/validate_sources.py
+          git -C source diff --check
+
+      - name: Reader smoke test
+        shell: bash
+        run: python3 buildrepo/.github/scripts/smoke_ehentai_reader.py
+
+      - name: Prepare stable signing key
+        shell: bash
+        env:
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, json, os
+          from pathlib import Path
+          b=json.loads(os.environ['MANGA_SIGNING_BUNDLE'])
+          for key in ('signingKey','alias','storePassword','keyPassword'):
+              if not b.get(key): raise SystemExit('Missing '+key)
+          Path('upstream/signingkey.jks').write_bytes(base64.b64decode(b['signingKey']))
+          with Path(os.environ['GITHUB_ENV']).open('a',encoding='utf-8') as f:
+              for n,k in (('ALIAS','alias'),('KEY_STORE_PASSWORD','storePassword'),('KEY_PASSWORD','keyPassword')):
+                  v=str(b[k]); print('::add-mask::'+v); f.write(f'{n}<<__EOF__\n{v}\n__EOF__\n')
+          PY
+
+      - name: Build signed Release and lint
+        working-directory: upstream
+        shell: bash
+        run: ./gradlew :src:zh:ehentaiplus:assembleRelease :src:zh:ehentaiplus:lintRelease
+
+      - name: Verify signing certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620'
+          configured="$(keytool -exportcert -alias "$ALIAS" -keystore upstream/signingkey.jks -storepass "$KEY_STORE_PASSWORD" | sha256sum | awk '{print $1}')"
+          [[ "${configured,,}" == "$expected" ]]
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n1)"
+          apk="$(find upstream/src/zh/ehentaiplus -path '*/build/outputs/apk/release/*.apk' -type f | head -n1)"
+          [[ -n "$apk" ]]
+          cert="$($apksigner verify --print-certs "$apk" 2>&1 | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')"
+          [[ "$cert" == *"$expected"* ]]
+
+      - name: Upload signed APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ehentaiplus-v2-signed-apk
+          path: upstream/src/zh/ehentaiplus/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Checkout extension staging
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-build
+          ref: extension-staging
+          token: ${{ github.token }}
+          path: staging
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Stage source handoff and test store
+        shell: bash
+        run: |
+          set -euo pipefail
+          handoff='staging/handoff/ehentaiplus-v2'
+          rm -rf "$handoff"
+          mkdir -p "$handoff"
+          cp -a source/src/zh/ehentaiplus "$handoff/module"
+          cp source/docs/sources/ehentaiplus.md "$handoff/ehentaiplus.md"
+          printf '%s\n' 'validated: real-device v2 fix; Spotless + public reader smoke + Release + lint + stable signing' > "$handoff/VALIDATED.txt"
+          printf '%s\n' 'zh/ehentaiplus' > /tmp/eh-targets.txt
+          python3 source/scripts/publish_test_repo.py --targets /tmp/eh-targets.txt --upstream-root upstream --source-root source --repo-dir staging/test --owner huoguotiankong --repository mx-repo --signing-key '1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620'
+          test -f staging/test/apk/tachiyomi-zh.ehentaiplus-v1.6.2.apk
+          grep -Eq '1\.6\.2|106002|versionCode[^0-9]*2' staging/test/index.json staging/test/repo.json
+
+      - name: Commit staging
+        working-directory: staging
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add handoff/ehentaiplus-v2 test
+          if git diff --cached --quiet; then
+            echo 'No staging changes'
+          else
+            git commit -m 'Stage E-Hentai Plus v2 real-device fix'
+            git push origin HEAD:extension-staging
+          fi
+
+      - name: Verify staging online
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://raw.githubusercontent.com/huoguotiankong/mx-build/extension-staging/test'
+          for f in index.json repo.json; do
+            ok=0
+            for n in 1 2 3 4 5 6; do
+              code="$(curl -L -sS -o "/tmp/$f" -w '%{http_code}' "$base/$f" || true)"
+              if [[ "$code" == 200 ]]; then ok=1; break; fi
+              sleep $((n*2))
+            done
+            [[ "$ok" -eq 1 ]]
+          done
+          grep -q 'ehentaiplus' /tmp/index.json
+          grep -Eq '1\.6\.2|106002|versionCode[^0-9]*2' /tmp/index.json /tmp/repo.json
+
+      - name: Cleanup signing material
+        if: always()
+        shell: bash
+        run: rm -f upstream/signingkey.jks
