@@ -1,0 +1,98 @@
+name: Repair CopyManga Plus launcher icon
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/repair-copymangaplus-icon.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout private MX source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Checkout verified CopyManga client icon source
+        uses: actions/checkout@v5
+        with:
+          repository: fumiama/copymanga
+          ref: main
+          path: icon-source
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Generate Android density icons without embedded color profile
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check --quiet Pillow
+          python3 - <<'PY'
+          from pathlib import Path
+          from PIL import Image, PngImagePlugin
+
+          src = Path('icon-source/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png')
+          if not src.is_file():
+              raise SystemExit(f'missing icon source: {src}')
+
+          root = Path('source/src/zh/copymangaplus/res')
+          sizes = {
+              'mipmap-mdpi': 48,
+              'mipmap-hdpi': 72,
+              'mipmap-xhdpi': 96,
+              'mipmap-xxhdpi': 144,
+              'mipmap-xxxhdpi': 192,
+          }
+
+          original = Image.open(src).convert('RGBA')
+          for folder, size in sizes.items():
+              out_dir = root / folder
+              out_dir.mkdir(parents=True, exist_ok=True)
+              image = original.resize((size, size), Image.Resampling.LANCZOS).convert('RGBA')
+              image.info.clear()
+              out = out_dir / 'ic_launcher.png'
+              image.save(
+                  out,
+                  format='PNG',
+                  compress_level=9,
+                  optimize=False,
+                  pnginfo=PngImagePlugin.PngInfo(),
+              )
+              check = Image.open(out)
+              if check.size != (size, size) or check.mode != 'RGBA' or check.info:
+                  raise SystemExit(f'icon normalization failed: {out} {check.size} {check.mode} {check.info}')
+              print(out, out.stat().st_size)
+
+          for legacy in (root / 'mipmap-anydpi', root / 'mipmap-anydpi-v26'):
+              if legacy.exists():
+                  import shutil
+                  shutil.rmtree(legacy)
+          PY
+
+      - name: Commit corrected binary resources to private source
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A src/zh/copymangaplus/res
+          if git diff --cached --quiet; then
+            echo "No icon changes"
+            exit 0
+          fi
+          git commit -m "fix(copymangaplus): normalize launcher icon PNGs"
+          git pull --rebase origin main
+          git push origin HEAD:main
