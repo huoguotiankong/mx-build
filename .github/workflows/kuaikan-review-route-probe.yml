@@ -1,0 +1,103 @@
+name: Kuaikan Review Route Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/kuaikan-review-route-probe.yml"
+      - ".github/kuaikan-review-route-probe-trigger"
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - name: Probe review metadata and native comic comments
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,re,urllib.parse,urllib.request
+          from pathlib import Path
+          API='https://api.kkmh.com'; TOPIC=766
+          APP_HEADERS={'User-Agent':'Kuaikan/8.22.0/822000(Android;Scale/3.00)','Accept':'application/json, text/plain, */*','X-Device':'0'}
+          WEB_HEADERS={'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36'}
+          def req(url,headers):
+            try:
+              r=urllib.request.urlopen(urllib.request.Request(url,headers=headers),timeout=25); raw=r.read();
+              try: obj=json.loads(raw.decode('utf-8'))
+              except: obj=None
+              return r.status,len(raw),obj,raw.decode('utf-8','replace')
+            except Exception as e: return None,0,{'_error':type(e).__name__+':'+str(e)},''
+          def get(path,params=None):
+            u=API+path
+            if params: u+='?'+urllib.parse.urlencode(params)
+            return req(u,APP_HEADERS)
+          def compact(v,depth=0):
+            if depth>4:return '<depth>'
+            if isinstance(v,dict):
+              out={}
+              for k,x in v.items():
+                if any(s in k.lower() for s in ('token','cookie','session','device')): continue
+                if isinstance(x,(dict,list)): out[k]=compact(x,depth+1)
+                elif isinstance(x,(int,float,bool)) or x is None: out[k]=x
+                elif isinstance(x,str): out[k]=x[:120]
+              return out
+            if isinstance(v,list): return [compact(x,depth+1) for x in v[:12]]
+            return v
+          lines=[]
+          for name,path,params in [
+            ('topic_detail','/v2/topic/topic_detail',{'topic_id':TOPIC,'gender':0,'is_new_device':0}),
+            ('tabs','/v1/ironman/topic_detail/tabs',{'topic_id':TOPIC}),
+            ('score_head','/v1/graph/topic/score/head',{'topicId':TOPIC}),
+            ('score_tip','/v1/graph/topic/score/tip',{'topicId':TOPIC}),
+          ]:
+            st,n,o,_=get(path,params); lines.append(f'{name}.http={st} bytes={n}')
+            if isinstance(o,dict):
+              lines.append(f'{name}.code={o.get("code")} message={str(o.get("message"))[:120]}')
+              if name in ('tabs','score_head'):
+                lines.append(name+'.safe_json='+json.dumps(compact(o.get('data')),ensure_ascii=False,separators=(',',':')))
+          st,n,o,html=req(f'https://www.kuaikanmanhua.com/web/topic/{TOPIC}/',WEB_HEADERS)
+          comic_ids=[]
+          if st==200:
+            for pat in (r'/web/comic/(\d+)',r'/webs/comic-next/(\d+)',r'"comic_id"\s*:\s*(\d+)',r'"comicId"\s*:\s*(\d+)'):
+              for m in re.finditer(pat,html):
+                x=int(m.group(1));
+                if x not in comic_ids: comic_ids.append(x)
+          lines.append('web_topic.http='+str(st)+' bytes='+str(n))
+          lines.append('web_topic.comic_ids='+','.join(map(str,comic_ids[:20])))
+          if comic_ids:
+            cid=comic_ids[0]
+            for source in (0,1,2,3):
+              for order in ('HOTEST','NEWEST'):
+                st,n,o,_=get('/v2/comments/cruel/floor_list',{'target_type':'comic','target_id':cid,'order':order,'offset':0,'limit':20,'total':'true','source':source})
+                code=o.get('code') if isinstance(o,dict) else None; msg=o.get('message') if isinstance(o,dict) else None; d=o.get('data') if isinstance(o,dict) else None
+                lines.append(f'floor.comic.{cid}.{order}.source{source}.http={st} bytes={n} code={code} message={str(msg)[:100]}')
+                if isinstance(d,dict):
+                  lines.append(f'floor.comic.{cid}.{order}.source{source}.data_keys='+','.join(sorted(d.keys())))
+                  for k in ('since','total','normal_total','normalTotal'):
+                    if k in d: lines.append(f'floor.comic.{cid}.{order}.source{source}.{k}={d[k]}')
+                  arr=d.get('comment_floors',d.get('commentFloors',d.get('floors')))
+                  if isinstance(arr,list):
+                    lines.append(f'floor.comic.{cid}.{order}.source{source}.count={len(arr)}')
+                    if arr and isinstance(arr[0],dict): lines.append(f'floor.comic.{cid}.{order}.source{source}.first_keys='+','.join(sorted(arr[0].keys())))
+            for order in ('score','time'):
+              st,n,o,_=get(f'/v1/comics/{cid}/comments/0',{'order':order})
+              lines.append(f'legacy.{cid}.{order}.http={st} bytes={n} code={o.get("code") if isinstance(o,dict) else None}')
+          out='\n'.join(lines)+'\n'; print(out); Path('probe-results').mkdir(exist_ok=True); Path('probe-results/kuaikan-review-route-probe.txt').write_text(out,encoding='utf-8')
+          PY
+      - name: Commit sanitized summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add probe-results/kuaikan-review-route-probe.txt
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "probe: record Kuaikan review routes"
+          git pull --rebase origin main
+          git push
