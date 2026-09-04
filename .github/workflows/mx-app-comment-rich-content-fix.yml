@@ -42,28 +42,32 @@ jobs:
                   raise SystemExit("CommentScreen ContentScale import anchor mismatch")
               text = text.replace(import_anchor, import_anchor + import_line, 1)
 
-          old_subtitle = '''                subtitle = state.totalCount?.let {
-                    state.mangaTitle + " · " + stringResource(KMR.strings.comments_total_count, it)
-                } ?: state.mangaTitle,'''
-          new_subtitle = '''                subtitle = state.totalCount?.let {
-                    state.mangaTitle + " · " + stringResource(KMR.strings.comments_total_count, it)
-                } ?: if (state.comments.isNotEmpty()) {
+          subtitle_tail = "                } ?: state.mangaTitle,\n"
+          subtitle_replacement = '''                } ?: if (state.comments.isNotEmpty()) {
                     state.mangaTitle + " · " + stringResource(KMR.strings.comments_loaded_count, state.comments.size)
                 } else {
                     state.mangaTitle
-                },'''
-          if old_subtitle in text:
-              if text.count(old_subtitle) != 1:
-                  raise SystemExit("Manga comment subtitle block mismatch")
-              text = text.replace(old_subtitle, new_subtitle, 1)
-          elif new_subtitle not in text:
-              raise SystemExit("Manga comment subtitle block not found")
+                },
+'''
+          if "KMR.strings.comments_loaded_count" not in text:
+              if text.count(subtitle_tail) != 1:
+                  raise SystemExit(f"Manga comment subtitle tail mismatch: {text.count(subtitle_tail)}")
+              text = text.replace(subtitle_tail, subtitle_replacement, 1)
 
-          old_body = '''                Text(
-                    text = comment.content,
-                    style = MaterialTheme.typography.bodyLarge,
-                )'''
-          new_body = '''                val richContent = remember(comment.content) {
+          body_marker = "                    text = comment.content,\n"
+          if "parseCommentRichContent(comment.content)" not in text:
+              index = text.find(body_marker)
+              if index < 0:
+                  raise SystemExit("Comment body marker not found")
+              start = text.rfind("                Text(\n", 0, index)
+              if start < 0:
+                  raise SystemExit("Comment body Text start not found")
+              end_marker = "                )\n"
+              end = text.find(end_marker, index)
+              if end < 0:
+                  raise SystemExit("Comment body Text end not found")
+              end += len(end_marker)
+              new_body = '''                val richContent = remember(comment.content) {
                     parseCommentRichContent(comment.content)
                 }
                 if (richContent.text.isNotBlank()) {
@@ -81,13 +85,9 @@ jobs:
                             .clip(MaterialTheme.shapes.medium),
                         contentScale = ContentScale.FillWidth,
                     )
-                }'''
-          if old_body in text:
-              if text.count(old_body) != 1:
-                  raise SystemExit("Comment body Text block mismatch")
-              text = text.replace(old_body, new_body, 1)
-          elif new_body not in text:
-              raise SystemExit("Comment body Text block not found")
+                }
+'''
+              text = text[:start] + new_body + text[end:]
 
           helper_anchor = "private fun formatCommentTime(timestamp: Long): String {"
           helpers = r'''internal data class CommentRichContent(
@@ -144,8 +144,8 @@ jobs:
 
           strings = Path("i18n-kmk/src/commonMain/moko-resources/base/strings.xml")
           xml = strings.read_text(encoding="utf-8")
-          old_string = '    <string name="comments_total_count">共 %d 条</string>\n'
-          new_string = old_string + '    <string name="comments_loaded_count">已加载 %d 条</string>\n'
+          old_string = '<string name="comments_total_count">共 %d 条</string>'
+          new_string = old_string + '\n    <string name="comments_loaded_count">已加载 %d 条</string>'
           if 'name="comments_loaded_count"' not in xml:
               if xml.count(old_string) != 1:
                   raise SystemExit("KMR comments_total_count anchor mismatch")
