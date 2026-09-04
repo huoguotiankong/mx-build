@@ -78,12 +78,12 @@
         "name": "Tencent Comics (ac.qq.com)",
         "packageName": "eu.kanade.tachiyomi.extension.zh.tencentcomics",
         "resources": {
-          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.tencentcomics-v1.4.21.apk",
-          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.tencentcomics-v104021.png"
+          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.tencentcomics-v1.4.22.apk",
+          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.tencentcomics-v104022.png"
         },
         "extensionLib": "1.4",
-        "versionCode": 104021,
-        "versionName": "1.4.21",
+        "versionCode": 104022,
+        "versionName": "1.4.22",
         "contentWarning": "MIXED",
         "sources": [
           {
