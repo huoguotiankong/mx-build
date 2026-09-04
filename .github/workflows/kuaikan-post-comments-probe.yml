@@ -1,0 +1,54 @@
+name: Kuaikan Post Comments Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/kuaikan-post-comments-probe-trigger"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Probe sanitized post comment shapes
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,urllib.parse,urllib.request
+          BASE='https://api.kkmh.com'; POST=401470311357030336
+          H={'User-Agent':'Kuaikan/5.75.0/575000(iPhone;Scale/3.00) (iPhone; CPU)','Accept':'application/json, text/plain, */*','X-Device':'0'}
+          def call(path,p=None):
+            u=BASE+path
+            if p: u+='?'+urllib.parse.urlencode(p)
+            try:
+              with urllib.request.urlopen(urllib.request.Request(u,headers=H),timeout=25) as r:
+                o=json.loads(r.read().decode()); return r.status,o
+            except Exception as e: return None,{'_error':type(e).__name__+':'+str(e)}
+          def summarize(tag,o):
+            print(tag+'.code='+str(o.get('code'))+' message='+str(o.get('message'))[:80])
+            d=o.get('data')
+            if isinstance(d,dict):
+              print(tag+'.data_keys='+','.join(sorted(d.keys())))
+              for k in ('since','total','count','commentCount','comment_count','hasMore','has_more'):
+                if k in d: print(tag+'.'+k+'='+str(d[k]))
+              for k,v in d.items():
+                if isinstance(v,list):
+                  print(tag+'.'+k+'.len='+str(len(v)))
+                  if v and isinstance(v[0],dict):
+                    print(tag+'.'+k+'.first_keys='+','.join(sorted(v[0].keys())))
+                    for sk,sv in v[0].items():
+                      if isinstance(sv,dict) and sk.lower() in ('user','author','root','comment'):
+                        print(tag+'.'+k+'.first.'+sk+'.keys='+','.join(sorted(sv.keys())))
+          for ver in ('/v1/graph/posts/{}/comments/v5','/v1/graph/posts/{}/comments'):
+            path=ver.format(POST)
+            for params in ({'since':0,'limit':20},{'since':0,'limit':20,'order':'score'},{'since':0,'limit':20,'order':'time'},None):
+              st,o=call(path,params); tag=path.split('/')[-1]+'.'+('none' if params is None else str(params.get('order','base')))
+              print(tag+'.http='+str(st)); summarize(tag,o)
+          PY
