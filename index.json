@@ -1,0 +1,124 @@
+{
+  "name": "MX Test",
+  "badgeLabel": "TEST",
+  "signingKey": "1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620",
+  "contact": {
+    "website": "https://github.com/huoguotiankong/mx-repo",
+    "discord": null
+  },
+  "extensionList": {
+    "extensions": [
+      {
+        "name": "Bilibili Manga",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.bilibilimanga",
+        "resources": {
+          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.bilibilimanga-v1.6.19.apk",
+          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.bilibilimanga-v106019.png"
+        },
+        "extensionLib": "1.6",
+        "versionCode": 106019,
+        "versionName": "1.6.19",
+        "contentWarning": "SAFE",
+        "sources": [
+          {
+            "id": 3561131545129718586,
+            "name": "哔哩哔哩漫画",
+            "language": "zh",
+            "homeUrl": "https://manga.bilibili.com",
+            "mirrorUrls": [],
+            "message": null
+          }
+        ]
+      },
+      {
+        "name": "JMComic Plus",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.jmcomicplus",
+        "resources": {
+          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.jmcomicplus-v1.6.7.apk",
+          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.jmcomicplus-v106007.png"
+        },
+        "extensionLib": "1.6",
+        "versionCode": 106007,
+        "versionName": "1.6.7",
+        "contentWarning": "NSFW",
+        "sources": [
+          {
+            "id": 5337195273790213207,
+            "name": "禁漫天堂 Plus",
+            "language": "zh",
+            "homeUrl": "https://18comic.vip",
+            "mirrorUrls": [],
+            "message": null
+          }
+        ]
+      },
+      {
+        "name": "Kuaikan Manhua",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.kuaikanmanhua",
+        "resources": {
+          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.kuaikanmanhua-v1.6.23.apk",
+          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.kuaikanmanhua-v106023.png"
+        },
+        "extensionLib": "1.6",
+        "versionCode": 106023,
+        "versionName": "1.6.23",
+        "contentWarning": "SAFE",
+        "sources": [
+          {
+            "id": 8099870292642776005,
+            "name": "快看漫画",
+            "language": "zh",
+            "homeUrl": "https://www.kuaikanmanhua.com",
+            "mirrorUrls": [],
+            "message": null
+          }
+        ]
+      },
+      {
+        "name": "Picacomic",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.picacomic",
+        "resources": {
+          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.picacomic-v1.6.12.apk",
+          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.picacomic-v106012.png"
+        },
+        "extensionLib": "1.6",
+        "versionCode": 106012,
+        "versionName": "1.6.12",
+        "contentWarning": "NSFW",
+        "sources": [
+          {
+            "id": 5768337869316468367,
+            "name": "哔咔漫画",
+            "language": "zh",
+            "homeUrl": "https://manhuabika.com",
+            "mirrorUrls": [],
+            "message": null
+          }
+        ]
+      },
+      {
+        "name": "Tencent Comics (ac.qq.com)",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.tencentcomics",
+        "resources": {
+          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.tencentcomics-v1.4.23.apk",
+          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.tencentcomics-v104023.png"
+        },
+        "extensionLib": "1.4",
+        "versionCode": 104023,
+        "versionName": "1.4.23",
+        "contentWarning": "MIXED",
+        "sources": [
+          {
+            "id": 6353436350537369479,
+            "name": "腾讯动漫",
+            "language": "zh",
+            "homeUrl": "https://m.ac.qq.com",
+            "mirrorUrls": [],
+            "message": null
+          }
+        ]
+      }
+    ]
+  },
+  "extensionListUrl": null
+}
