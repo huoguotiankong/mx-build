@@ -1,0 +1,4 @@
+requested=20260904-2300-rich-comment-media-v23-v25
+private_branch=fix/bilibili-v23-tencent-v25-comment-images
+private_head=7273dc924dbf8b2714da3e680822a09155d4dcda
+purpose=fresh signed test build for Android device validation
