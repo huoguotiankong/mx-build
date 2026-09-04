@@ -1,0 +1,40 @@
+name: CopyManga Plus Mobile Content Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/copymangaplus-mobile-content-probe-trigger"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Probe simple app headers against Copy content
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, urllib.error, urllib.request
+          hosts=['api.2026copy.com','api.copy4000.com','api.mangacopy.com','api.copy3000.com','mapi.copy20.com','api.copy-manga.com','api.copy2000.online']
+          variants=[
+            ('v309-r1',{'User-Agent':'COPY/3.0.0','Accept':'application/json','webp':'1','region':'1','source':'copyApp','version':'3.0.9','referer':'com.copymanga.app-3.0.0','platform':'3'}),
+            ('v306-r0',{'User-Agent':'COPY/3.0.6','Accept':'application/json','webp':'1','region':'0','source':'copyApp','version':'3.0.6','referer':'com.copymanga.app-3.0.6','platform':'3'}),
+          ]
+          for host in hosts:
+            print('\nHOST',host)
+            for name,h in variants:
+              req=urllib.request.Request('https://'+host+'/api/v3/comics?limit=2&offset=0&ordering=-popular&_update=true',headers=h)
+              try:
+                with urllib.request.urlopen(req,timeout=10) as r: status=r.status; raw=r.read().decode('utf-8','replace')
+              except urllib.error.HTTPError as e: status=e.code; raw=e.read().decode('utf-8','replace')
+              except Exception as e: print(name,'ERROR',repr(e)); continue
+              try: d=json.loads(raw)
+              except Exception: print(name,status,'NONJSON',raw[:120]); continue
+              items=((d.get('results') or {}).get('list') or []) if isinstance(d,dict) else []
+              print(name,'http=',status,'code=',d.get('code'),'count=',len(items) if isinstance(items,list) else None,'message=',d.get('message'))
+          PY
