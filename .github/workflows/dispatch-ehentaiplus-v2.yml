@@ -1,0 +1,20 @@
+name: Dispatch E-Hentai Plus v2 Fix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/ehentaiplus-v2-trigger"
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Dispatch E-Hentai Plus v2 workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run fix-ehentaiplus-v2-real-device.yml --ref main --repo huoguotiankong/mx-build
