@@ -120,8 +120,15 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-        with:
-          build-root-directory: upstream
+
+      - name: Normalize selected overlay formatting
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_name="${{ steps.target.outputs.source }}"
+          ./gradlew ":src:zh:$source_name:spotlessApply"
+          ./gradlew ":src:zh:$source_name:spotlessCheck"
 
       - name: Prepare stable extension signing key
         shell: bash
