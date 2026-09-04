@@ -14,7 +14,7 @@ concurrency:
   group: publish-jmcomicplus-test-store
   cancel-in-progress: false
 
-# Triggered after successful jmcomicplus v4 validation from mx-dev b7c7333.
+# Triggered after successful jmcomicplus v4 validation from mx-dev b7c7333; publish signed test build.
 jobs:
   publish:
     runs-on: ubuntu-24.04
