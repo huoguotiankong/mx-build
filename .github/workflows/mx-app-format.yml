@@ -60,7 +60,7 @@ jobs:
 
       - name: Comment rich content tests
         working-directory: source
-        run: ./gradlew testReleaseUnitTest --tests eu.kanade.presentation.manga.comments.CommentRichContentTest
+        run: ./gradlew :app:testReleaseUnitTest --tests eu.kanade.presentation.manga.comments.CommentRichContentTest
 
       - name: Unit tests
         working-directory: source
