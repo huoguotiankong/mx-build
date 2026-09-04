@@ -1,0 +1,145 @@
+name: Promote MX Extension Test Store
+
+run-name: Promote MX Extension Test Store
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/promote-extension-test-store.yml"
+      - ".github/mx-extension-test-store-trigger"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: promote-mx-extension-test-store
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check required secret
+        shell: bash
+        env:
+          MX_REPO_TOKEN: ${{ secrets.MX_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_REPO_TOKEN" ]] || { echo "::error::Missing MX_REPO_TOKEN"; exit 1; }
+
+      - name: Checkout build infrastructure
+        uses: actions/checkout@v5
+        with:
+          ref: main
+          path: buildrepo
+          persist-credentials: false
+
+      - name: Resolve expected source
+        id: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_name="$(sed -n 's/^source=//p' buildrepo/.github/mx-extension-test-store-trigger | head -n 1)"
+          [[ "$source_name" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || { echo "::error::Invalid source module name"; exit 1; }
+          echo "source=$source_name" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout staged test store
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-build
+          ref: extension-staging
+          path: staged
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify staged payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f staged/test/index.json
+          test -f staged/test/repo.json
+          SOURCE_NAME="${{ steps.target.outputs.source }}" python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          data = json.loads(Path('staged/test/index.json').read_text('utf-8'))
+          package = 'eu.kanade.tachiyomi.extension.zh.' + os.environ['SOURCE_NAME']
+          items = [x for x in data['extensionList']['extensions'] if x.get('packageName') == package]
+          if len(items) != 1:
+              raise SystemExit(f'Expected one staged {package}, got {len(items)}')
+          item = items[0]
+          apk = item.get('apkName') or item.get('apk')
+          if not apk:
+              raise SystemExit('Staged index missing APK filename')
+          if not Path('staged/test/apk', apk).is_file():
+              raise SystemExit(f'Staged APK missing: {apk}')
+          print(f'Staged {package}: versionName={item.get("versionName")} versionCode={item.get("versionCode")} apk={apk}')
+          PY
+
+      - name: Checkout public distribution repository
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-repo
+          ref: repo
+          token: ${{ secrets.MX_REPO_TOKEN }}
+          path: repo
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Promote staged test payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p repo/test
+          rsync -a staged/test/ repo/test/
+
+      - name: Commit public test store
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add test
+          if git diff --cached --quiet; then
+            echo "No public test-store changes"
+          else
+            git commit -m "Publish ${{ steps.target.outputs.source }} signed test build"
+            git push origin HEAD:repo
+          fi
+
+      - name: Verify public test store
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="https://raw.githubusercontent.com/huoguotiankong/mx-repo/repo/test"
+          for file in repo.json index.json; do
+            ok=0
+            for attempt in 1 2 3 4 5 6; do
+              status="$(curl -L -sS -o "/tmp/$file" -w '%{http_code}' "$base/$file" || true)"
+              if [[ "$status" == "200" ]]; then ok=1; break; fi
+              sleep $((attempt * 2))
+            done
+            [[ "$ok" -eq 1 ]] || { echo "::error::Public test endpoint unavailable: $file"; exit 1; }
+          done
+          SOURCE_NAME="${{ steps.target.outputs.source }}" python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          data = json.loads(Path('/tmp/index.json').read_text('utf-8'))
+          package = 'eu.kanade.tachiyomi.extension.zh.' + os.environ['SOURCE_NAME']
+          items = [x for x in data['extensionList']['extensions'] if x.get('packageName') == package]
+          if len(items) != 1:
+              raise SystemExit(f'Expected one public {package}, got {len(items)}')
+          item = items[0]
+          apk = item.get('apkName') or item.get('apk')
+          if not apk:
+              raise SystemExit('Public index missing APK filename')
+          Path('/tmp/apk-name').write_text(apk, 'utf-8')
+          print(f'Public {package}: versionName={item.get("versionName")} versionCode={item.get("versionCode")} apk={apk}')
+          PY
+          apk="$(cat /tmp/apk-name)"
+          status="$(curl -L -sS -o /tmp/test.apk -w '%{http_code}' "$base/apk/$apk" || true)"
+          [[ "$status" == "200" ]] || { echo "::error::Public test APK unavailable: $apk"; exit 1; }
+          [[ -s /tmp/test.apk ]] || { echo "::error::Public test APK is empty"; exit 1; }
