@@ -24,7 +24,7 @@ jobs:
           token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
           path: source
           fetch-depth: 0
-          persist-credentials: true
+          persist-credentials: false
 
       - name: Validate source layout
         working-directory: source
@@ -49,76 +49,12 @@ jobs:
           rm -rf upstream/src/zh/copymangaplus
           cp -a source/src/zh/copymangaplus upstream/src/zh/copymangaplus
 
-      - name: Patch current KeiSource compatibility
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          p = Path("upstream/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt")
-          s = p.read_text()
-          if "import eu.kanade.tachiyomi.source.model.SMangaUpdate" not in s:
-              s = s.replace(
-                  "import eu.kanade.tachiyomi.source.model.SManga\n",
-                  "import eu.kanade.tachiyomi.source.model.SManga\nimport eu.kanade.tachiyomi.source.model.SMangaUpdate\n",
-                  1,
-              )
-          if "override suspend fun fetchMangaUpdate(" not in s:
-              marker = '''    override suspend fun getMangaByUrl(url: HttpUrl): SManga? {
-                  val path = COMIC_PATH.find(url.encodedPath)?.groupValues?.getOrNull(1) ?: return null
-                  return loadDetail(path).first
-              }
-
-          '''
-              replacement = marker + '''    override suspend fun fetchMangaUpdate(
-                  manga: SManga,
-                  chapters: List<SChapter>,
-                  fetchDetails: Boolean,
-                  fetchChapters: Boolean,
-              ): SMangaUpdate {
-                  if (!fetchDetails && !fetchChapters) return SMangaUpdate(manga, chapters)
-                  val (freshManga, freshChapters) = loadDetail(pathWord(manga))
-                  return SMangaUpdate(
-                      if (fetchDetails) freshManga else manga,
-                      if (fetchChapters) freshChapters else chapters,
-                  )
-              }
-
-          '''
-              if marker not in s:
-                  raise SystemExit("getMangaByUrl marker not found")
-              s = s.replace(marker, replacement, 1)
-          p.write_text(s)
-          PY
-
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Apply Spotless and check
+      - name: Spotless check
         working-directory: upstream
-        run: ./gradlew :src:zh:copymangaplus:spotlessApply :src:zh:copymangaplus:spotlessCheck
-
-      - name: Upload formatted patched Kotlin source
-        uses: actions/upload-artifact@v4
-        with:
-          name: copymangaplus-formatted-patched-source
-          path: upstream/src/zh/copymangaplus/src/**/*.kt
-          if-no-files-found: error
-
-      - name: Push formatted patch to private staging branch
-        continue-on-error: true
-        run: |
-          rm -rf source/src/zh/copymangaplus/src
-          cp -a upstream/src/zh/copymangaplus/src source/src/zh/copymangaplus/src
-          git -C source config user.name "github-actions[bot]"
-          git -C source config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git -C source checkout -B tmp/copymangaplus-compat-fix
-          git -C source add src/zh/copymangaplus/src
-          if git -C source diff --cached --quiet; then
-            echo "No staged source changes"
-          else
-            git -C source commit -m "fix(copymangaplus): add current Keiyoushi compatibility"
-            git -C source push --force origin HEAD:refs/heads/tmp/copymangaplus-compat-fix
-          fi
+        run: ./gradlew :src:zh:copymangaplus:spotlessCheck
 
       - name: Build debug and lint release
         working-directory: upstream
