@@ -56,6 +56,13 @@ jobs:
         working-directory: upstream
         run: ./gradlew :src:zh:copymangaplus:spotlessApply :src:zh:copymangaplus:spotlessCheck
 
+      - name: Upload formatted Kotlin source
+        uses: actions/upload-artifact@v4
+        with:
+          name: copymangaplus-formatted-source
+          path: upstream/src/zh/copymangaplus/src/**/*.kt
+          if-no-files-found: error
+
       - name: Build debug and lint release
         working-directory: upstream
         run: ./gradlew :src:zh:copymangaplus:assembleDebug :src:zh:copymangaplus:lintRelease
