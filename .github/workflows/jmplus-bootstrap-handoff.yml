@@ -8,7 +8,7 @@ on:
       - ".github/workflows/jmplus-bootstrap-handoff.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   check:
@@ -21,8 +21,8 @@ jobs:
           repository: huoguotiankong/mx-build
           ref: extension-staging
           path: handoff
-          fetch-depth: 1
-          persist-credentials: false
+          fetch-depth: 0
+          persist-credentials: true
 
       - name: Verify requested feature contract
         shell: bash
@@ -60,10 +60,47 @@ jobs:
           rm -rf upstream/src/zh/jmcomicplus
           cp -a handoff/jmplus-handoff/src/zh/jmcomicplus upstream/src/zh/jmcomicplus
 
+      - name: Apply current Keiyoushi compatibility fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          root = Path("upstream/src/zh/jmcomicplus")
+          src = root / "src/eu/kanade/tachiyomi/extension/zh/jmcomicplus/JmComicPlus.kt"
+          text = src.read_text(encoding="utf-8")
+
+          old_pref = "Preference(screen.context)"
+          count = text.count(old_pref)
+          if count != 6:
+              raise SystemExit(f"expected 6 Preference(context) calls, found {count}")
+          text = text.replace(old_pref, "Preference()")
+
+          old_account = "override suspend fun getSourceAccount(): SourceAccount? {"
+          if text.count(old_account) != 1:
+              raise SystemExit("getSourceAccount signature not found exactly once")
+          text = text.replace(
+              old_account,
+              "override suspend fun getSourceAccount(): SourceAccount? = getSourceAccountNow()\n\n    private fun getSourceAccountNow(): SourceAccount? {",
+              1,
+          )
+
+          old_status = "runCatching { getSourceAccount() }"
+          if text.count(old_status) != 1:
+              raise SystemExit("login status getSourceAccount call not found exactly once")
+          text = text.replace(old_status, "runCatching { getSourceAccountNow() }", 1)
+          src.write_text(text, encoding="utf-8")
+
+          gradle = root / "build.gradle.kts"
+          g = gradle.read_text(encoding="utf-8")
+          if "versionCode = 1" not in g:
+              raise SystemExit("expected versionCode = 1 in handoff")
+          gradle.write_text(g.replace("versionCode = 1", "versionCode = 2", 1), encoding="utf-8")
+          PY
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-        with:
-          build-root-directory: upstream
 
       - name: Spotless apply and check
         working-directory: upstream
@@ -74,3 +111,20 @@ jobs:
       - name: Build Debug extension
         working-directory: upstream
         run: ./gradlew :src:zh:jmcomicplus:assembleDebug --stacktrace
+
+      - name: Persist corrected full source to handoff branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf handoff/jmplus-handoff/src/zh/jmcomicplus
+          cp -a upstream/src/zh/jmcomicplus handoff/jmplus-handoff/src/zh/jmcomicplus
+          cd handoff
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add jmplus-handoff/src/zh/jmcomicplus
+          if git diff --cached --quiet; then
+            echo "No corrected handoff changes"
+          else
+            git commit -m "fix(jmcomicplus): align full handoff with current Keiyoushi"
+            git push origin HEAD:extension-staging
+          fi
