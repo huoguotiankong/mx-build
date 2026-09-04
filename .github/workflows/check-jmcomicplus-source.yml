@@ -61,8 +61,10 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-        with:
-          build-root-directory: upstream
+
+      - name: Apply Spotless to temporary overlay
+        working-directory: upstream
+        run: ./gradlew :src:zh:jmcomicplus:spotlessApply
 
       - name: Spotless check
         working-directory: upstream
