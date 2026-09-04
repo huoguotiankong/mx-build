@@ -1,0 +1,97 @@
+name: Finalize CopyManga Plus v4 handoff
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/scripts/finalize_copymangaplus_v4_handoff.py"
+      - ".github/workflows/finalize-copymangaplus-v4-handoff.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout build repo
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Patch handoff
+        run: python3 .github/scripts/finalize_copymangaplus_v4_handoff.py
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Checkout current Keiyoushi
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Overlay handoff module
+        shell: bash
+        run: |
+          rm -rf upstream/src/zh/copymangaplus
+          mkdir -p upstream/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus
+          cp .github/handoff/copymangaplus-v4-opencc/build.gradle.kts upstream/src/zh/copymangaplus/build.gradle.kts
+          cp .github/handoff/copymangaplus-v4-opencc/CopyMangaPlus.kt upstream/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt
+          cp -a /tmp/nonexistent 2>/dev/null || true
+
+      - name: Copy current icon and proguard resources from private source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: private-source
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Restore non-text module resources
+        shell: bash
+        run: |
+          cp private-source/src/zh/copymangaplus/proguard-rules.pro upstream/src/zh/copymangaplus/proguard-rules.pro
+          cp -a private-source/src/zh/copymangaplus/res upstream/src/zh/copymangaplus/res
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Format, build and lint
+        working-directory: upstream
+        run: |
+          ./gradlew :src:zh:copymangaplus:spotlessApply
+          ./gradlew :src:zh:copymangaplus:spotlessCheck
+          ./gradlew :src:zh:copymangaplus:assembleDebug :src:zh:copymangaplus:lintRelease
+
+      - name: Copy formatted Kotlin back
+        shell: bash
+        run: |
+          cp upstream/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt .github/handoff/copymangaplus-v4-opencc/CopyMangaPlus.kt
+          printf '%s\n' 'validated: finalized v4 Spotless + assembleDebug + lintRelease' > .github/handoff/copymangaplus-v4-opencc/VALIDATED.txt
+
+      - name: Commit finalized handoff
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/handoff/copymangaplus-v4-opencc
+          if git diff --cached --quiet; then
+            echo "No handoff changes"
+          else
+            git commit -m "ci: finalize validated CopyManga v4 handoff"
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
