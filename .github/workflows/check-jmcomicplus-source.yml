@@ -10,7 +10,7 @@ on:
 permissions:
   contents: read
 
-# Triggered for jmcomicplus v4 validation from mx-dev b7c7333.
+# Triggered for jmcomicplus v4 validation from mx-dev b7c7333; rerun after private runner failure.
 jobs:
   check:
     runs-on: ubuntu-24.04
