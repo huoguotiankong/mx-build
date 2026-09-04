@@ -1,0 +1,207 @@
+name: Publish JMComic Plus Test Store
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/publish-jmcomicplus-test-store.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-jmcomicplus-test-store
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check required secrets
+        shell: bash
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+          MX_REPO_TOKEN: ${{ secrets.MX_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]] || { echo "::error::Missing MX_PRIVATE_READ_TOKEN"; exit 1; }
+          [[ -n "$MANGA_SIGNING_BUNDLE" ]] || { echo "::error::Missing MANGA_SIGNING_BUNDLE"; exit 1; }
+          [[ -n "$MX_REPO_TOKEN" ]] || { echo "::error::Missing MX_REPO_TOKEN"; exit 1; }
+
+      - name: Checkout private MX source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: f572adecaac6d4b24ee2e4911a1214ee19f4f6b3
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Validate target source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 source/scripts/validate_sources.py
+          test -f source/src/zh/jmcomicplus/build.gradle.kts
+          printf '%s\n' 'zh/jmcomicplus' > jm-targets.txt
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Checkout current Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Overlay and format JMComic Plus
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf upstream/src/zh/jmcomicplus
+          cp -a source/src/zh/jmcomicplus upstream/src/zh/jmcomicplus
+          cd upstream
+          ./gradlew :src:zh:jmcomicplus:spotlessApply
+          ./gradlew :src:zh:jmcomicplus:spotlessCheck
+
+      - name: Prepare stable extension signing key
+        shell: bash
+        env:
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64
+          import json
+          import os
+          from pathlib import Path
+
+          bundle = json.loads(os.environ["MANGA_SIGNING_BUNDLE"])
+          required = ("signingKey", "alias", "storePassword", "keyPassword")
+          missing = [key for key in required if not bundle.get(key)]
+          if missing:
+              raise SystemExit(f"Signing bundle missing fields: {', '.join(missing)}")
+
+          Path("upstream/signingkey.jks").write_bytes(base64.b64decode(bundle["signingKey"]))
+          env_path = Path(os.environ["GITHUB_ENV"])
+          with env_path.open("a", encoding="utf-8") as f:
+              for env_name, key in (
+                  ("ALIAS", "alias"),
+                  ("KEY_STORE_PASSWORD", "storePassword"),
+                  ("KEY_PASSWORD", "keyPassword"),
+              ):
+                  value = str(bundle[key])
+                  print(f"::add-mask::{value}")
+                  f.write(f"{env_name}<<__SIGNING_EOF__\n{value}\n__SIGNING_EOF__\n")
+          PY
+
+      - name: Build signed release extension
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:jmcomicplus:assembleRelease :src:zh:jmcomicplus:lintRelease
+
+      - name: Verify stable APK signing certificate
+        id: signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(keytool -exportcert -alias "$ALIAS" -keystore upstream/signingkey.jks -storepass "$KEY_STORE_PASSWORD" | sha256sum | awk '{print $1}')"
+          expected="$(printf '%s' "$expected" | tr '[:upper:]' '[:lower:]')"
+          designated="1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620"
+          [[ "$expected" == "$designated" ]] || { echo "::error::Configured signing key is not the designated long-term certificate"; exit 1; }
+          echo "fingerprint=$expected" >> "$GITHUB_OUTPUT"
+
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          [[ -n "$apksigner" ]] || { echo "::error::apksigner not found"; exit 1; }
+          found=0
+          while IFS= read -r apk; do
+            found=1
+            cert_output="$("$apksigner" verify --print-certs "$apk" 2>&1)"
+            actual="$(printf '%s\n' "$cert_output" | python3 -c 'import re,sys; lines=[line.replace(":", "") for line in sys.stdin if "sha-256" in line.lower()]; matches=[re.search(r"(?i)(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])", line) for line in lines]; match=next((m for m in matches if m), None); print(match.group(0).lower() if match else "")')"
+            [[ -n "$actual" ]] || { printf '%s\n' "$cert_output"; echo "::error::Unable to parse APK certificate"; exit 1; }
+            [[ "$actual" == "$expected" ]] || { printf '%s\n' "$cert_output"; echo "::error::Signing certificate mismatch"; exit 1; }
+          done < <(find upstream/src/zh/jmcomicplus -path '*/build/outputs/apk/release/*.apk' -type f | sort)
+          [[ "$found" -eq 1 ]] || { echo "::error::No release APK found"; exit 1; }
+
+      - name: Checkout public distribution repository
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-repo
+          token: ${{ secrets.MX_REPO_TOKEN }}
+          ref: repo
+          path: repo
+          fetch-depth: 0
+
+      - name: Generate isolated JMComic Plus test store entry
+        shell: bash
+        env:
+          SIGNING_FINGERPRINT: ${{ steps.signing.outputs.fingerprint }}
+        run: |
+          set -euo pipefail
+          python3 source/scripts/publish_test_repo.py \
+            --targets jm-targets.txt \
+            --upstream-root upstream \
+            --source-root source \
+            --repo-dir repo/test \
+            --owner huoguotiankong \
+            --repository mx-repo \
+            --signing-key "$SIGNING_FINGERPRINT"
+
+      - name: Commit test store
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add test
+          if git diff --cached --quiet; then
+            echo "No test-store changes to publish"
+            exit 0
+          fi
+          git commit -m "Publish JMComic Plus test v3 from ${GITHUB_SHA:0:7}"
+          git push origin HEAD:repo
+
+      - name: Verify published test store endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="https://raw.githubusercontent.com/huoguotiankong/mx-repo/repo/test"
+          for file in repo.json index.json; do
+            ok=0
+            for attempt in 1 2 3 4 5; do
+              status="$(curl -L -sS -o "/tmp/$file" -w '%{http_code}' "$base/$file" || true)"
+              if [[ "$status" == "200" ]]; then
+                ok=1
+                break
+              fi
+              sleep $((attempt * 2))
+            done
+            [[ "$ok" -eq 1 ]] || { echo "::error::Published test store endpoint unavailable: $file"; exit 1; }
+          done
+          python3 -m json.tool /tmp/repo.json >/dev/null
+          python3 -m json.tool /tmp/index.json >/dev/null
+          grep -q 'jmcomicplus' /tmp/index.json || { echo "::error::JMComic Plus missing from published test index"; exit 1; }
+
+      - name: Upload signed test APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: jmcomicplus-v3-signed-test-apk
+          path: upstream/src/zh/jmcomicplus/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Cleanup signing material
+        if: always()
+        run: rm -f upstream/signingkey.jks
