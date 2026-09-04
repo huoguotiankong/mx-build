@@ -10,6 +10,7 @@ on:
 permissions:
   contents: read
 
+# Trigger formatting sync for jmcomicplus v4 after test-store validation.
 jobs:
   format:
     runs-on: ubuntu-24.04
