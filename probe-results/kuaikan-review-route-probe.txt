@@ -1,0 +1,22 @@
+topic_detail.http=200 bytes=108
+topic_detail.code=3504 message=系统开小差啦～请重试
+tabs.http=200 bytes=151
+tabs.code=200 message=ok
+tabs.safe_json={"tab_info":[{"type":1,"title":"热帖"}],"default_tab_index":0}
+score_head.http=200 bytes=967
+score_head.code=200 message=OK
+score_head.safe_json={"simpleLabel":{"id":429251892137164848,"tagId":434264134289195216,"name":"怦然心动","labelType":2,"avatarUrl":"https://tn1-f2.kkmh.com/image/210207/brBOLprTO.webp","isLevel1Interest":false,"gradeTypes":[],"synonym_type":0,"specialType":3,"topicId":766,"labelRelationType":0,"strId":"429251892137164848"},"comicScoreInfo":{"topicId":766,"comicScoreStatus":2,"comicScore":"9.0","scoreUserNum":118464,"loginUserScore":0,"posts":[],"loginUserPostId":0,"userScoreStatus":1,"users":[],"comicAndHistorySwitch":true,"chapterLimit":1,"chapterNotEnoughText":"正文篇章上线后可参与评分","scoreRatio":[{"score":5,"title":"5星","ratio":70},{"score":4,"title":"4星","ratio":10},{"score":3,"title":"3星","ratio":7},{"score":2,"title":"2星","ratio":5},{"score":1,"title":"1星","ratio":8}]},"tabs":[{"name":"最热","pageId":6},{"name":"最新","pageId":7}]}
+score_tip.http=200 bytes=732
+score_tip.code=200 message=OK
+web_topic.http=200 bytes=1119760
+web_topic.comic_ids=196392
+floor.comic.196392.HOTEST.source0.http=200 bytes=106 code=400 message=bad request
+floor.comic.196392.NEWEST.source0.http=200 bytes=106 code=400 message=bad request
+floor.comic.196392.HOTEST.source1.http=200 bytes=106 code=400 message=bad request
+floor.comic.196392.NEWEST.source1.http=200 bytes=106 code=400 message=bad request
+floor.comic.196392.HOTEST.source2.http=200 bytes=106 code=400 message=bad request
+floor.comic.196392.NEWEST.source2.http=200 bytes=106 code=400 message=bad request
+floor.comic.196392.HOTEST.source3.http=200 bytes=106 code=400 message=bad request
+floor.comic.196392.NEWEST.source3.http=200 bytes=106 code=400 message=bad request
+legacy.196392.score.http=200 bytes=106 code=400
+legacy.196392.time.http=200 bytes=106 code=400
