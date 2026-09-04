@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     steps:
-      - name: Probe live chapter floor detail shape
+      - name: Probe live chapter floor detail pagination
         shell: bash
         run: |
           python3 - <<'PY'
@@ -31,39 +31,24 @@ jobs:
           chosen=None
           for f in floors:
               root=f.get('root') or {}
-              if (f.get('children_total') or 0)>0 and root.get('id'):
-                  chosen=(root.get('id'),f.get('children_total'),len(f.get('children_comments') or []),f.get('show_more'))
+              if (f.get('children_total') or 0)>20 and root.get('id'):
+                  chosen=(root.get('id'),f.get('children_total'))
                   break
-          print('list.http=',st,'code=',o.get('code'),'floors=',len(floors),'chosen=',chosen)
+          print('list.http=',st,'code=',o.get('code'),'chosen=',chosen)
           if not chosen:
-              raise SystemExit('no reply-bearing floor in sample page')
-          cid=chosen[0]
-          for params in (
-              {'comment_id':cid,'since':0,'limit':20,'direction':0},
-              {'comment_id':cid,'offset':0,'limit':20,'direction':0},
-              {'comment_id':cid,'since':0,'limit':20},
-          ):
-              try:
-                  st2,r=get('/v2/comments/cruel/floor_detail',params)
-              except Exception as e:
-                  print('detail.error',params,type(e).__name__,str(e)); continue
-              data=r.get('data')
-              print('detail.params=',params,'http=',st2,'code=',r.get('code'),'message=',r.get('message'))
-              print('detail.data.type=',type(data).__name__)
-              if isinstance(data,dict):
-                  print('detail.data.keys=',','.join(sorted(data.keys())))
-                  for k in ('since','down_since','up_since','total','normal_total'):
-                      if k in data: print('detail.data.'+k+'=',data.get(k))
-                  cf=data.get('comment_floors')
-                  print('comment_floors.type=',type(cf).__name__)
-                  if isinstance(cf,dict):
-                      print('comment_floors.keys=',','.join(sorted(cf.keys())))
-                      print('children_total=',cf.get('children_total'),'show_more=',cf.get('show_more'),'children_count=',len(cf.get('children_comments') or []))
-                      if cf.get('children_comments'):
-                          ch=cf['children_comments'][0]
-                          print('child.keys=',','.join(sorted(ch.keys())))
-                          print('child.content_info.type=',type(ch.get('content_info')).__name__,'child.contents.type=',type(ch.get('contents')).__name__)
-                  elif isinstance(cf,list):
-                      print('comment_floors.len=',len(cf))
-              print('---')
+              raise SystemExit('no floor with >20 replies in sample page')
+          cid,total=chosen
+          cursor=0
+          seen=[]
+          for page in range(1,5):
+              st2,r=get('/v2/comments/cruel/floor_detail',{'comment_id':cid,'since':cursor,'limit':20,'direction':0})
+              data=r.get('data') or {}; floor=data.get('comment_floors') or {}; children=floor.get('children_comments') or []
+              ids=[str(x.get('id')) for x in children if isinstance(x,dict) and x.get('id')]
+              next_cursor=data.get('down_since')
+              print(f'page={page} http={st2} code={r.get("code")} cursor={cursor} count={len(children)} total={floor.get("children_total")} show_more={floor.get("show_more")} down_since={next_cursor} unique={len(set(ids))}')
+              print('first=',ids[0] if ids else None,'last=',ids[-1] if ids else None,'overlap=',len(set(ids)&set(seen)))
+              seen += ids
+              if not children or next_cursor in (None,-1,cursor): break
+              cursor=next_cursor
+          print('all_seen=',len(seen),'all_unique=',len(set(seen)),'expected_total=',total)
           PY
