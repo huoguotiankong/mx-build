@@ -10,6 +10,7 @@ on:
 permissions:
   contents: write
 
+# Ephemeral encrypted handoff for jmcomicplus v4 formatting sync.
 jobs:
   export:
     runs-on: ubuntu-24.04
@@ -62,6 +63,7 @@ jobs:
           cp -a source/src/zh/jmcomicplus upstream/src/zh/jmcomicplus
           cd upstream
           ./gradlew :src:zh:jmcomicplus:spotlessApply
+          ./gradlew :src:zh:jmcomicplus:spotlessCheck
 
       - name: Encrypt formatted module
         shell: bash
@@ -69,15 +71,15 @@ jobs:
           set -euo pipefail
           cat >/tmp/jmplus-format-public.pem <<'EOF'
           -----BEGIN PUBLIC KEY-----
-          MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAxpV+utn+gLYyZT5Adc77
-          xyQ1judXHSnLFjgba5SKNgG+FohYg0QMhf23kMEANCfEZbQVPctaxzuQJqUUGWZK
-          UPKQuHXg4VnnjwDeC6+rsEaJmowQWwphKK1g3H4L0I698tFA8e2pNXG9aG6oVn+q
-          Y1B4ItSdcbIu/z2i97fojT7atHmuzE7zwBRwhfJRlOOqk21n7QrPEdEZLZun7jdT
-          2yobISDvadErCyLSBNIiP74X1WGy+S66Avjnrs8F4CK0Klwa0k3WA2Swf/C/h8Sp
-          2cyeWicroUONHVffUXMQYsadcrL/xeCMfBsyPsz7BkDRIBbNQX3ZaKRETyN23jK4
-          lT1lY966ChwLxp+JUDYuqXwuNp2WaB5BhqXRJFV00XmPDmXkmkWpbFGh+mIREDLj
-          jt9unTYoJ5an+tmPEP2+pDk+k5fnTq6kpPN1mTXowY3awvRwzqfeEiSscVrumZVU
-          l6Nl0GKDDiLJwtJBKaAAQkATrkC2HYQWHevPYkvYDsb9AgMBAAE=
+          MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAtu31WehU/S+Dw1W5WJQx
+          THPxcCXZevEDp8n0ujJX9pvJ+QBWcY5baUbw5Uh81OB/N2f1065fpwnHc4uTM5kd
+          87ElskvnHBwv8r/jFS/Rwg8cB8q6aPr8PCnXehAxGk/Os2O50q9pO8mB5vgnRZKM
+          PZnZfJqnP6nAhXucj1QmBdHiBll1eRFgDpvCSCQ+8d2vnx/3n1xxeHhU1+QYLN1K
+          iY9MeJmJ4qEEc511oNSlXLRqtC/O3TBvM626EOSNGQt10deDDDU/8MAqRhVtoE5N
+          Ls1q75ffomPrIXoe0XfJZsQOqmTQJsFOfOdUE0XQn5OHP8NnJuJih4XutyhaJHqR
+          iA422RmmntU81+LlYn7BZ+XmtR7+j1G2a6Euc3qCbmZslCSNh4nlpdZ7rTDFApFg
+          Mq5omuIuCkFB9K6lC7+a5ZzWp64o1HToCKQ0nvGW3gKi8yrhWt+7AGXl8q1kmo9m
+          HRqUNxKXpMX8lLNtH4ka2XDxiiOJgTZ7sP3hDL+aaKw1AgMBAAE=
           -----END PUBLIC KEY-----
           EOF
           tar -czf /tmp/jmplus-formatted.tar.gz -C upstream/src/zh jmcomicplus
@@ -96,6 +98,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add secure-handoff/jmplus-formatted.tar.enc.b64 secure-handoff/jmplus-key.enc.b64
-          git commit -m "chore(jmcomicplus): encrypted formatted handoff"
+          git commit -m "chore(jmcomicplus): encrypted formatted handoff v4"
           git pull --rebase origin main
           git push origin HEAD:main
