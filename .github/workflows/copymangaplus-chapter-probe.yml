@@ -1,0 +1,124 @@
+name: CopyManga Plus Chapter Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/copymangaplus-chapter-probe.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout private source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Probe chapter API shapes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, datetime as dt, hashlib, hmac, json, random, re, string, time
+          import urllib.error, urllib.parse, urllib.request
+          from pathlib import Path
+
+          src=Path('source/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt').read_text('utf-8')
+          def const(n):
+              m=re.search(rf'private const val {re.escape(n)} = "([^"]+)"',src)
+              if not m: raise SystemExit(f'missing {n}')
+              return m.group(1)
+          ver=const('COPY_VERSION'); secret=const('SECRET_B64'); um=const('UMSTRING'); host=const('COPY_BOOTSTRAP')
+
+          def headers():
+              ts=str(int(time.time())); key=base64.b64decode(secret)
+              sig=hmac.new(key,ts.encode(),hashlib.sha256).hexdigest()
+              alpha=string.ascii_letters+string.digits
+              pseudo=''.join(random.choice(alpha) for _ in range(16))
+              dev=f'AA{random.randrange(10)}A.'+''.join(str(random.randrange(10)) for _ in range(6))+'.'+''.join(str(random.randrange(10)) for _ in range(3))
+              return {'User-Agent':f'COPY/{ver}','source':'copyApp','deviceinfo':f'{random.randrange(1000000,10000000)}V-{random.randrange(1000,10000)}','dt':dt.datetime.now().strftime('%Y.%m.%d'),'platform':'3','referer':f'com.copymanga.app-{ver}','version':ver,'device':dev,'pseudoid':pseudo,'Accept':'application/json','region':'0','authorization':'Token','umstring':um,'x-auth-timestamp':ts,'x-auth-signature':sig}
+
+          def raw(path):
+              req=urllib.request.Request('https://'+host+path,headers=headers())
+              try:
+                  with urllib.request.urlopen(req,timeout=15) as r: status=r.status; body=r.read().decode('utf-8','replace')
+              except urllib.error.HTTPError as e: status=e.code; body=e.read().decode('utf-8','replace')
+              try: data=json.loads(body)
+              except Exception: data={'_raw':body[:300]}
+              return {'http':status,'code':data.get('code') if isinstance(data,dict) else None,'message':data.get('message') if isinstance(data,dict) else None,'results':data.get('results') if isinstance(data,dict) else None}
+
+          report={'host':host,'samples':[]}
+          listing=raw('/api/v3/comics?limit=6&offset=0&ordering=-popular&_update=true')
+          items=((listing.get('results') or {}).get('list') or []) if isinstance(listing.get('results'),dict) else []
+          for raw_item in items:
+              item=raw_item.get('comic') if isinstance(raw_item,dict) and isinstance(raw_item.get('comic'),dict) else raw_item
+              pw=item.get('path_word') if isinstance(item,dict) else None
+              if not pw: continue
+              time.sleep(0.8)
+              detail=raw('/api/v3/comic2/'+urllib.parse.quote(pw)+'?platform=3&_update=true')
+              s={'path_word':pw,'detail_http':detail['http'],'detail_code':detail['code'],'detail_message':detail['message']}
+              results=detail.get('results') if isinstance(detail.get('results'),dict) else {}
+              groups=results.get('groups') if isinstance(results,dict) else None
+              s['groups_type']=type(groups).__name__
+              if isinstance(groups,dict):
+                  s['groups']={k:({kk:v for kk,v in val.items() if kk in ('name','path_word','uuid','count','chapters_count')} if isinstance(val,dict) else str(val)[:100]) for k,val in groups.items()}
+              elif isinstance(groups,list):
+                  s['groups']=[{kk:v for kk,v in val.items() if kk in ('name','path_word','uuid','count','chapters_count')} if isinstance(val,dict) else str(val)[:100] for val in groups]
+              else:
+                  s['groups']=groups
+              candidates=[]
+              if isinstance(groups,dict):
+                  for k,v in groups.items():
+                      if isinstance(v,dict):
+                          candidates += [v.get('path_word'),v.get('uuid')]
+                      candidates.append(k)
+              elif isinstance(groups,list):
+                  for v in groups:
+                      if isinstance(v,dict): candidates += [v.get('path_word'),v.get('uuid')]
+              candidates=[str(x) for x in candidates if x]
+              candidates=list(dict.fromkeys(candidates+['default']))[:12]
+              attempts=[]
+              for gw in candidates:
+                  variants=[
+                      f'/api/v3/comic/{urllib.parse.quote(pw)}/group/{urllib.parse.quote(gw)}/chapters?limit=500&offset=0&platform=3',
+                      f'/api/v3/comic/{urllib.parse.quote(pw)}/group/{urllib.parse.quote(gw)}/chapters?limit=500&offset=0&platform=3&_update=true',
+                      f'/api/v3/comic/{urllib.parse.quote(pw)}/group/{urllib.parse.quote(gw)}/chapters?limit=500&offset=0&_update=true',
+                      f'/api/v3/comic/{urllib.parse.quote(pw)}/group/{urllib.parse.quote(gw)}/chapters?limit=100&offset=0&_update=true',
+                  ]
+                  for path in variants:
+                      time.sleep(0.55)
+                      r=raw(path)
+                      box=r.get('results') if isinstance(r.get('results'),dict) else {}
+                      arr=box.get('list') if isinstance(box,dict) else None
+                      attempts.append({'group':gw,'query':path.split('?',1)[1],'http':r['http'],'code':r['code'],'message':r['message'],'count':len(arr) if isinstance(arr,list) else None,'result_keys':sorted(box.keys()) if isinstance(box,dict) else []})
+                      if isinstance(arr,list) and arr:
+                          s['working']={'group':gw,'path':path,'count':len(arr),'chapter_keys':sorted(arr[0].keys()) if isinstance(arr[0],dict) else []}
+                          break
+                  if s.get('working'): break
+              s['attempts']=attempts
+              report['samples'].append(s)
+              if s.get('working'): break
+          Path('chapter-probe.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),'utf-8')
+          print(json.dumps(report,ensure_ascii=False,indent=2))
+          if not any(s.get('working') for s in report['samples']): raise SystemExit('No working chapter endpoint variant found')
+          PY
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: copymangaplus-chapter-probe
+          path: chapter-probe.json
+          if-no-files-found: warn
+          retention-days: 7
