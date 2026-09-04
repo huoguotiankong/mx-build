@@ -1,5 +1,4 @@
 from pathlib import Path
-import json
 import struct
 import urllib.request
 
@@ -15,6 +14,14 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
     if count != 1:
         raise SystemExit(f"{label}: expected 1 occurrence, found {count}")
     return text.replace(old, new, 1)
+
+
+def replace_or_require(text: str, old: str, new: str, label: str) -> str:
+    if old in text:
+        return replace_once(text, old, new, label)
+    if new not in text:
+        raise SystemExit(f"{label}: neither old nor new state found")
+    return text
 
 
 s = KOTLIN.read_text("utf-8")
@@ -53,19 +60,21 @@ new_headers = '''        } else {
             if (includeToken && token().isNotBlank()) builder.set("Authorization", "Token ${token()}")
         }
 '''
-s = replace_once(s, old_headers, new_headers, "restore v3 global Copy headers")
-s = replace_once(s, "private const val ROUTE_SCHEMA = 3", "private const val ROUTE_SCHEMA = 4", "route schema")
+s = replace_or_require(s, old_headers, new_headers, "restore v3 global Copy headers")
+s = replace_or_require(s, "private const val ROUTE_SCHEMA = 3", "private const val ROUTE_SCHEMA = 4", "route schema")
 KOTLIN.write_text(s, "utf-8")
 
 g = GRADLE.read_text("utf-8")
-g = replace_once(g, "versionCode = 4", "versionCode = 5", "versionCode")
+g = replace_or_require(g, "versionCode = 4", "versionCode = 5", "versionCode")
 GRADLE.write_text(g, "utf-8")
 
 d = DOC.read_text("utf-8")
-d = replace_once(d, "- 源码 `versionCode = 4`", "- 源码 `versionCode = 5`", "doc source version")
-d = replace_once(d, "- Android APK versionCode：`106004`", "- Android APK versionCode：`106005`", "doc android version")
-d = replace_once(d, "- APK versionName：`1.6.4`", "- APK versionName：`1.6.5`", "doc version name")
-d += """
+d = replace_or_require(d, "- 源码 `versionCode = 4`", "- 源码 `versionCode = 5`", "doc source version")
+d = replace_or_require(d, "- Android APK versionCode：`106004`", "- Android APK versionCode：`106005`", "doc android version")
+d = replace_or_require(d, "- APK versionName：`1.6.4`", "- APK versionName：`1.6.5`", "doc version name")
+marker = "## v5 实机反馈与定向修复（2026-09-05）"
+if marker not in d:
+    d += """
 
 ## v5 实机反馈与定向修复（2026-09-05）
 
