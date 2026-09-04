@@ -31,6 +31,28 @@
         ]
       },
       {
+        "name": "JMComic Plus",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.jmcomicplus",
+        "resources": {
+          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.jmcomicplus-v1.6.4.apk",
+          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.jmcomicplus-v106004.png"
+        },
+        "extensionLib": "1.6",
+        "versionCode": 106004,
+        "versionName": "1.6.4",
+        "contentWarning": "NSFW",
+        "sources": [
+          {
+            "id": 5337195273790213207,
+            "name": "禁漫天堂 Plus",
+            "language": "zh",
+            "homeUrl": "https://jmcomicgo.org",
+            "mirrorUrls": [],
+            "message": null
+          }
+        ]
+      },
+      {
         "name": "Kuaikan Manhua",
         "packageName": "eu.kanade.tachiyomi.extension.zh.kuaikanmanhua",
         "resources": {
