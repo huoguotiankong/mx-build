@@ -37,7 +37,7 @@ end = s.index("    private fun appList(path: String, page: Int): MangasPage {", 
 s = s[:start] + '''    private fun MangasPage.semanticDedupe(): MangasPage {
         val clean = mangas.distinctBy { manga ->
             val normalizedTitle = manga.title.lowercase(Locale.ROOT)
-                .replace(Regex("[\\s\\p{Punct}·・]+"), "")
+                .replace(Regex("""[\\s\\p{Punct}·・]+"""), "")
             val coverKey = manga.thumbnail_url.orEmpty().substringAfterLast('/').substringBefore('?')
             normalizedTitle + "|" + coverKey
         }
