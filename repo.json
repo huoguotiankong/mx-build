@@ -1,0 +1,9 @@
+{
+  "index_v2": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/index.json",
+  "meta": {
+    "name": "MX Test",
+    "shortName": "TEST",
+    "website": "https://github.com/huoguotiankong/mx-repo",
+    "signingKeyFingerprint": "1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620"
+  }
+}
