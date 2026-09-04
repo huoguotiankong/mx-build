@@ -50,6 +50,7 @@ jobs:
           rm -f source/.github/tmp-marker.txt
           python3 - <<'PY'
           from pathlib import Path
+          import hashlib
           import struct
           root = Path('source/src/zh/copymangaplus/res')
           sizes = {'mdpi':48,'hdpi':72,'xhdpi':96,'xxhdpi':144,'xxxhdpi':192}
@@ -61,7 +62,9 @@ jobs:
               width, height = struct.unpack('>II', data[16:24])
               if (width, height) != (expected, expected):
                   raise SystemExit(f'bad PNG dimensions: {p} {(width,height)}')
-              print(p, len(data), width, height)
+              header = f'blob {len(data)}\0'.encode()
+              git_sha = hashlib.sha1(header + data).hexdigest()
+              print(p, len(data), width, height, git_sha)
           PY
 
       - name: Commit normalized icons to private source
