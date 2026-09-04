@@ -32,6 +32,7 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           def replace_once(path: Path, old: str, new: str, label: str) -> None:
               text = path.read_text(encoding="utf-8")
@@ -41,53 +42,55 @@ jobs:
               path.write_text(text.replace(old, new, 1), encoding="utf-8")
 
           manga_screen = Path("app/src/main/java/eu/kanade/tachiyomi/ui/manga/MangaScreen.kt")
-          old_detail_loader = '''        // MX -->
-          var mangaDetailInfo by remember(successState.manga.id, successState.source.id) {
-              mutableStateOf<MangaDetailInfo?>(null)
-          }
-          LaunchedEffect(successState.manga, successState.source) {
-              val detailSource = successState.source as? MangaDetailSource
-              mangaDetailInfo = if (detailSource != null && successState.mergedData == null) {
-                  runCatching {
-                      withIOContext {
-                          detailSource.getMangaDetailInfo(successState.manga.toSManga())
-                      }
-                  }.onFailure { error ->
-                      logcat(LogPriority.WARN, error) { "Failed to load MX manga detail metadata" }
-                  }.getOrNull()
-              } else {
-                  null
-              }
-          }
-          '''
-          new_detail_loader = '''        // MX -->
-          val detailSource = remember(successState.source, successState.mergedData) {
-              (successState.source as? MangaDetailSource)
-                  ?.takeIf { successState.mergedData == null }
-          }
-          var mangaDetailInfo by remember(successState.manga.id, successState.source.id, detailSource) {
-              mutableStateOf<MangaDetailInfo?>(detailSource?.let { MangaDetailInfo() })
-          }
-          LaunchedEffect(successState.manga, detailSource) {
-              mangaDetailInfo = if (detailSource != null) {
-                  runCatching {
-                      withIOContext {
-                          detailSource.getMangaDetailInfo(successState.manga.toSManga())
-                      }
-                  }.onFailure { error ->
-                      logcat(LogPriority.WARN, error) { "Failed to load MX manga detail metadata" }
-                  }.getOrElse { MangaDetailInfo() }
-              } else {
-                  null
-              }
-          }
-          '''
-          replace_once(
-              manga_screen,
-              old_detail_loader,
-              new_detail_loader,
-              "exclusive structured manga detail renderer",
+          manga_text = manga_screen.read_text(encoding="utf-8")
+          detail_pattern = re.compile(
+              r"        // MX -->\n"
+              r"        var mangaDetailInfo by remember\(successState\.manga\.id, successState\.source\.id\) \{\n"
+              r"            mutableStateOf<MangaDetailInfo\?>\(null\)\n"
+              r"        \}\n"
+              r"        LaunchedEffect\(successState\.manga, successState\.source\) \{\n"
+              r"            val detailSource = successState\.source as\? MangaDetailSource\n"
+              r"            mangaDetailInfo = if \(detailSource != null && successState\.mergedData == null\) \{\n"
+              r"                runCatching \{\n"
+              r"                    withIOContext \{\n"
+              r"                        detailSource\.getMangaDetailInfo\(successState\.manga\.toSManga\(\)\)\n"
+              r"                    \}\n"
+              r"                \}\.onFailure \{ error ->\n"
+              r"                    logcat\(LogPriority\.WARN, error\) \{ \"Failed to load MX manga detail metadata\" \}\n"
+              r"                \}\.getOrNull\(\)\n"
+              r"            \} else \{\n"
+              r"                null\n"
+              r"            \}\n"
+              r"        \}\n"
           )
+          new_detail_loader = "\n".join([
+              "        // MX -->",
+              "        val detailSource = remember(successState.source, successState.mergedData) {",
+              "            (successState.source as? MangaDetailSource)",
+              "                ?.takeIf { successState.mergedData == null }",
+              "        }",
+              "        var mangaDetailInfo by remember(successState.manga.id, successState.source.id, detailSource) {",
+              "            mutableStateOf<MangaDetailInfo?>(detailSource?.let { MangaDetailInfo() })",
+              "        }",
+              "        LaunchedEffect(successState.manga, detailSource) {",
+              "            mangaDetailInfo = if (detailSource != null) {",
+              "                runCatching {",
+              "                    withIOContext {",
+              "                        detailSource.getMangaDetailInfo(successState.manga.toSManga())",
+              "                    }",
+              "                }.onFailure { error ->",
+              "                    logcat(LogPriority.WARN, error) { \"Failed to load MX manga detail metadata\" }",
+              "                }.getOrElse { MangaDetailInfo() }",
+              "            } else {",
+              "                null",
+              "            }",
+              "        }",
+              "",
+          ])
+          manga_text, detail_count = detail_pattern.subn(new_detail_loader, manga_text, count=1)
+          if detail_count != 1:
+              raise SystemExit(f"exclusive structured manga detail renderer: expected one block, got {detail_count}")
+          manga_screen.write_text(manga_text, encoding="utf-8")
 
           presentation = Path("app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt")
           ptext = presentation.read_text(encoding="utf-8")
@@ -95,41 +98,13 @@ jobs:
           if ptext.count(callback) != 3:
               raise SystemExit(f"presentation source-settings callback count mismatch: {ptext.count(callback)}")
           ptext = ptext.replace(callback, "")
-          old_login_bar = '''@Composable
-          private fun LoginRequiredBar(
-              canOpenSourceSettings: Boolean,
-              onOpenSourceSettings: () -> Unit,
-          ) {
-              Surface(
-                  tonalElevation = 3.dp,
-                  shadowElevation = 3.dp,
-              ) {
-                  Row(
-                      modifier = Modifier
-                          .fillMaxWidth()
-                          .navigationBarsPadding()
-                          .padding(horizontal = 16.dp, vertical = 12.dp),
-                      horizontalArrangement = Arrangement.SpaceBetween,
-                      verticalAlignment = Alignment.CenterVertically,
-                  ) {
-                      Text(
-                          text = stringResource(KMR.strings.comments_login_required),
-                          style = MaterialTheme.typography.bodyMedium,
-                          modifier = Modifier.weight(1f),
-                      )
-                      if (canOpenSourceSettings) {
-                          TextButton(onClick = onOpenSourceSettings) {
-                              Text(stringResource(KMR.strings.comments_source_settings))
-                          }
-                      }
-                  }
-              }
-          }
-
-          '''
-          if ptext.count(old_login_bar) != 1:
-              raise SystemExit("dead LoginRequiredBar block mismatch")
-          presentation.write_text(ptext.replace(old_login_bar, "", 1), encoding="utf-8")
+          login_bar_pattern = re.compile(
+              r"@Composable\nprivate fun LoginRequiredBar\([\s\S]*?\n\}\n\n(?=@Composable\nprivate fun EmptyContent)"
+          )
+          ptext, login_bar_count = login_bar_pattern.subn("", ptext, count=1)
+          if login_bar_count != 1:
+              raise SystemExit(f"dead LoginRequiredBar block mismatch: {login_bar_count}")
+          presentation.write_text(ptext, encoding="utf-8")
 
           for rel in (
               "app/src/main/java/eu/kanade/tachiyomi/ui/manga/comments/CommentScreen.kt",
@@ -146,32 +121,26 @@ jobs:
                       raise SystemExit(f"{rel}: import cleanup anchor mismatch for {import_line.strip()}")
                   text = text.replace(import_line, "", 1)
 
-              settings_callback = '''            onOpenSourceSettings = {
-                  (state as? State.Success)?.takeIf { it.canOpenSourceSettings }?.let {
-                      navigator.push(SourcePreferencesScreen(it.sourceId))
-                  }
-              },
-          '''
+              settings_callback = (
+                  "            onOpenSourceSettings = {\n"
+                  "                (state as? State.Success)?.takeIf { it.canOpenSourceSettings }?.let {\n"
+                  "                    navigator.push(SourcePreferencesScreen(it.sourceId))\n"
+                  "                }\n"
+                  "            },\n"
+              )
               if text.count(settings_callback) != 1:
                   raise SystemExit(f"{rel}: settings callback block mismatch")
               text = text.replace(settings_callback, "", 1)
 
-              if text.count("                        sourceId = manga.source,\n") != 1:
-                  raise SystemExit(f"{rel}: sourceId assignment mismatch")
-              text = text.replace("                        sourceId = manga.source,\n", "", 1)
-              if text.count("                        canOpenSourceSettings = sourceObject is ConfigurableSource,\n") != 1:
-                  raise SystemExit(f"{rel}: canOpenSourceSettings assignment mismatch")
-              text = text.replace(
-                  "                        canOpenSourceSettings = sourceObject is ConfigurableSource,\n",
-                  "",
-                  1,
-              )
-              if text.count("            val sourceId: Long,\n") != 1:
-                  raise SystemExit(f"{rel}: sourceId state field mismatch")
-              text = text.replace("            val sourceId: Long,\n", "", 1)
-              if text.count("            val canOpenSourceSettings: Boolean,\n") != 1:
-                  raise SystemExit(f"{rel}: canOpenSourceSettings state field mismatch")
-              text = text.replace("            val canOpenSourceSettings: Boolean,\n", "", 1)
+              for old_line, label in (
+                  ("                        sourceId = manga.source,\n", "sourceId assignment"),
+                  ("                        canOpenSourceSettings = sourceObject is ConfigurableSource,\n", "settings capability assignment"),
+                  ("            val sourceId: Long,\n", "sourceId state field"),
+                  ("            val canOpenSourceSettings: Boolean,\n", "settings capability state field"),
+              ):
+                  if text.count(old_line) != 1:
+                      raise SystemExit(f"{rel}: {label} mismatch")
+                  text = text.replace(old_line, "", 1)
               path.write_text(text, encoding="utf-8")
 
           strings = Path("i18n-kmk/src/commonMain/moko-resources/base/strings.xml")
@@ -203,7 +172,9 @@ jobs:
               raise SystemExit("manga detail exclusivity documentation already exists")
           details_doc.write_text(
               details_text.rstrip()
-              + '''\n\n## 2026-09-05 renderer exclusivity fix\n\nFor a non-merged manga whose source implements `MangaDetailSource`, renderer ownership is now decided synchronously from the source capability instead of waiting for the asynchronous metadata response. MX immediately enters the structured information renderer with a safe `MangaDetailInfo()` fallback, then replaces it with provider data when loading completes.\n\nThis makes the two detail layouts mutually exclusive: an opted-in enhanced source never falls back to the legacy/default genre-chip block while metadata is loading or after a provider metadata failure. Sources that do not implement `MangaDetailSource` continue to use the ordinary Komikku detail/tag layout unchanged.\n''',
+              + "\n\n## 2026-09-05 renderer exclusivity fix\n\n"
+              + "For a non-merged manga whose source implements `MangaDetailSource`, renderer ownership is now decided synchronously from the source capability instead of waiting for the asynchronous metadata response. MX immediately enters the structured information renderer with a safe `MangaDetailInfo()` fallback, then replaces it with provider data when loading completes.\n\n"
+              + "This makes the two detail layouts mutually exclusive: an opted-in enhanced source never falls back to the legacy/default genre-chip block while metadata is loading or after a provider metadata failure. Sources that do not implement `MangaDetailSource` continue to use the ordinary Komikku detail/tag layout unchanged.\n",
               encoding="utf-8",
           )
 
