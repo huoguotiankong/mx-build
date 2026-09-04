@@ -1,0 +1,191 @@
+from pathlib import Path
+
+module = Path("source/src/zh/copymangaplus")
+gradle = module / "build.gradle.kts"
+kt = module / "src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt"
+
+g = gradle.read_text("utf-8")
+if "versionCode = 1" not in g:
+    raise SystemExit("expected source versionCode 1")
+gradle.write_text(g.replace("versionCode = 1", "versionCode = 2", 1), "utf-8")
+
+s = kt.read_text("utf-8")
+
+def once(old: str, new: str, label: str) -> None:
+    global s
+    count = s.count(old)
+    if count != 1:
+        raise SystemExit(f"{label}: expected 1 match, got {count}")
+    s = s.replace(old, new, 1)
+
+# Current live APIs work without the old cache-busting flag. On the stale Copy
+# app identity the flag also helped trigger API code 210, so v2 drops it.
+s = s.replace("&_update=true", "").replace("?_update=true", "")
+
+once(
+    '''        val result = mutableListOf<ApiRoute>()
+        if (includeLast) parseExplicit(preferences.getString(PREF_LAST_HOST, null))?.let(result::add)
+        when (selected) {
+            ROUTE_COPY_AUTO -> result += copyCandidates()
+            ROUTE_HOT_AUTO -> result += hotCandidates()
+            else -> {
+                result += copyCandidates()
+                result += hotCandidates()
+            }
+        }
+        return result.distinctBy { it.serialized }''',
+    '''        val remembered = if (includeLast) parseExplicit(preferences.getString(PREF_LAST_HOST, null)) else null
+        val result = mutableListOf<ApiRoute>()
+        when (selected) {
+            ROUTE_COPY_AUTO -> {
+                remembered?.takeIf { it.kind == RouteKind.COPY }?.let(result::add)
+                result += copyCandidates()
+            }
+            ROUTE_HOT_AUTO -> {
+                remembered?.takeIf { it.kind == RouteKind.HOT }?.let(result::add)
+                result += hotCandidates()
+            }
+            else -> {
+                remembered?.takeIf { it.kind == RouteKind.HOT }?.let(result::add)
+                result += hotCandidates()
+                remembered?.takeIf { it.kind == RouteKind.COPY }?.let(result::add)
+                result += copyCandidates()
+            }
+        }
+        return result.distinctBy { it.serialized }''',
+    "route priority",
+)
+
+once(
+    '''                val hosts = buildList {
+                    results.array("api")?.forEach { node ->
+                        when (node) {
+                            is JsonArray -> node.forEach { add((it as? JsonPrimitive)?.contentOrNull.orEmpty()) }
+                            is JsonPrimitive -> add(node.contentOrNull.orEmpty())
+                            else -> Unit
+                        }
+                    }
+                    results.array("share")?.forEach { add((it as? JsonPrimitive)?.contentOrNull.orEmpty()) }
+                }.map(::normalizeHost).filter(String::isNotBlank).distinct()''',
+    '''                val hosts = buildList {
+                    results.array("api")?.forEach { node ->
+                        when (node) {
+                            is JsonArray -> node.forEach { add((it as? JsonPrimitive)?.contentOrNull.orEmpty()) }
+                            is JsonPrimitive -> add(node.contentOrNull.orEmpty())
+                            else -> Unit
+                        }
+                    }
+                }.map(::normalizeHost).filter(String::isNotBlank).distinct()''',
+    "network2 API-only discovery",
+)
+
+once(
+    '''        if (kind == RouteKind.HOT) {
+            builder.set("User-Agent", "COPY/2.2.0")
+            builder.set("Accept", "application/json")
+            builder.set("webp", "1")
+            builder.set("platform", "3")
+            builder.set("version", "2024.04.28")
+            builder.set("X-Requested-With", "com.manga2020.app")
+            if (includeToken && token().isNotBlank()) builder.set("Authorization", "Token ${token()}")
+        } else {''',
+    '''        if (kind == RouteKind.HOT) {
+            builder.set("User-Agent", HOT_UA)
+            builder.set("Accept", "application/json")
+            builder.set("webp", "1")
+            builder.set("platform", "3")
+            builder.set("version", HOT_VERSION)
+            builder.set("X-Requested-With", "com.manga2020.app")
+            builder.set("authorization", if (includeToken && token().isNotBlank()) "Token ${token()}" else "Token")
+        } else {''',
+    "hot headers",
+)
+
+once(
+    '                    builder.add("source", "Official").add("version", "2.2.0").add("platform", "3")',
+    '                    builder.add("source", "Official").add("version", HOT_VERSION).add("platform", "3")',
+    "hot login version",
+)
+once(
+    '                "自动（拷贝优先，失败切热辣）",',
+    '                "自动（热辣优先，失败切拷贝）",',
+    "auto label",
+)
+once(
+    "        private const val CHAPTER_PAGE = 500",
+    "        private const val CHAPTER_PAGE = 100",
+    "chapter page size",
+)
+once(
+    '''        private const val COPY_VERSION = "3.0.6"
+        private const val COPY_UA = "COPY/3.0.6"''',
+    '''        private const val COPY_VERSION = "3.0.9"
+        private const val COPY_UA = "COPY/3.0.9"
+        private const val HOT_VERSION = "2024.4.28"
+        private const val HOT_UA =
+            "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36 Edg/141.0.0.0"''',
+    "app identities",
+)
+
+once(
+    '''            val root = requestJson(
+                "/api/v3/comic/${enc(pathWord)}/group/${enc(groupWord)}/chapters?limit=$CHAPTER_PAGE&offset=$offset&platform=3",
+            )''',
+    '''            val root = requestChapterJson(
+                "/api/v3/comic/${enc(pathWord)}/group/${enc(groupWord)}/chapters?limit=$CHAPTER_PAGE&offset=$offset&platform=3",
+                rejectEmptyList = offset == 0,
+            )''',
+    "chapter request",
+)
+
+insert_after = '''    private fun requestJson(
+        path: String,
+        method: String = "GET",
+        body: FormBody? = null,
+        includeToken: Boolean = true,
+    ): JsonObject = requestWithCandidates(path, method, body, includeToken, commentOnly = false)
+'''
+replacement = insert_after + '''
+    private fun requestChapterJson(path: String, rejectEmptyList: Boolean): JsonObject = requestWithCandidates(
+        path = path,
+        method = "GET",
+        body = null,
+        includeToken = true,
+        commentOnly = false,
+        rejectEmptyList = rejectEmptyList,
+    )
+'''
+once(insert_after, replacement, "chapter helper insertion")
+
+once(
+    '''        commentOnly: Boolean,
+    ): JsonObject {''',
+    '''        commentOnly: Boolean,
+        rejectEmptyList: Boolean = false,
+    ): JsonObject {''',
+    "candidate signature",
+)
+
+once(
+    '''                    val root = parseResponse(response.code, response.body.string())
+                    preferences.edit().putString(PREF_LAST_HOST, route.serialized).apply()
+                    return root''',
+    '''                    val root = parseResponse(response.code, response.body.string())
+                    if (rejectEmptyList && root.results()?.array("list").isNullOrEmpty()) {
+                        throw IOException("当前线路章节列表为空")
+                    }
+                    preferences.edit().putString(PREF_LAST_HOST, route.serialized).apply()
+                    return root''',
+    "empty-list fallback",
+)
+
+once(
+    '        if (code != null && code != 200) throw IOException(root.string("message") ?: "接口错误 code=$code")',
+    '''        if (code != null && code != 200) {
+            val detail = root.results()?.string("detail")
+            throw IOException(root.string("message") ?: detail ?: "接口错误 code=$code")
+        }''',
+    "error detail",
+)
+
+kt.write_text(s, "utf-8")
