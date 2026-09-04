@@ -1,0 +1,48 @@
+name: Stage JMComic Plus v6 Handoff
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/handoff-jmcomicplus-v6.yml"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  handoff:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download already validated v6 test store
+        uses: actions/download-artifact@v5
+        with:
+          name: jmcomicplus-v6-test-store
+          path: payload
+          github-token: ${{ github.token }}
+          repository: huoguotiankong/mx-build
+          run-id: 33837139674
+
+      - name: Checkout handoff repository
+        uses: actions/checkout@v5
+        with:
+          path: buildrepo
+          fetch-depth: 0
+
+      - name: Publish immutable handoff branch
+        working-directory: buildrepo
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch --orphan jmcomicplus-v6-handoff
+          git rm -rf . >/dev/null 2>&1 || true
+          cp -a ../payload/. .
+          test -f apk/tachiyomi-zh.jmcomicplus-v1.6.6.apk
+          test -f icon/eu.kanade.tachiyomi.extension.zh.jmcomicplus-v106006.png
+          grep -q 'jmcomicplus' index.json
+          git add -A
+          git commit -m "Handoff JMComic Plus v6 signed test store"
+          git push --force origin HEAD:refs/heads/handoff/jmcomicplus-v6
