@@ -1,0 +1,4 @@
+validated: CopyManga Plus v5 Spotless + assembleDebug + lintRelease
+versionName: 1.6.5
+androidVersionCode: 106005
+fix: restore v3 Copy list headers; keep detail headers isolated; official blue-white icon
