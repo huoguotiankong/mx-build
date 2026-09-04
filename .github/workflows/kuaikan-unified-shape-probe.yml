@@ -1,0 +1,138 @@
+name: Kuaikan Unified Feed Shape Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/kuaikan-unified-shape-probe-trigger"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Probe sanitized Kuaikan unified feed shapes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, urllib.parse, urllib.request
+
+          BASE='https://api.kkmh.com'; TOPIC=766; COMIC=196392
+          UA='Kuaikan/5.75.0/575000(iPhone;Scale/3.00) (iPhone; CPU)'
+          HEADERS={'User-Agent':UA,'Accept':'application/json, text/plain, */*','X-Device':'0','Referer':'https://www.kuaikanmanhua.com/'}
+
+          def call(method,path,params=None,body=None):
+              url=BASE+path
+              if params: url += '?' + urllib.parse.urlencode(params)
+              headers=dict(HEADERS); payload=None
+              if body is not None:
+                  payload=json.dumps(body,separators=(',',':')).encode()
+                  headers['Content-Type']='application/json; charset=utf-8'
+              req=urllib.request.Request(url,data=payload,headers=headers,method=method)
+              with urllib.request.urlopen(req,timeout=25) as r:
+                  return r.status, json.loads(r.read().decode())
+
+          def t(v):
+              return 'obj' if isinstance(v,dict) else 'arr' if isinstance(v,list) else type(v).__name__
+
+          SAFE_SCALARS={'id','postId','post_id','commentId','comment_id','userId','user_id','topicId','topic_id','comicId','comic_id','feedType','feed_type','type','modelType','model_type','likeCount','like_count','likes_count','commentCount','comment_count','comments_count','replyCount','reply_count','createdAt','created_at','ctime','since','total','normal_total','show_more'}
+          def shape(obj,prefix='',depth=0,maxdepth=4):
+              if depth>maxdepth: return []
+              out=[]
+              if isinstance(obj,dict):
+                  keys=sorted(obj.keys())
+                  out.append(prefix+'keys='+','.join(keys))
+                  for k,v in obj.items():
+                      if k in SAFE_SCALARS and not isinstance(v,(dict,list,str)):
+                          out.append(prefix+k+'='+str(v))
+                      elif k in SAFE_SCALARS and isinstance(v,str) and len(v)<80:
+                          out.append(prefix+k+'='+v)
+                      if isinstance(v,(dict,list)) and any(x in k.lower() for x in ('post','user','author','comment','content','model','evaluation','card','data')):
+                          out += shape(v,prefix+k+'.',depth+1,maxdepth)
+              elif isinstance(obj,list):
+                  out.append(prefix+'len='+str(len(obj)))
+                  for i,v in enumerate(obj[:3]):
+                      if isinstance(v,(dict,list)): out += shape(v,prefix+f'[{i}].',depth+1,maxdepth)
+              return out
+
+          first_post=None
+          for page_id in (6,7):
+              st,o=call('POST','/v1/graph/unified_feed',body={'feedType':50,'since':0,'limit':20,'topicId':TOPIC,'pageId':page_id})
+              print(f'=== unified pageId={page_id} http={st} code={o.get("code")} ===')
+              data=o.get('data') or {}
+              print('data_keys='+','.join(sorted(data.keys())))
+              print('since='+str(data.get('since')))
+              models=data.get('universalModels')
+              print('universalModels_type='+t(models))
+              if isinstance(models,list):
+                  print('universalModels_len='+str(len(models)))
+                  selected=models[:5]
+              elif isinstance(models,dict):
+                  print('universalModels_keys='+','.join(sorted(models.keys())))
+                  selected=[]
+                  for k,v in models.items():
+                      if isinstance(v,list):
+                          print(f'universalModels.{k}.len={len(v)}')
+                          selected += v[:5]
+                      elif isinstance(v,dict): selected.append(v)
+              else: selected=[]
+              for i,m in enumerate(selected[:5]):
+                  if isinstance(m,dict):
+                      for line in shape(m,prefix=f'model{i}.',maxdepth=5)[:80]: print(line)
+                      # discover a post id recursively
+                      stack=[m]
+                      while stack and first_post is None:
+                          x=stack.pop()
+                          if isinstance(x,dict):
+                              for k in ('postId','post_id'):
+                                  v=x.get(k)
+                                  if isinstance(v,(int,str)) and str(v).isdigit() and int(v)>0:
+                                      first_post=int(v); break
+                              stack += [v for v in x.values() if isinstance(v,(dict,list))]
+                          elif isinstance(x,list): stack += [v for v in x if isinstance(v,(dict,list))]
+              # page 2 cursor semantics
+              nxt=data.get('since')
+              if isinstance(nxt,(int,float)) and nxt not in (0,-1):
+                  st2,o2=call('POST','/v1/graph/unified_feed',body={'feedType':50,'since':nxt,'limit':20,'topicId':TOPIC,'pageId':page_id})
+                  d2=o2.get('data') or {}
+                  m2=d2.get('universalModels')
+                  size2=len(m2) if isinstance(m2,list) else sum(len(v) for v in m2.values() if isinstance(v,list)) if isinstance(m2,dict) else -1
+                  print(f'page2.http={st2} code={o2.get("code")} since={d2.get("since")} models={size2}')
+
+          # chapter app JSON paging with exact working route
+          for order in ('score','time'):
+              st,o=call('GET','/v2/comments/cruel/floor_list',params={'target_type':'comic','target_id':COMIC,'order':order,'offset':0,'limit':20,'total':'false','source':0})
+              d=o.get('data') or {}
+              arr=d.get('comment_floors') or []
+              print(f'chapter.{order}.http={st} code={o.get("code")} count={len(arr)} since={d.get("since")} total={d.get("total")} normal_total={d.get("normal_total")}')
+              if arr and isinstance(arr[0],dict):
+                  print('chapter.'+order+'.floor_keys='+','.join(sorted(arr[0].keys())))
+                  root=arr[0].get('root')
+                  if isinstance(root,dict): print('chapter.'+order+'.root_keys='+','.join(sorted(root.keys())))
+              nxt=d.get('since')
+              if nxt not in (None,-1,0):
+                  st2,o2=call('GET','/v2/comments/cruel/floor_list',params={'target_type':'comic','target_id':COMIC,'order':order,'offset':nxt,'limit':20,'total':'false','source':0})
+                  d2=o2.get('data') or {}; a2=d2.get('comment_floors') or []
+                  print(f'chapter.{order}.page2.http={st2} code={o2.get("code")} count={len(a2)} since={d2.get("since")}')
+
+          if first_post:
+              print('first_post_id='+str(first_post))
+              for path in (f'/v1/graph/posts/{first_post}/comments/v5', f'/v1/graph/posts/{first_post}/comments'):
+                  try:
+                      st,o=call('GET',path,params={'since':0,'limit':20})
+                      print(f'post_comments.path={path} http={st} code={o.get("code")}')
+                      d=o.get('data') or {}
+                      print('post_comments.data_keys='+','.join(sorted(d.keys())) if isinstance(d,dict) else 'post_comments.data_type='+t(d))
+                      if isinstance(d,dict):
+                          print('post_comments.since='+str(d.get('since')))
+                          for line in shape(d,prefix='post_comments.',maxdepth=4)[:100]: print(line)
+                  except Exception as e:
+                      print(f'post_comments.path={path} error={type(e).__name__}:{str(e)[:120]}')
+          PY
