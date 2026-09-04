@@ -49,6 +49,14 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      - name: Checkout Keiyoushi source for patch references
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
       - name: Apply validated v6 route repair
         shell: bash
         run: |
@@ -122,7 +130,7 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Checkout current Keiyoushi framework
+      - name: Refresh current Keiyoushi framework
         uses: actions/checkout@v5
         with:
           repository: keiyoushi/extensions-source
