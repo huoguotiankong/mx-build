@@ -46,16 +46,16 @@ jobs:
           data = json.loads(Path('staging/test/index.json').read_text('utf-8'))
           versions = {x['packageName']: (x['versionName'], x['versionCode']) for x in data['extensionList']['extensions']}
           expected = {
-              'eu.kanade.tachiyomi.extension.zh.bilibilimanga': ('1.6.22', 106022),
-              'eu.kanade.tachiyomi.extension.zh.tencentcomics': ('1.4.24', 104024),
+              'eu.kanade.tachiyomi.extension.zh.bilibilimanga': ('1.6.23', 106023),
+              'eu.kanade.tachiyomi.extension.zh.tencentcomics': ('1.4.25', 104025),
           }
           for pkg, version in expected.items():
               if versions.get(pkg) != version:
                   raise SystemExit(f'{pkg}: expected {version}, got {versions.get(pkg)}')
-          print('Staged Bilibili v22 and Tencent v24 verified')
+          print('Staged Bilibili v23 and Tencent v25 verified')
           PY
-          test -f staging/test/apk/tachiyomi-zh.bilibilimanga-v1.6.22.apk
-          test -f staging/test/apk/tachiyomi-zh.tencentcomics-v1.4.24.apk
+          test -f staging/test/apk/tachiyomi-zh.bilibilimanga-v1.6.23.apk
+          test -f staging/test/apk/tachiyomi-zh.tencentcomics-v1.4.25.apk
 
       - name: Checkout public repository
         uses: actions/checkout@v5
@@ -88,7 +88,7 @@ jobs:
           if git diff --cached --quiet; then
             echo "No test-store changes to promote"
           else
-            git commit -m "Publish Bilibili v22 and Tencent v24 comment image tests"
+            git commit -m "Publish Bilibili v23 and Tencent v25 rich comment tests"
             git push origin HEAD:repo
           fi
 
@@ -101,7 +101,7 @@ jobs:
           from pathlib import Path
           data = json.loads(Path('repo/test/index.json').read_text('utf-8'))
           versions = {x['packageName']: (x['versionName'], x['versionCode']) for x in data['extensionList']['extensions']}
-          assert versions['eu.kanade.tachiyomi.extension.zh.bilibilimanga'] == ('1.6.22', 106022)
-          assert versions['eu.kanade.tachiyomi.extension.zh.tencentcomics'] == ('1.4.24', 104024)
+          assert versions['eu.kanade.tachiyomi.extension.zh.bilibilimanga'] == ('1.6.23', 106023)
+          assert versions['eu.kanade.tachiyomi.extension.zh.tencentcomics'] == ('1.4.25', 104025)
           print('Promoted index verified')
           PY
