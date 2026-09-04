@@ -1,0 +1,92 @@
+name: Export CopyManga Plus v4 normalized icons
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/export-copymangaplus-v4-icons.yml"
+      - ".github/copymangaplus-v4-icon-export-trigger"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout build repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Checkout verified CopyManga client icon source
+        uses: actions/checkout@v5
+        with:
+          repository: fumiama/copymanga
+          ref: main
+          path: icon-source
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Generate normalized density icons and base64 handoff
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check --quiet Pillow
+          rm -rf .github/handoff/copymangaplus-v4-icons
+          mkdir -p .github/handoff/copymangaplus-v4-icons
+          python3 - <<'PY'
+          import base64
+          from pathlib import Path
+          from PIL import Image, PngImagePlugin
+
+          src = Path('icon-source/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png')
+          if not src.is_file():
+              raise SystemExit(f'missing icon source: {src}')
+
+          sizes = {
+              'mdpi': 48,
+              'hdpi': 72,
+              'xhdpi': 96,
+              'xxhdpi': 144,
+              'xxxhdpi': 192,
+          }
+          handoff = Path('.github/handoff/copymangaplus-v4-icons')
+          original = Image.open(src).convert('RGBA')
+          for density, size in sizes.items():
+              image = original.resize((size, size), Image.Resampling.LANCZOS).convert('RGBA')
+              image.info.clear()
+              png = handoff / f'{density}.png'
+              image.save(png, format='PNG', compress_level=9, optimize=False, pnginfo=PngImagePlugin.PngInfo())
+              check = Image.open(png)
+              check.verify()
+              check = Image.open(png)
+              if check.size != (size, size) or check.mode != 'RGBA':
+                  raise SystemExit(f'icon validation failed: {density} {check.size} {check.mode}')
+              raw = png.read_bytes()
+              if not raw.startswith(b'\x89PNG\r\n\x1a\n'):
+                  raise SystemExit(f'bad PNG signature: {density}')
+              (handoff / f'{density}.b64').write_text(base64.b64encode(raw).decode('ascii') + '\n', encoding='ascii')
+              png.unlink()
+              print(density, size, len(raw))
+          (handoff / 'VALIDATED.txt').write_text('normalized from fumiama/copymanga mipmap-xxxhdpi ic_launcher.png with Pillow RGBA PNG\n', encoding='utf-8')
+          PY
+
+      - name: Commit icon handoff
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/handoff/copymangaplus-v4-icons
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "No icon handoff changes"
+          else
+            git commit -m "ci: refresh normalized CopyManga v4 icon handoff"
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
