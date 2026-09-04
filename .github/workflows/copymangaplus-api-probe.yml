@@ -30,26 +30,16 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import base64
-          import datetime as dt
-          import hashlib
-          import hmac
-          import json
-          import random
-          import re
-          import string
-          import time
-          import urllib.error
-          import urllib.parse
-          import urllib.request
+          import base64, datetime as dt, hashlib, hmac, json, random, re, string, subprocess, time
+          import urllib.error, urllib.parse, urllib.request
           from pathlib import Path
 
+          out = Path('probe-result.json')
           src = Path('source/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt').read_text('utf-8')
 
           def const(name):
               m = re.search(rf'private const val {re.escape(name)} = "([^"]+)"', src)
-              if not m:
-                  raise SystemExit(f'missing source constant {name}')
+              if not m: raise RuntimeError(f'missing source constant {name}')
               return m.group(1)
 
           copy_version = const('COPY_VERSION')
@@ -58,176 +48,155 @@ jobs:
           copy_bootstrap = const('COPY_BOOTSTRAP')
           hot_bootstrap = const('HOT_BOOTSTRAP')
 
-          def rand_text(n):
-              alphabet = string.ascii_letters + string.digits
-              return ''.join(random.choice(alphabet) for _ in range(n))
-
-          def copy_headers():
-              ts = str(int(time.time()))
-              key = base64.b64decode(secret_b64)
-              sig = hmac.new(key, ts.encode(), hashlib.sha256).hexdigest()
-              device = f'{random.choice(string.ascii_uppercase)}{random.choice(string.ascii_uppercase)}{random.randrange(10)}{random.choice(string.ascii_uppercase)}.' + ''.join(str(random.randrange(10)) for _ in range(6)) + '.' + ''.join(str(random.randrange(10)) for _ in range(3))
-              return {
-                  'User-Agent': f'COPY/{copy_version}',
-                  'source': 'copyApp',
-                  'deviceinfo': f'{random.randrange(1000000, 10000000)}V-{random.randrange(1000, 10000)}',
-                  'dt': dt.datetime.now().strftime('%Y.%m.%d'),
-                  'platform': '3',
-                  'referer': f'com.copymanga.app-{copy_version}',
-                  'version': copy_version,
-                  'device': device,
-                  'pseudoid': rand_text(16),
-                  'Accept': 'application/json',
-                  'region': '0',
-                  'authorization': 'Token',
-                  'umstring': umstring,
-                  'x-auth-timestamp': ts,
-                  'x-auth-signature': sig,
-              }
-
-          def hot_headers():
-              return {
-                  'User-Agent': 'COPY/2.2.0',
-                  'Accept': 'application/json',
-                  'webp': '1',
-                  'platform': '3',
-                  'version': '2024.04.28',
-                  'X-Requested-With': 'com.manga2020.app',
-              }
-
-          def request_json(host, path, kind, timeout=12):
-              headers = copy_headers() if kind == 'copy' else hot_headers()
-              req = urllib.request.Request(f'https://{host}{path}', headers=headers)
-              try:
-                  with urllib.request.urlopen(req, timeout=timeout) as r:
-                      status = r.status
-                      raw = r.read().decode('utf-8', 'replace')
-              except urllib.error.HTTPError as e:
-                  status = e.code
-                  raw = e.read().decode('utf-8', 'replace')
-              if status < 200 or status >= 300:
-                  raise RuntimeError(f'HTTP {status}')
-              try:
-                  data = json.loads(raw)
-              except Exception:
-                  raise RuntimeError('invalid JSON')
-              code = data.get('code') if isinstance(data, dict) else None
-              if code not in (None, 200):
-                  raise RuntimeError(f'API code {code}')
-              return data
-
-          def normalize(value):
-              value = (value or '').strip()
-              value = re.sub(r'^https?://', '', value)
-              return value.strip('/')
-
-          def discover(host, kind):
-              root = request_json(host, '/api/v3/system/network2?platform=3', kind)
-              results = root.get('results') or {}
-              hosts = []
-              for key in ('api', 'share'):
-                  for node in results.get(key) or []:
-                      if isinstance(node, list):
-                          hosts.extend(str(x) for x in node)
-                      elif isinstance(node, str):
-                          hosts.append(node)
-              return list(dict.fromkeys(h for h in map(normalize, hosts) if h))
-
           summary = {
-              'source_commit': None,
+              'source_commit': subprocess.check_output(['git','-C','source','rev-parse','HEAD'], text=True).strip(),
               'copy': {'bootstrap': copy_bootstrap, 'network2': False, 'discovered': [], 'working_host': None},
               'hot': {'bootstrap': hot_bootstrap, 'network2': False, 'discovered': [], 'working_host': None},
               'core': {'list': False, 'detail': False, 'chapters': False, 'pages': False},
+              'samples': [],
               'comments': {'manga_read': False, 'chapter_read': False},
           }
 
-          import subprocess
-          summary['source_commit'] = subprocess.check_output(['git', '-C', 'source', 'rev-parse', 'HEAD'], text=True).strip()
+          def save():
+              out.write_text(json.dumps(summary, ensure_ascii=False, indent=2), 'utf-8')
 
-          route_hosts = {}
-          for kind, bootstrap in [('copy', copy_bootstrap), ('hot', hot_bootstrap)]:
+          def rand_text(n):
+              a=string.ascii_letters+string.digits
+              return ''.join(random.choice(a) for _ in range(n))
+
+          def copy_headers():
+              ts=str(int(time.time()))
+              sig=hmac.new(base64.b64decode(secret_b64), ts.encode(), hashlib.sha256).hexdigest()
+              device=f'{random.choice(string.ascii_uppercase)}{random.choice(string.ascii_uppercase)}{random.randrange(10)}{random.choice(string.ascii_uppercase)}.' + ''.join(str(random.randrange(10)) for _ in range(6)) + '.' + ''.join(str(random.randrange(10)) for _ in range(3))
+              return {'User-Agent':f'COPY/{copy_version}','source':'copyApp','deviceinfo':f'{random.randrange(1000000,10000000)}V-{random.randrange(1000,10000)}','dt':dt.datetime.now().strftime('%Y.%m.%d'),'platform':'3','referer':f'com.copymanga.app-{copy_version}','version':copy_version,'device':device,'pseudoid':rand_text(16),'Accept':'application/json','region':'0','authorization':'Token','umstring':umstring,'x-auth-timestamp':ts,'x-auth-signature':sig}
+
+          def hot_headers():
+              return {'User-Agent':'COPY/2.2.0','Accept':'application/json','webp':'1','platform':'3','version':'2024.04.28','X-Requested-With':'com.manga2020.app'}
+
+          def request_json(host,path,kind,timeout=12):
+              req=urllib.request.Request(f'https://{host}{path}', headers=copy_headers() if kind=='copy' else hot_headers())
               try:
-                  found = discover(bootstrap, kind)
-                  summary[kind]['network2'] = True
-                  summary[kind]['discovered'] = found[:20]
-              except Exception as e:
-                  summary[kind]['network2_error'] = str(e)
-                  found = []
-              candidates = list(dict.fromkeys([bootstrap] + found))
-              for host in candidates:
+                  with urllib.request.urlopen(req,timeout=timeout) as r:
+                      status=r.status; raw=r.read().decode('utf-8','replace')
+              except urllib.error.HTTPError as e:
+                  status=e.code; raw=e.read().decode('utf-8','replace')
+              if not 200 <= status < 300: raise RuntimeError(f'HTTP {status}')
+              try: data=json.loads(raw)
+              except Exception: raise RuntimeError('invalid JSON')
+              code=data.get('code') if isinstance(data,dict) else None
+              if code not in (None,200): raise RuntimeError(f'API code {code}')
+              return data
+
+          def normalize(v):
+              return re.sub(r'^https?://','',(v or '').strip()).strip('/')
+
+          def discover(host,kind):
+              root=request_json(host,'/api/v3/system/network2?platform=3',kind)
+              results=root.get('results') or {}; hosts=[]
+              for key in ('api','share'):
+                  for node in results.get(key) or []:
+                      if isinstance(node,list): hosts.extend(str(x) for x in node)
+                      elif isinstance(node,str): hosts.append(node)
+              return list(dict.fromkeys(h for h in map(normalize,hosts) if h))
+
+          try:
+              route_hosts={}
+              for kind,bootstrap in [('copy',copy_bootstrap),('hot',hot_bootstrap)]:
                   try:
-                      request_json(host, '/api/v3/comics?limit=1&offset=0&ordering=-popular&_update=true', kind)
-                      summary[kind]['working_host'] = host
-                      route_hosts[kind] = host
-                      break
+                      found=discover(bootstrap,kind)
+                      summary[kind]['network2']=True; summary[kind]['discovered']=found[:20]
                   except Exception as e:
-                      summary[kind].setdefault('candidate_errors', {})[host] = str(e)
+                      summary[kind]['network2_error']=str(e); found=[]
+                  for host in list(dict.fromkeys([bootstrap]+found)):
+                      try:
+                          request_json(host,'/api/v3/comics?limit=10&offset=0&ordering=-popular&_update=true',kind)
+                          summary[kind]['working_host']=host; route_hosts[kind]=host; break
+                      except Exception as e:
+                          summary[kind].setdefault('candidate_errors',{})[host]=str(e)
 
-          if not route_hosts:
-              Path('probe-result.json').write_text(json.dumps(summary, ensure_ascii=False, indent=2), 'utf-8')
-              raise SystemExit('No working CopyManga/HotManga API route')
+              if not route_hosts: raise RuntimeError('No working CopyManga/HotManga API route')
+              kind,host=next(iter(route_hosts.items()))
+              root=request_json(host,'/api/v3/comics?limit=10&offset=0&ordering=-popular&_update=true',kind)
+              items=((root.get('results') or {}).get('list') or [])
+              summary['core']['list']=bool(items)
+              if not items: raise RuntimeError('Working route returned no manga list sample')
 
-          kind, host = next(iter(route_hosts.items()))
-          root = request_json(host, '/api/v3/comics?limit=1&offset=0&ordering=-popular&_update=true', kind)
-          items = ((root.get('results') or {}).get('list') or [])
-          if not items:
-              raise SystemExit('Working route returned no manga list sample')
-          summary['core']['list'] = True
-          item = items[0].get('comic') if isinstance(items[0], dict) and isinstance(items[0].get('comic'), dict) else items[0]
-          path_word = item.get('path_word')
-          if not path_word:
-              raise SystemExit('Sample manga missing path_word')
+              chosen=None
+              for raw in items[:10]:
+                  item=raw.get('comic') if isinstance(raw,dict) and isinstance(raw.get('comic'),dict) else raw
+                  path_word=item.get('path_word') if isinstance(item,dict) else None
+                  if not path_word: continue
+                  sample={'path_word':path_word,'groups_type':None,'group_candidates':[],'chapter_attempts':[]}
+                  summary['samples'].append(sample)
+                  try:
+                      detail=request_json(host,f'/api/v3/comic2/{urllib.parse.quote(path_word)}?platform=3&_update=true',kind)
+                      results=detail.get('results') or {}; comic=results.get('comic') or {}
+                      sample['detail']=bool(comic); summary['core']['detail'] |= bool(comic)
+                      groups=results.get('groups')
+                      sample['groups_type']=type(groups).__name__
+                      candidates=[]
+                      if isinstance(groups,dict):
+                          for key,value in groups.items():
+                              word=(value or {}).get('path_word') if isinstance(value,dict) else None
+                              candidates.append(word or key)
+                      elif isinstance(groups,list):
+                          for value in groups:
+                              if isinstance(value,dict):
+                                  word=value.get('path_word') or value.get('uuid') or value.get('name')
+                                  if word: candidates.append(str(word))
+                      candidates=list(dict.fromkeys(candidates+['default']))
+                      sample['group_candidates']=candidates[:12]
+                      for gw in candidates[:12]:
+                          try:
+                              cr=request_json(host,f'/api/v3/comic/{urllib.parse.quote(path_word)}/group/{urllib.parse.quote(gw)}/chapters?limit=5&offset=0&platform=3',kind)
+                              chapters=((cr.get('results') or {}).get('list') or [])
+                              sample['chapter_attempts'].append({'group':gw,'count':len(chapters)})
+                              if chapters:
+                                  chosen=(path_word, comic.get('uuid') or path_word, chapters, gw)
+                                  summary['core']['chapters']=True
+                                  break
+                          except Exception as e:
+                              sample['chapter_attempts'].append({'group':gw,'error':str(e)})
+                      if chosen: break
+                  except Exception as e:
+                      sample['detail_error']=str(e)
 
-          detail = request_json(host, f'/api/v3/comic2/{urllib.parse.quote(path_word)}?platform=3&_update=true', kind)
-          results = detail.get('results') or {}
-          comic = results.get('comic') or {}
-          summary['core']['detail'] = bool(comic)
-          comic_id = comic.get('uuid') or path_word
+              if not chosen: raise RuntimeError('No chapter list found across 10 popular samples/group variants')
+              path_word,comic_id,chapters,group_word=chosen
+              chapter_id=chapters[0].get('uuid')
+              if not chapter_id: raise RuntimeError('Sample chapter missing uuid')
 
-          groups = results.get('groups') or {}
-          group_word = 'default'
-          if isinstance(groups, dict) and groups:
-              key, value = next(iter(groups.items()))
-              group_word = (value or {}).get('path_word') if isinstance(value, dict) else None
-              group_word = group_word or key
+              chapter=None
+              page_errors={}
+              for suffix in ('chapter','chapter2'):
+                  try:
+                      pr=request_json(host,f'/api/v3/comic/{urllib.parse.quote(path_word)}/{suffix}/{urllib.parse.quote(chapter_id)}?platform=3&_update=true',kind)
+                      chapter=(pr.get('results') or {}).get('chapter') or {}
+                      if chapter.get('contents'): break
+                  except Exception as e: page_errors[suffix]=str(e)
+              summary['core']['pages']=bool(chapter and chapter.get('contents'))
+              summary['core']['page_errors']=page_errors
+              if not summary['core']['pages']: raise RuntimeError('Sample chapter returned no page images')
+              summary['core']['page_count_sample']=len(chapter.get('contents') or [])
+              summary['core']['working_group']=group_word
 
-          chapters_root = request_json(host, f'/api/v3/comic/{urllib.parse.quote(path_word)}/group/{urllib.parse.quote(group_word)}/chapters?limit=5&offset=0&platform=3', kind)
-          chapters = ((chapters_root.get('results') or {}).get('list') or [])
-          summary['core']['chapters'] = bool(chapters)
-          if not chapters:
-              raise SystemExit('Sample manga returned no chapter list')
-          chapter_id = chapters[0].get('uuid')
-          if not chapter_id:
-              raise SystemExit('Sample chapter missing uuid')
-
-          chapter = None
-          for suffix in ('chapter', 'chapter2'):
               try:
-                  page_root = request_json(host, f'/api/v3/comic/{urllib.parse.quote(path_word)}/{suffix}/{urllib.parse.quote(chapter_id)}?platform=3&_update=true', kind)
-                  chapter = (page_root.get('results') or {}).get('chapter') or {}
-                  if chapter.get('contents'):
-                      break
-              except Exception:
-                  continue
-          summary['core']['pages'] = bool(chapter and chapter.get('contents'))
-          if not summary['core']['pages']:
-              raise SystemExit('Sample chapter returned no page images')
-          summary['core']['page_count_sample'] = len(chapter.get('contents') or [])
+                  c=request_json(host,f'/api/v3/comments?comic_id={urllib.parse.quote(str(comic_id))}&limit=5&offset=0&_update=true',kind)
+                  summary['comments']['manga_read']=isinstance(c.get('results'),dict)
+              except Exception as e: summary['comments']['manga_error']=str(e)
+              try:
+                  c=request_json(host,f'/api/v3/comments?comic_id={urllib.parse.quote(str(chapter_id))}&limit=5&offset=0&_update=true',kind)
+                  summary['comments']['chapter_read']=isinstance(c.get('results'),dict)
+              except Exception as e: summary['comments']['chapter_error']=str(e)
 
-          try:
-              c = request_json(host, f'/api/v3/comments?comic_id={urllib.parse.quote(str(comic_id))}&limit=5&offset=0&_update=true', kind)
-              summary['comments']['manga_read'] = isinstance(c.get('results'), dict)
           except Exception as e:
-              summary['comments']['manga_error'] = str(e)
-
-          try:
-              c = request_json(host, f'/api/v3/comments?comic_id={urllib.parse.quote(str(chapter_id))}&limit=5&offset=0&_update=true', kind)
-              summary['comments']['chapter_read'] = isinstance(c.get('results'), dict)
-          except Exception as e:
-              summary['comments']['chapter_error'] = str(e)
-
-          Path('probe-result.json').write_text(json.dumps(summary, ensure_ascii=False, indent=2), 'utf-8')
-          print(json.dumps(summary, ensure_ascii=False, indent=2))
+              summary['fatal_error']=str(e)
+              save()
+              print(json.dumps(summary,ensure_ascii=False,indent=2))
+              raise
+          else:
+              save()
+              print(json.dumps(summary,ensure_ascii=False,indent=2))
           PY
 
       - name: Summarize probe
@@ -239,16 +208,15 @@ jobs:
           import json
           from pathlib import Path
           d=json.loads(Path('probe-result.json').read_text('utf-8'))
-          print('### CopyManga Plus API probe')
-          print()
+          print('### CopyManga Plus API probe\n')
           print(f"- Source commit: `{d.get('source_commit')}`")
           for kind in ('copy','hot'):
-              r=d[kind]
-              print(f"- {kind}: network2={'OK' if r.get('network2') else 'FAIL'}, working_host=`{r.get('working_host') or 'none'}`")
-          core=d['core']
-          print(f"- Core: list={core.get('list')}, detail={core.get('detail')}, chapters={core.get('chapters')}, pages={core.get('pages')}, sample_pages={core.get('page_count_sample',0)}")
-          comments=d['comments']
-          print(f"- Anonymous comment read: manga={comments.get('manga_read')}, chapter={comments.get('chapter_read')}")
+              r=d[kind]; print(f"- {kind}: network2={'OK' if r.get('network2') else 'FAIL'}, working_host=`{r.get('working_host') or 'none'}`")
+          c=d['core']; print(f"- Core: list={c.get('list')}, detail={c.get('detail')}, chapters={c.get('chapters')}, pages={c.get('pages')}, sample_pages={c.get('page_count_sample',0)}, working_group=`{c.get('working_group','none')}`")
+          cm=d['comments']; print(f"- Anonymous comments: manga={cm.get('manga_read')}, chapter={cm.get('chapter_read')}")
+          if d.get('fatal_error'): print(f"- Fatal: `{d['fatal_error']}`")
+          for s in d.get('samples',[]):
+              print(f"- sample `{s.get('path_word')}` groups={s.get('groups_type')} candidates={s.get('group_candidates')} attempts={s.get('chapter_attempts')}")
           PY
           fi
 
