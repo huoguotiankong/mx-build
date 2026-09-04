@@ -1,0 +1,34 @@
+name: Materialize CopyManga Plus v4 icon blobs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/materialize-copymangaplus-v4-icons.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: true
+      - name: Decode validated icon handoff
+        shell: bash
+        run: |
+          set -euo pipefail
+          src=.github/handoff/copymangaplus-v4-icons
+          out="$src/raw"
+          mkdir -p "$out"
+          for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            base64 -d "$src/$density.b64" > "$out/$density.png"
+          done
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$out"
+          git commit -m "ci: materialize CopyManga normalized icon blobs"
+          git push origin HEAD:main
