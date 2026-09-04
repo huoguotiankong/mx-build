@@ -1,0 +1,106 @@
+name: CopyManga Plus v4 Detail Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/copymangaplus-v4-detail-probe-trigger"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Probe CopyManga detail request variants
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, urllib.error, urllib.parse, urllib.request
+
+          hosts = [
+              'api.copy2000.online',
+              'api.copy-manga.com',
+              'api.2026copy.com',
+              'api.copy4000.com',
+              'api.mangacopy.com',
+              'api.copy3000.com',
+              'mapi.copy20.com',
+          ]
+          headers = {
+              'User-Agent': 'COPY/3.0.0',
+              'Accept': 'application/json',
+              'webp': '1',
+              'region': '1',
+              'platform': '3',
+              'source': 'copyApp',
+              'version': '3.0.9',
+              'referer': 'com.copymanga.app-3.0.0',
+          }
+
+          def get(url, headers=headers, timeout=12):
+              req = urllib.request.Request(url, headers=headers)
+              try:
+                  with urllib.request.urlopen(req, timeout=timeout) as r:
+                      status = r.status
+                      raw = r.read().decode('utf-8', 'replace')
+              except urllib.error.HTTPError as e:
+                  status = e.code
+                  raw = e.read().decode('utf-8', 'replace')
+              try:
+                  return status, json.loads(raw)
+              except Exception:
+                  return status, {'raw': raw[:200]}
+
+          req_id = ''
+          try:
+              st, d = get('https://marketing.aiacgn.com/api/v2/adopr/query3/?format=json&ident=200100001')
+              req_id = ((d.get('results') or {}).get('request_id') or '') if isinstance(d, dict) else ''
+              print('request_id_probe', st, 'present=', bool(req_id), 'len=', len(req_id))
+          except Exception as e:
+              print('request_id_probe ERROR', repr(e))
+
+          path_word = None
+          for host in hosts:
+              st, d = get(f'https://{host}/api/v3/comics?limit=1&offset=0&ordering=-popular&_update=true')
+              items = (((d.get('results') or {}).get('list')) or []) if isinstance(d, dict) else []
+              if items:
+                  item = items[0].get('comic') or items[0]
+                  path_word = item.get('path_word')
+                  print('seed_host', host, 'http=', st, 'code=', d.get('code'), 'path_word=', path_word)
+                  if path_word:
+                      break
+          if not path_word:
+              raise SystemExit('No path_word from content list')
+
+          variants = [
+              ('current', 'platform=3&_update=true'),
+              ('mainland', 'in_mainland=true&platform=3'),
+              ('mainland_update', 'in_mainland=true&platform=3&_update=true'),
+          ]
+          if req_id:
+              q = urllib.parse.quote(req_id, safe='')
+              variants += [
+                  ('reqid', f'request_id={q}&platform=3'),
+                  ('mainland_reqid', f'in_mainland=true&request_id={q}&platform=3'),
+                  ('mainland_reqid_update', f'in_mainland=true&request_id={q}&platform=3&_update=true'),
+              ]
+
+          for host in hosts:
+              print('\nHOST', host)
+              for name, query in variants:
+                  st, d = get(f'https://{host}/api/v3/comic2/{urllib.parse.quote(path_word, safe="")}?{query}')
+                  results = d.get('results') if isinstance(d, dict) else None
+                  comic = results.get('comic') if isinstance(results, dict) else None
+                  groups = results.get('groups') if isinstance(results, dict) else None
+                  print(name,
+                        'http=', st,
+                        'code=', d.get('code') if isinstance(d, dict) else None,
+                        'comic=', isinstance(comic, dict) and bool(comic),
+                        'name=', (comic or {}).get('name') if isinstance(comic, dict) else None,
+                        'groups=', len(groups) if isinstance(groups, dict) else None,
+                        'message=', d.get('message') if isinstance(d, dict) else None)
+          PY
