@@ -1,0 +1,66 @@
+name: CopyManga Plus v4 Auth Detail Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/copymangaplus-v4-auth-detail-probe-trigger"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Probe signed mobile header variants
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import base64, datetime, hashlib, hmac, json, random, string, time, urllib.error, urllib.request
+          host='api.copy2000.online'
+          path='modujingbingdenuli'
+          secret=base64.b64decode('M2FmMDg1OTAzMTEwMzJlZmUwNjYwNTUwYTA1NjNhNTM=')
+          ts=str(int(time.time()))
+          sig=hmac.new(secret, ts.encode(), hashlib.sha256).hexdigest()
+          now=datetime.datetime.now()
+          dt=now.strftime('%Y.%m.%d')
+          def deviceinfo(): return f'{random.randint(1000000,9999999)}V-{random.randint(1000,9999)}'
+          def device():
+            A=lambda: random.choice(string.ascii_uppercase)
+            D=lambda: random.choice(string.digits)
+            return A()+A()+D()+A()+'.'+''.join(D() for _ in range(6))+'.'+''.join(D() for _ in range(3))
+          pseudo=''.join(random.choice(string.ascii_letters+string.digits) for _ in range(16))
+          base={
+            'Accept':'application/json','webp':'1','platform':'3','source':'copyApp',
+            'deviceinfo':deviceinfo(),'device':device(),'pseudoid':pseudo,'dt':dt,
+            'authorization':'Token','umstring':'b4c89ca4104ea9a97750314d791520ac',
+            'x-auth-timestamp':ts,'x-auth-signature':sig,
+          }
+          variants=[]
+          for ver in ['3.0.6','3.0.9']:
+            for region in ['0','1']:
+              h=dict(base); h.update({'User-Agent':f'COPY/{ver}','version':ver,'referer':f'com.copymanga.app-{ver}','region':region})
+              variants.append((f'ua{ver}-r{region}',h))
+          # Venera literally uses UA/referer 3.0.6 while its configured version contract is 3.0.6.
+          # Also test 3.0.0 UA/referer with latest version header.
+          h=dict(base); h.update({'User-Agent':'COPY/3.0.0','version':'3.0.9','referer':'com.copymanga.app-3.0.0','region':'1'})
+          variants.append(('legacyUA-latest-r1',h))
+          for name,h in variants:
+            req=urllib.request.Request(f'https://{host}/api/v3/comic2/{path}?platform=3',headers=h)
+            try:
+              with urllib.request.urlopen(req,timeout=15) as r:
+                raw=r.read().decode('utf-8','replace'); status=r.status
+            except urllib.error.HTTPError as e:
+              raw=e.read().decode('utf-8','replace'); status=e.code
+            except Exception as e:
+              print(name,'ERROR',repr(e)); continue
+            try: d=json.loads(raw)
+            except Exception: print(name,'http',status,'NONJSON',raw[:200]); continue
+            res=d.get('results') if isinstance(d,dict) else None
+            comic=res.get('comic') if isinstance(res,dict) else None
+            groups=res.get('groups') if isinstance(res,dict) else None
+            print(name,'http=',status,'code=',d.get('code'),'results=',type(res).__name__,'comic=',bool(comic),'name=',(comic or {}).get('name') if isinstance(comic,dict) else None,'groups=',len(groups) if isinstance(groups,dict) else None,'msg=',d.get('message'))
+          PY
