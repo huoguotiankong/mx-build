@@ -1,0 +1,1 @@
+validated: v3 source/build; image CDN cookie + Content-Type guard + reader revision + persistent account status; Spotless + public reader smoke + Release + lint + stable signing
