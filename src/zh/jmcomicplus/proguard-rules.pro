@@ -1,0 +1,2 @@
+-keep class eu.kanade.tachiyomi.source.mx.** { *; }
+-keep class eu.kanade.tachiyomi.extension.zh.jmcomicplus.** { *; }
