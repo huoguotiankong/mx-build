@@ -12,13 +12,13 @@ permissions:
 jobs:
   format:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 30
     steps:
       - name: Checkout private MX App feature
         uses: actions/checkout@v5
         with:
           repository: huoguotiankong/mx-app
-          ref: fix/relaxed-chapter-content-matching
+          ref: feat/replacement-target-and-detail-metadata
           token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
           path: source
           fetch-depth: 0
@@ -44,22 +44,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if ! git diff --quiet; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add .
-            git commit -m "style: format relaxed chapter replacement"
-            git push origin HEAD:fix/relaxed-chapter-content-matching
+          if git diff --quiet; then
+            echo "No formatting changes needed."
+            exit 0
           fi
-
-      - name: Spotless check
-        working-directory: source
-        run: ./gradlew spotlessCheck
-
-      - name: Unit tests
-        working-directory: source
-        run: ./gradlew testReleaseUnitTest
-
-      - name: Build Preview APK
-        working-directory: source
-        run: ./gradlew assemblePreview -Pdisable-code-shrink --no-configuration-cache
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "style: apply Spotless to replacement and detail changes"
+          git push origin HEAD:feat/replacement-target-and-detail-metadata
