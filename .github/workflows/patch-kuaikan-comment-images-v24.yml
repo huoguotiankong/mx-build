@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - name: Check private read token
+      - name: Check private source token
         shell: bash
         env:
           MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
@@ -29,7 +29,7 @@ jobs:
           path: helper
           persist-credentials: true
 
-      - name: Checkout current private source read-only
+      - name: Checkout current private source
         uses: actions/checkout@v5
         with:
           repository: huoguotiankong/mx-dev
@@ -37,7 +37,7 @@ jobs:
           token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
           path: source
           fetch-depth: 0
-          persist-credentials: false
+          persist-credentials: true
 
       - name: Patch Kuaikan v24
         working-directory: source
@@ -74,6 +74,19 @@ jobs:
           cp -a upstream/src/zh/kuaikanmanhua source/src/zh/kuaikanmanhua
           git -C source diff --check
 
+      - name: Commit validated Kuaikan v24 to private source
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/zh/kuaikanmanhua docs/sources/kuaikanmanhua.md
+          git diff --cached --quiet && { echo "::error::No Kuaikan v24 changes"; exit 1; }
+          git commit -m "feat(kuaikanmanhua): preserve comment images v24"
+          git pull --rebase origin main
+          git push origin HEAD:main
+
       - name: Export validated handoff to build repo
         shell: bash
         run: |
@@ -89,6 +102,8 @@ jobs:
           git -C helper config user.name "github-actions[bot]"
           git -C helper config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git -C helper add .github/handoff/kuaikan-v24
-          git -C helper commit -m "ci: export validated Kuaikan v24 handoff"
-          git -C helper pull --rebase origin main
-          git -C helper push origin HEAD:main
+          if ! git -C helper diff --cached --quiet; then
+            git -C helper commit -m "ci: refresh validated Kuaikan v24 handoff"
+            git -C helper pull --rebase origin main
+            git -C helper push origin HEAD:main
+          fi
