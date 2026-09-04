@@ -40,8 +40,27 @@ jobs:
           fetch-depth: 1
           persist-credentials: true
 
-      - name: Apply v5 patch
-        run: python3 buildrepo/scripts/patch_jmcomicplus_v5.py
+      - name: Checkout current Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Apply v5 real-device patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Repair the helper typo in the checked-out build helper before execution.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('buildrepo/scripts/patch_jmcomicplus_v5.py')
+          s = p.read_text('utf-8')
+          s = s.replace('d = DOC.read_text("utf-8")d = d.replace(', 'd = DOC.read_text("utf-8")\nd = d.replace(')
+          p.write_text(s, 'utf-8')
+          PY
+          python3 buildrepo/scripts/patch_jmcomicplus_v5.py
 
       - name: Validate source layout
         working-directory: source
@@ -52,14 +71,6 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-
-      - name: Checkout current Keiyoushi framework
-        uses: actions/checkout@v5
-        with:
-          repository: keiyoushi/extensions-source
-          path: upstream
-          fetch-depth: 1
-          persist-credentials: false
 
       - name: Overlay patched source
         shell: bash
@@ -76,7 +87,7 @@ jobs:
         run: |
           set -euo pipefail
           ./gradlew :src:zh:jmcomicplus:spotlessApply
-          ./gradlew :src:zh:jmcomicplus:spotlessCheck :src:zh:jmcomicplus:assembleDebug :src:zh:jmcomicplus:lintRelease
+          ./gradlew :src:zh:jmcomicplus:spotlessCheck :src:zh:jmcomicplus:assembleDebug :src:zh:jmcomicplus:assembleRelease :src:zh:jmcomicplus:lintRelease
 
       - name: Copy formatted source back
         shell: bash
@@ -95,5 +106,5 @@ jobs:
           git add src/zh/jmcomicplus docs/sources/jmcomicplus.md
           git diff --cached --check
           git diff --cached --quiet && exit 1
-          git commit -m "fix(jmcomicplus): harden dynamic web domains v5"
+          git commit -m "fix(jmcomicplus): repair APP and web routes v5"
           git push origin HEAD:main
