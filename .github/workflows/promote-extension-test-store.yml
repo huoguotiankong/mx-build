@@ -64,15 +64,17 @@ jobs:
           SOURCE_NAME="${{ steps.target.outputs.source }}" python3 - <<'PY'
           import json, os
           from pathlib import Path
+          from urllib.parse import urlparse
           data = json.loads(Path('staged/test/index.json').read_text('utf-8'))
           package = 'eu.kanade.tachiyomi.extension.zh.' + os.environ['SOURCE_NAME']
           items = [x for x in data['extensionList']['extensions'] if x.get('packageName') == package]
           if len(items) != 1:
               raise SystemExit(f'Expected one staged {package}, got {len(items)}')
           item = items[0]
-          apk = item.get('apkName') or item.get('apk')
+          apk_url = (item.get('resources') or {}).get('apkUrl')
+          apk = Path(urlparse(apk_url).path).name if apk_url else ''
           if not apk:
-              raise SystemExit('Staged index missing APK filename')
+              raise SystemExit('Staged index missing resources.apkUrl')
           if not Path('staged/test/apk', apk).is_file():
               raise SystemExit(f'Staged APK missing: {apk}')
           print(f'Staged {package}: versionName={item.get("versionName")} versionCode={item.get("versionCode")} apk={apk}')
@@ -127,15 +129,17 @@ jobs:
           SOURCE_NAME="${{ steps.target.outputs.source }}" python3 - <<'PY'
           import json, os
           from pathlib import Path
+          from urllib.parse import urlparse
           data = json.loads(Path('/tmp/index.json').read_text('utf-8'))
           package = 'eu.kanade.tachiyomi.extension.zh.' + os.environ['SOURCE_NAME']
           items = [x for x in data['extensionList']['extensions'] if x.get('packageName') == package]
           if len(items) != 1:
               raise SystemExit(f'Expected one public {package}, got {len(items)}')
           item = items[0]
-          apk = item.get('apkName') or item.get('apk')
+          apk_url = (item.get('resources') or {}).get('apkUrl')
+          apk = Path(urlparse(apk_url).path).name if apk_url else ''
           if not apk:
-              raise SystemExit('Public index missing APK filename')
+              raise SystemExit('Public index missing resources.apkUrl')
           Path('/tmp/apk-name').write_text(apk, 'utf-8')
           print(f'Public {package}: versionName={item.get("versionName")} versionCode={item.get("versionCode")} apk={apk}')
           PY
