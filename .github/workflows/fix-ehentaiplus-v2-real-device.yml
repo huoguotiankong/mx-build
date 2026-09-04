@@ -1,0 +1,611 @@
+name: Fix E-Hentai Plus v2 After Real-Device Feedback
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/fix-ehentaiplus-v2-real-device.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fix-ehentaiplus-v2-real-device
+  cancel-in-progress: false
+
+jobs:
+  fix-build-stage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout build infrastructure
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: true
+
+      - name: Check required secrets
+        shell: bash
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]] || { echo "::error::Missing MX_PRIVATE_READ_TOKEN"; exit 1; }
+          [[ -n "$MANGA_SIGNING_BUNDLE" ]] || { echo "::error::Missing MANGA_SIGNING_BUNDLE"; exit 1; }
+
+      - name: Checkout E-Hentai Plus feature branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: feat/ehentai-plus
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply v2 real-device fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          root = Path('source')
+          kt = root / 'src/zh/ehentaiplus/src/eu/kanade/tachiyomi/extension/zh/ehentaiplus/EHentaiPlus.kt'
+          models = root / 'src/zh/ehentaiplus/src/eu/kanade/tachiyomi/extension/zh/ehentaiplus/Models.kt'
+          gradle = root / 'src/zh/ehentaiplus/build.gradle.kts'
+          doc = root / 'docs/sources/ehentaiplus.md'
+
+          s = kt.read_text('utf-8')
+          s = s.replace('import kotlinx.coroutines.runBlocking\n', '')
+
+          old_interceptor = '''        addInterceptor { chain ->
+              val request = chain.request()
+              if (request.url.host != IMAGE_LOOPBACK_HOST) return@addInterceptor chain.proceed(request)
+  
+              val viewerUrl = request.url.fragment ?: return@addInterceptor chain.proceed(request)
+              val info = runCatching {
+                  runBlocking {
+                      client.get(viewerUrl).use { EHParser.parseImageInfo(it, originalImages()) }
+                  }
+              }.getOrNull() ?: return@addInterceptor chain.proceed(request)
+  
+              val resolved = request.newBuilder().url(info.imageUrl).build()
+              chain.proceed(resolved)
+          }
+'''
+          # source may have no whitespace-only lines after Spotless; use exact fallback below.
+          old_interceptor2 = '''        addInterceptor { chain ->
+              val request = chain.request()
+              if (request.url.host != IMAGE_LOOPBACK_HOST) return@addInterceptor chain.proceed(request)
+
+              val viewerUrl = request.url.fragment ?: return@addInterceptor chain.proceed(request)
+              val info = runCatching {
+                  runBlocking {
+                      client.get(viewerUrl).use { EHParser.parseImageInfo(it, originalImages()) }
+                  }
+              }.getOrNull() ?: return@addInterceptor chain.proceed(request)
+
+              val resolved = request.newBuilder().url(info.imageUrl).build()
+              chain.proceed(resolved)
+          }
+'''
+          if old_interceptor2 in s:
+              s = s.replace(old_interceptor2, '', 1)
+          elif old_interceptor in s:
+              s = s.replace(old_interceptor, '', 1)
+          else:
+              raise SystemExit('loopback image interceptor block not found')
+
+          old_pages = '''        return viewers.distinct().mapIndexed { index, viewerUrl ->
+              Page(index, viewerUrl, "https://$IMAGE_LOOPBACK_HOST/#$viewerUrl")
+          }
+      }
+  
+      override fun imageRequest(page: Page): Request = Request.Builder()
+          .url(page.imageUrl!!)
+          .header("Referer", page.url)
+          .header("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+          .build()
+'''
+          old_pages2 = '''        return viewers.distinct().mapIndexed { index, viewerUrl ->
+              Page(index, viewerUrl, "https://$IMAGE_LOOPBACK_HOST/#$viewerUrl")
+          }
+      }
+
+      override fun imageRequest(page: Page): Request = Request.Builder()
+          .url(page.imageUrl!!)
+          .header("Referer", page.url)
+          .header("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+          .build()
+'''
+          new_pages = '''        return viewers.distinct().mapIndexed { index, viewerUrl ->
+              Page(index, viewerUrl)
+          }
+      }
+
+      override suspend fun getImageUrl(page: Page): String = client.get(page.url).use { response ->
+          normalizeImageUrl(EHParser.parseImageInfo(response, originalImages()).imageUrl)
+      }
+
+      override fun imageRequest(page: Page): Request {
+          val imageUrl = page.imageUrl ?: throw IllegalStateException("正文图片地址尚未解析")
+          return Request.Builder()
+              .url(normalizeImageUrl(imageUrl))
+              .header("Referer", page.url)
+              .header("User-Agent", USER_AGENT)
+              .header("Accept", "image/*,*/*;q=0.8")
+              .build()
+      }
+
+      private fun normalizeImageUrl(raw: String): String {
+          val url = raw.toHttpUrlOrNull() ?: return raw
+          if (url.host != "s.exhentai.org") return raw
+          return url.newBuilder().host("ehgt.org").build().toString()
+      }
+'''
+          if old_pages2 in s:
+              s = s.replace(old_pages2, new_pages, 1)
+          elif old_pages in s:
+              s = s.replace(old_pages, new_pages, 1)
+          else:
+              raise SystemExit('old page/image block not found')
+
+          s, count = s.replace('            requiresLoginToPost = true,', '            requiresLoginToPost = false,', 1), s.count('            requiresLoginToPost = true,')
+          if count != 1:
+              raise SystemExit(f'requiresLoginToPost expected 1 hit, got {count}')
+
+          anchor = '''    override fun setupPreferenceScreen(screen: PreferenceScreen) {
+          ListPreference(screen.context).apply {
+'''
+          if anchor not in s:
+              anchor = '''    override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        ListPreference(screen.context).apply {
+'''
+          insert = '''    override fun setupPreferenceScreen(screen: PreferenceScreen) {
+          val accountStatusPreference = Preference(screen.context).apply {
+              key = "ehp_account_status"
+              title = "账号状态"
+              summary = accountStatusSummary()
+          }.also(screen::addPreference)
+
+          ListPreference(screen.context).apply {
+'''
+          insert2 = '''    override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        val accountStatusPreference = Preference(screen.context).apply {
+            key = "ehp_account_status"
+            title = "账号状态"
+            summary = accountStatusSummary()
+        }.also(screen::addPreference)
+
+        ListPreference(screen.context).apply {
+'''
+          if anchor.startswith('    override') and '          ListPreference' in anchor:
+              s = s.replace(anchor, insert, 1)
+          elif anchor in s:
+              s = s.replace(anchor, insert2, 1)
+          else:
+              raise SystemExit('setupPreferenceScreen anchor missing')
+
+          old_login = '''        actionPreference(screen, "ehp_login", "账号密码登录", "按 JHenTai 的官方论坛登录流程获取 ipb_member_id / ipb_pass_hash，并检测里站权限") {
+              showResult(screen, runCatching { loginWithPassword() }, "登录成功")
+          }
+'''
+          old_login2 = '''        actionPreference(screen, "ehp_login", "账号密码登录", "按 JHenTai 的官方论坛登录流程获取 ipb_member_id / ipb_pass_hash，并检测里站权限") {
+            showResult(screen, runCatching { loginWithPassword() }, "登录成功")
+        }
+'''
+          new_login2 = '''        actionPreference(screen, "ehp_login", "账号密码登录", "按 JHenTai 的官方论坛登录流程获取 ipb_member_id / ipb_pass_hash，并检测里站权限") {
+            val result = runCatching { loginWithPassword() }
+            updateAccountStatusPreference(accountStatusPreference)
+            showResult(screen, result, "登录成功")
+        }
+'''
+          if old_login2 in s:
+              s = s.replace(old_login2, new_login2, 1)
+          elif old_login in s:
+              s = s.replace(old_login, new_login2, 1)
+          else:
+              raise SystemExit('login action block not found')
+
+          old_sync = '''        actionPreference(screen, "ehp_sync_webview", "同步 WebView Cookie", "如果你已经在宿主 WebView 登录 E-Hentai，可将 Cookie 同步到扩展") {
+              val count = syncWebViewCookies(save = true)
+              showToast(screen, if (count > 0) "已同步 $count 个 Cookie" else "没有检测到可同步的登录 Cookie")
+          }
+          actionPreference(screen, "ehp_validate", "验证账号与里站权限", "读取论坛账号，并检测 ExHentai 是否可用") {
+              showResult(screen, runCatching { validateSession() }, "验证完成")
+          }
+'''
+          old_sync2 = '''        actionPreference(screen, "ehp_sync_webview", "同步 WebView Cookie", "如果你已经在宿主 WebView 登录 E-Hentai，可将 Cookie 同步到扩展") {
+            val count = syncWebViewCookies(save = true)
+            showToast(screen, if (count > 0) "已同步 $count 个 Cookie" else "没有检测到可同步的登录 Cookie")
+        }
+        actionPreference(screen, "ehp_validate", "验证账号与里站权限", "读取论坛账号，并检测 ExHentai 是否可用") {
+            showResult(screen, runCatching { validateSession() }, "验证完成")
+        }
+'''
+          new_sync = '''        actionPreference(screen, "ehp_sync_webview", "同步 WebView Cookie", "如果你已经在宿主 WebView 登录 E-Hentai，可将 Cookie 同步到扩展") {
+            val count = syncWebViewCookies(save = true)
+            updateAccountStatusPreference(accountStatusPreference)
+            showToast(screen, if (count > 0) "已同步 $count 个 Cookie" else "没有检测到可同步的登录 Cookie")
+        }
+        actionPreference(screen, "ehp_validate", "验证账号与里站权限", "读取论坛账号，并检测 ExHentai 是否可用") {
+            val result = runCatching { validateSession() }
+            updateAccountStatusPreference(accountStatusPreference)
+            showResult(screen, result, "验证完成")
+        }
+'''
+          if old_sync2 in s:
+              s = s.replace(old_sync2, new_sync, 1)
+          elif old_sync in s:
+              s = s.replace(old_sync, new_sync, 1)
+          else:
+              raise SystemExit('sync/validate action block not found')
+
+          old_logout = '''        actionPreference(screen, "ehp_logout", "退出登录", "清除扩展保存的账号 Cookie 和登录状态") {
+              logout()
+              showToast(screen, "已退出登录")
+          }
+'''
+          old_logout2 = '''        actionPreference(screen, "ehp_logout", "退出登录", "清除扩展保存的账号 Cookie 和登录状态") {
+            logout()
+            showToast(screen, "已退出登录")
+        }
+'''
+          new_logout = '''        actionPreference(screen, "ehp_logout", "退出登录", "清除扩展保存的账号 Cookie 和登录状态") {
+            logout()
+            updateAccountStatusPreference(accountStatusPreference)
+            showToast(screen, "已退出登录")
+        }
+'''
+          if old_logout2 in s:
+              s = s.replace(old_logout2, new_logout, 1)
+          elif old_logout in s:
+              s = s.replace(old_logout, new_logout, 1)
+          else:
+              raise SystemExit('logout action block not found')
+
+          helper_anchor = '''    private fun actionPreference(screen: PreferenceScreen, keyName: String, titleText: String, summaryText: String, action: () -> Unit) {
+'''
+          helpers = '''    private fun accountStatusSummary(): String {
+          if (!isLoggedIn()) return "未登录 · 可使用账号密码、WebView Cookie 或手动 Cookie 登录"
+          val name = preferences.getString(PREF_ACCOUNT_NAME, "").orEmpty().ifBlank { "E-Hentai 用户 #${memberId()}" }
+          val exStatus = if (preferences.getBoolean(PREF_EX_ACCESS, false)) "ExHentai 里站可用" else "里站未验证通过"
+          return "已登录：$name · $exStatus"
+      }
+
+      private fun updateAccountStatusPreference(preference: Preference) {
+          Handler(Looper.getMainLooper()).post { preference.summary = accountStatusSummary() }
+      }
+
+'''
+          helpers2 = '''    private fun accountStatusSummary(): String {
+        if (!isLoggedIn()) return "未登录 · 可使用账号密码、WebView Cookie 或手动 Cookie 登录"
+        val name = preferences.getString(PREF_ACCOUNT_NAME, "").orEmpty().ifBlank { "E-Hentai 用户 #${memberId()}" }
+        val exStatus = if (preferences.getBoolean(PREF_EX_ACCESS, false)) "ExHentai 里站可用" else "里站未验证通过"
+        return "已登录：$name · $exStatus"
+    }
+
+    private fun updateAccountStatusPreference(preference: Preference) {
+        Handler(Looper.getMainLooper()).post { preference.summary = accountStatusSummary() }
+    }
+
+'''
+          if helper_anchor not in s:
+              raise SystemExit('actionPreference helper anchor missing')
+          s = s.replace(helper_anchor, helpers2 + helper_anchor, 1)
+          s = s.replace('        private const val IMAGE_LOOPBACK_HOST = "127.0.0.1"\n', '', 1)
+
+          kt.write_text(s, 'utf-8')
+
+          m = models.read_text('utf-8')
+          old_default = '''        val defaultUrl = doc.selectFirst("#img")?.attr("abs:src")?.takeIf(String::isNotBlank)
+              ?: throw IllegalStateException("未找到正文图片")
+'''
+          old_default2 = '''        val defaultUrl = doc.selectFirst("#img")?.attr("abs:src")?.takeIf(String::isNotBlank)
+            ?: throw IllegalStateException("未找到正文图片")
+'''
+          new_default = '''        val defaultUrl = doc.selectFirst("#img")?.attr("abs:src")?.takeIf(String::isNotBlank)
+            ?: throw IllegalStateException("未找到正文图片")
+        if (defaultUrl == "https://ehgt.org/g/509.gif" || defaultUrl == "https://exhentai.org/img/509.gif") {
+            throw IllegalStateException("E-Hentai 图片配额已用尽，请稍后再试或在 My Home 检查 Image Limits")
+        }
+'''
+          if old_default2 in m:
+              m = m.replace(old_default2, new_default, 1)
+          elif old_default in m:
+              m = m.replace(old_default, new_default, 1)
+          else:
+              raise SystemExit('parseImageInfo default URL block missing')
+
+          old_author = '        val authorLink = element.selectFirst(".c2 > .c3 > a[href*=showuser],.c3 a[href*=showuser]")\n'
+          if old_author not in m:
+              raise SystemExit('comment author selector missing')
+          m = m.replace(old_author, '        val authorLink = element.selectFirst(".c2 > .c3 > a,.c3 a")\n', 1)
+
+          old_parsed = '        ParsedComment(id, userId, author, clean, parseCommentDate(timeText), timeText, score)\n'
+          if old_parsed not in m:
+              raise SystemExit('ParsedComment construction missing')
+          m = m.replace(old_parsed, '        ParsedComment(id, userId, author, clean, parseCommentDate(timeText), commentDisplayTime(timeText), score)\n', 1)
+
+          date_anchor = '''private fun parseCommentDate(value: String?): Long {
+'''
+          if date_anchor not in m:
+              raise SystemExit('parseCommentDate anchor missing')
+          # Insert formatter immediately before parser so it can call the parser declared later.
+          formatter = '''private fun commentDisplayTime(value: String?): String? {
+    val millis = parseCommentDate(value)
+    if (millis <= 0L) return value?.trim()?.takeIf(String::isNotBlank)
+    return LocalDateTime.ofInstant(Instant.ofEpochMilli(millis), ZoneOffset.UTC).format(EH_DATE_FORMATTER) + " UTC"
+}
+
+'''
+          m = m.replace(date_anchor, formatter + date_anchor, 1)
+          models.write_text(m, 'utf-8')
+
+          g = gradle.read_text('utf-8')
+          if 'versionCode = 1' not in g:
+              raise SystemExit('expected versionCode = 1')
+          gradle.write_text(g.replace('versionCode = 1', 'versionCode = 2', 1), 'utf-8')
+
+          d = doc.read_text('utf-8')
+          d += '''\n## v2 实机修复候选（2026-09-05）\n\n根据 v1.6.1 实机反馈：\n\n- 正文不再使用伪造 loopback imageUrl + OkHttp interceptor；改用当前 KeiSource 官方 `getImageUrl(Page)` 懒解析链路，避免宿主图片解码器直接拿到非图片响应而报 `Failed to initialize decoder`。\n- 按 JHenTai 行为将 `s.exhentai.org` 图片地址归一到 `ehgt.org`，并识别 E-Hentai/ExHentai 的 509 图片配额占位图，返回明确错误。\n- 评论页在未登录时不再触发宿主“请先登录/漫画源设置”底栏；只有已登录时才声明可发表评论，实际提交仍二次校验登录。\n- 评论作者选择器不再强依赖 `showuser` URL，兼容当前评论 HTML；评论时间改为统一数字时间显示。\n- 设置页新增“账号状态”，明确显示未登录 / 已登录账号 / ExHentai 里站验证状态，并在登录、同步 Cookie、验证和退出后即时刷新。\n- 扩展图标替换为 E-Hentai 官方 favicon。\n\n验证边界：CI 将验证当前 Keiyoushi Spotless、Release 构建、固定签名、公开 E-Hentai viewer→image 链路和测试仓库生成；账号、里站与评论写操作仍需用户实机验证。\n'''
+          doc.write_text(d, 'utf-8')
+          PY
+
+      - name: Replace launcher with official E-Hentai favicon
+        shell: bash
+        run: |
+          set -euo pipefail
+          res="source/src/zh/ehentaiplus/res"
+          rm -rf "$res/mipmap-anydpi" "$res/mipmap-mdpi" "$res/mipmap-hdpi" "$res/mipmap-xhdpi" "$res/mipmap-xxhdpi" "$res/mipmap-xxxhdpi"
+          mkdir -p "$res/mipmap-xxxhdpi"
+          curl -L --fail --retry 3 \
+            -o "$res/mipmap-xxxhdpi/ic_launcher.png" \
+            'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f4/E-Hentai_Favicon.svg/330px-E-Hentai_Favicon.svg.png'
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('source/src/zh/ehentaiplus/res/mipmap-xxxhdpi/ic_launcher.png')
+          b = p.read_bytes()
+          if not b.startswith(b'\x89PNG\r\n\x1a\n') or len(b) < 1000:
+              raise SystemExit('official icon download is not a valid PNG')
+          print('official favicon bytes', len(b))
+          PY
+
+      - name: Validate patched private source
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/validate_sources.py
+          grep -q 'versionCode = 2' src/zh/ehentaiplus/build.gradle.kts
+          grep -q 'override suspend fun getImageUrl(page: Page)' src/zh/ehentaiplus/src/eu/kanade/tachiyomi/extension/zh/ehentaiplus/EHentaiPlus.kt
+          ! grep -q 'IMAGE_LOOPBACK_HOST' src/zh/ehentaiplus/src/eu/kanade/tachiyomi/extension/zh/ehentaiplus/EHentaiPlus.kt
+          grep -q 'requiresLoginToPost = false' src/zh/ehentaiplus/src/eu/kanade/tachiyomi/extension/zh/ehentaiplus/EHentaiPlus.kt
+          test -s src/zh/ehentaiplus/res/mipmap-xxxhdpi/ic_launcher.png
+          git diff --check
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Checkout current Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Overlay, format and build v2
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf upstream/src/zh/ehentaiplus
+          cp -a source/src/zh/ehentaiplus upstream/src/zh/ehentaiplus
+          cd upstream
+          ./gradlew :src:zh:ehentaiplus:spotlessApply
+          ./gradlew :src:zh:ehentaiplus:spotlessCheck
+          ./gradlew :src:zh:ehentaiplus:assembleDebug
+
+      - name: Copy Spotless result back
+        shell: bash
+        run: |
+          set -euo pipefail
+          rsync -a --delete --exclude build/ upstream/src/zh/ehentaiplus/ source/src/zh/ehentaiplus/
+          python3 source/scripts/validate_sources.py
+          git -C source diff --check
+
+      - name: Public E-Hentai viewer-to-image smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          UA='Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Mobile Safari/537.36'
+          gallery='https://e-hentai.org/g/4168950/70e3b317ff/?nw=always'
+          curl -L --fail --retry 3 -A "$UA" -H 'Cookie: nw=1' "$gallery" -o /tmp/eh-gallery.html
+          python3 - <<'PY' >/tmp/eh-viewer-url
+          import re
+          from pathlib import Path
+          text = Path('/tmp/eh-gallery.html').read_text('utf-8', errors='ignore')
+          m = re.search(r'https://e-hentai\.org/s/[0-9a-z]+/\d+-\d+', text, re.I)
+          if not m:
+              raise SystemExit('No viewer URL found on public gallery')
+          print(m.group(0))
+          PY
+          viewer="$(cat /tmp/eh-viewer-url)"
+          curl -L --fail --retry 3 -A "$UA" -e "$gallery" -H 'Cookie: nw=1' "$viewer" -o /tmp/eh-viewer.html
+          python3 - <<'PY' >/tmp/eh-image-url
+          from html.parser import HTMLParser
+          from pathlib import Path
+          from urllib.parse import urlsplit, urlunsplit
+
+          class P(HTMLParser):
+              def __init__(self):
+                  super().__init__(); self.src = None
+              def handle_starttag(self, tag, attrs):
+                  d = dict(attrs)
+                  if tag.lower() == 'img' and d.get('id') == 'img':
+                      self.src = d.get('src')
+
+          p = P(); p.feed(Path('/tmp/eh-viewer.html').read_text('utf-8', errors='ignore'))
+          if not p.src:
+              raise SystemExit('No #img URL found on viewer page')
+          if p.src in ('https://ehgt.org/g/509.gif', 'https://exhentai.org/img/509.gif'):
+              raise SystemExit('Public smoke test hit E-Hentai 509 image quota placeholder')
+          u = urlsplit(p.src)
+          if u.hostname == 's.exhentai.org':
+              u = u._replace(netloc='ehgt.org' + (f':{u.port}' if u.port else ''))
+          print(urlunsplit(u))
+          PY
+          image="$(cat /tmp/eh-image-url)"
+          curl -L --fail --retry 3 -A "$UA" -e "$viewer" -D /tmp/eh-image.headers "$image" -o /tmp/eh-image.bin
+          grep -qi '^content-type: *image/' /tmp/eh-image.headers || { cat /tmp/eh-image.headers; echo '::error::Resolved viewer URL did not return an image'; exit 1; }
+          test "$(wc -c </tmp/eh-image.bin)" -gt 1024
+          echo "Public viewer -> image request succeeded: $image"
+
+      - name: Commit v2 source back to feature branch
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/zh/ehentaiplus docs/sources/ehentaiplus.md
+          if git diff --cached --quiet; then
+            echo "No E-Hentai Plus source changes to commit"
+          else
+            git commit -m "fix(ehentaiplus): repair reader login UX comments and icon v2"
+            git push origin HEAD:feat/ehentai-plus
+          fi
+          echo "SOURCE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Prepare stable extension signing key
+        shell: bash
+        env:
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, json, os
+          from pathlib import Path
+          bundle = json.loads(os.environ['MANGA_SIGNING_BUNDLE'])
+          required = ('signingKey','alias','storePassword','keyPassword')
+          missing = [k for k in required if not bundle.get(k)]
+          if missing:
+              raise SystemExit('Signing bundle missing: ' + ', '.join(missing))
+          Path('upstream/signingkey.jks').write_bytes(base64.b64decode(bundle['signingKey']))
+          with Path(os.environ['GITHUB_ENV']).open('a', encoding='utf-8') as f:
+              for env_name, key in [('ALIAS','alias'),('KEY_STORE_PASSWORD','storePassword'),('KEY_PASSWORD','keyPassword')]:
+                  value = str(bundle[key]); print(f'::add-mask::{value}')
+                  f.write(f'{env_name}<<__EOF__\n{value}\n__EOF__\n')
+          PY
+
+      - name: Build signed Release and lint
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:ehentaiplus:assembleRelease :src:zh:ehentaiplus:lintRelease
+
+      - name: Verify stable signing certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620'
+          configured="$(keytool -exportcert -alias "$ALIAS" -keystore upstream/signingkey.jks -storepass "$KEY_STORE_PASSWORD" | sha256sum | awk '{print $1}')"
+          configured="$(printf '%s' "$configured" | tr '[:upper:]' '[:lower:]')"
+          [[ "$configured" == "$expected" ]] || { echo '::error::Configured signing key mismatch'; exit 1; }
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          apk="$(find upstream/src/zh/ehentaiplus -path '*/build/outputs/apk/release/*.apk' -type f | head -n 1)"
+          [[ -n "$apk" ]] || { echo '::error::No release APK'; exit 1; }
+          cert_output="$("$apksigner" verify --print-certs "$apk" 2>&1)"
+          normalized="$(printf '%s' "$cert_output" | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')"
+          [[ "$normalized" == *"$expected"* ]] || { printf '%s\n' "$cert_output"; echo '::error::APK certificate mismatch'; exit 1; }
+
+      - name: Preserve signed v2 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ehentaiplus-v2-signed-test-apk
+          path: upstream/src/zh/ehentaiplus/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Checkout extension staging branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-build
+          token: ${{ github.token }}
+          ref: extension-staging
+          path: staging
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Generate isolated MX test store
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' 'zh/ehentaiplus' > /tmp/ehp-targets.txt
+          python3 source/scripts/publish_test_repo.py \
+            --targets /tmp/ehp-targets.txt \
+            --upstream-root upstream \
+            --source-root source \
+            --repo-dir staging/test \
+            --owner huoguotiankong \
+            --repository mx-repo \
+            --signing-key '1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620'
+          grep -Eq '1\.6\.2|106002|versionCode[^0-9]*2' staging/test/index.json staging/test/repo.json
+          test -f staging/test/apk/tachiyomi-zh.ehentaiplus-v1.6.2.apk
+
+      - name: Commit staged v2 test store
+        working-directory: staging
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add test
+          if git diff --cached --quiet; then
+            echo "No staged test-store changes"
+          else
+            git commit -m "Stage E-Hentai Plus v2 test store"
+            git push origin HEAD:extension-staging
+          fi
+
+      - name: Verify staged test store
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://raw.githubusercontent.com/huoguotiankong/mx-build/extension-staging/test'
+          for file in repo.json index.json; do
+            ok=0
+            for attempt in 1 2 3 4 5 6; do
+              status="$(curl -L -sS -o "/tmp/$file" -w '%{http_code}' "$base/$file" || true)"
+              if [[ "$status" == '200' ]]; then ok=1; break; fi
+              sleep $((attempt * 2))
+            done
+            [[ "$ok" -eq 1 ]] || { echo "::error::Staged endpoint unavailable: $file"; exit 1; }
+          done
+          grep -Eq '1\.6\.2|106002|versionCode[^0-9]*2' /tmp/index.json /tmp/repo.json
+          grep -q 'ehentaiplus' /tmp/index.json
+
+      - name: Record result
+        shell: bash
+        run: |
+          {
+            echo '### E-Hentai Plus v2 candidate'
+            echo
+            echo "- Source commit: $SOURCE_SHA"
+            echo '- Current Keiyoushi Spotless + Debug + Release + lint passed.'
+            echo '- Stable MX extension signature verified.'
+            echo '- Public E-Hentai viewer -> actual image response smoke test passed.'
+            echo '- Signed v1.6.2 staged to extension-staging.'
+            echo '- Account/ExHentai/comment write operations still require Android real-device validation.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Cleanup signing material
+        if: always()
+        shell: bash
+        run: rm -f upstream/signingkey.jks
