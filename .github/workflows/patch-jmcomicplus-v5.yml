@@ -131,7 +131,26 @@ jobs:
           rsync -a --delete --exclude build/ upstream/src/zh/jmcomicplus/ source/src/zh/jmcomicplus/
           python3 source/scripts/validate_sources.py
 
+      - name: Stage exact v6 source bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf handoff
+          mkdir -p handoff/src/zh handoff/docs/sources
+          cp -a source/src/zh/jmcomicplus handoff/src/zh/
+          cp source/docs/sources/jmcomicplus.md handoff/docs/sources/
+          (cd source && git diff --binary HEAD -- src/zh/jmcomicplus docs/sources/jmcomicplus.md) > handoff/jmcomicplus-v6.patch
+
+      - name: Upload exact v6 source bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: jmcomicplus-v6-source
+          path: handoff
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Commit and push v6 source
+        continue-on-error: true
         working-directory: source
         shell: bash
         run: |
