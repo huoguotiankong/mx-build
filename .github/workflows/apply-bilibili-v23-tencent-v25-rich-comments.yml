@@ -1,0 +1,97 @@
+name: Apply validated Bilibili v23 and Tencent v25 rich comments
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/apply-bilibili-v23-tencent-v25-rich-comments.yml"
+      - ".github/bilibili-v23-tencent-v25-apply-trigger"
+
+permissions:
+  contents: read
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check private source token
+        shell: bash
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]] || { echo "::error::Missing MX_PRIVATE_READ_TOKEN"; exit 1; }
+
+      - name: Checkout current private source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Checkout exact validated staging snapshot
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-build
+          ref: 4a9b21d2882528358d88af80745d2b242b90ad23
+          path: staging
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify validated handoff and test APK snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          handoff="staging/source-handoff/bilibili-v23-tencent-v25"
+          test -f "$handoff/BASE_SOURCE_SHA.txt"
+          base_sha="$(tr -d '\r\n' < "$handoff/BASE_SOURCE_SHA.txt")"
+          git -C source cat-file -e "$base_sha^{commit}"
+          git -C source diff --quiet "$base_sha" HEAD -- \
+            src/zh/bilibilimanga \
+            src/zh/tencentcomics \
+            docs/sources/bilibilimanga.md \
+            docs/sources/tencentcomics.md || {
+              echo "::error::Target source files changed after validated handoff base $base_sha"; exit 1;
+            }
+          test -f staging/test/apk/tachiyomi-zh.bilibilimanga-v1.6.23.apk
+          test -f staging/test/apk/tachiyomi-zh.tencentcomics-v1.4.25.apk
+          grep -Fq '"versionName":"1.6.23"' staging/test/index.json || grep -Fq '"versionName": "1.6.23"' staging/test/index.json
+          grep -Fq '"versionName":"1.4.25"' staging/test/index.json || grep -Fq '"versionName": "1.4.25"' staging/test/index.json
+
+      - name: Apply exact validated source payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          handoff="staging/source-handoff/bilibili-v23-tencent-v25"
+          cp -a "$handoff/src/zh/bilibilimanga/." source/src/zh/bilibilimanga/
+          cp -a "$handoff/src/zh/tencentcomics/." source/src/zh/tencentcomics/
+          cp "$handoff/docs/sources/bilibilimanga.md" source/docs/sources/bilibilimanga.md
+          cp "$handoff/docs/sources/tencentcomics.md" source/docs/sources/tencentcomics.md
+          grep -F 'versionCode = 23' source/src/zh/bilibilimanga/build.gradle.kts
+          grep -F 'versionCode = 25' source/src/zh/tencentcomics/build.gradle.kts
+          test -f source/src/zh/bilibilimanga/src/eu/kanade/tachiyomi/source/mx/Comment.kt
+          test -f source/src/zh/tencentcomics/src/eu/kanade/tachiyomi/source/mx/Comment.kt
+          python3 source/scripts/validate_sources.py
+          git -C source diff --check
+
+      - name: Commit validated sources to private main
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            src/zh/bilibilimanga \
+            src/zh/tencentcomics \
+            docs/sources/bilibilimanga.md \
+            docs/sources/tencentcomics.md
+          git diff --cached --check
+          git diff --cached --quiet && { echo "::error::No validated source changes to apply"; exit 1; }
+          git commit -m "fix(comments): render Bilibili and Tencent rich media"
+          git pull --rebase origin main
+          git push origin HEAD:main
