@@ -1,0 +1,62 @@
+name: Kuaikan Reply Content Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/kuaikan-reply-content-probe-trigger"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Probe sanitized root and contents shapes
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,urllib.parse,urllib.request
+          P=401470311357030336; B='https://api.kkmh.com'
+          H={'User-Agent':'Kuaikan/5.75.0/575000(iPhone;Scale/3.00) (iPhone; CPU)','Accept':'application/json, text/plain, */*','X-Device':'0'}
+          u=B+f'/v1/graph/posts/{P}/comments/v5?since=0&limit=20'
+          with urllib.request.urlopen(urllib.request.Request(u,headers=H),timeout=25) as r:o=json.loads(r.read().decode())
+          arr=(o.get('data') or {}).get('commentList') or []
+          for i,it in enumerate(arr[:2]):
+            pr=it.get('postReply') or {}; root=pr.get('root') or {}
+            print(f'item{i}.children_total={pr.get("children_total")} show_more={pr.get("show_more")}')
+            print(f'item{i}.root.keys='+','.join(sorted(root.keys())))
+            for k in ('id','post_id','created_at','created_at_info','likes_count','is_liked','replied_comment_id','reply_post_id'):
+              if k in root: print(f'item{i}.root.{k}={str(root[k])[:100]}')
+            user=root.get('user') or {}
+            if isinstance(user,dict):
+              print(f'item{i}.root.user.keys='+','.join(sorted(user.keys())))
+              for k in ('id','nickname','avatar_url'):
+                if k in user: print(f'item{i}.root.user.{k}={str(user[k])[:120]}')
+            contents=root.get('contents')
+            print(f'item{i}.root.contents.type={type(contents).__name__}')
+            if isinstance(contents,list):
+              print(f'item{i}.root.contents.len={len(contents)}')
+              for j,c in enumerate(contents[:3]):
+                if isinstance(c,dict):
+                  print(f'item{i}.root.contents[{j}].keys='+','.join(sorted(c.keys())))
+                  for k in ('type','content','text'):
+                    if k in c: print(f'item{i}.root.contents[{j}].{k}={str(c[k])[:160]}')
+                else: print(f'item{i}.root.contents[{j}]={str(c)[:160]}')
+            children=pr.get('children_comments') or []
+            if children:
+              ch=children[0]; cs=ch.get('contents')
+              print(f'item{i}.child0.contents.type={type(cs).__name__}')
+              if isinstance(cs,list):
+                print(f'item{i}.child0.contents.len={len(cs)}')
+                for j,c in enumerate(cs[:3]):
+                  if isinstance(c,dict):
+                    print(f'item{i}.child0.contents[{j}].keys='+','.join(sorted(c.keys())))
+                    for k in ('type','content','text'):
+                      if k in c: print(f'item{i}.child0.contents[{j}].{k}={str(c[k])[:160]}')
+          PY
