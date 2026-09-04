@@ -29,7 +29,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          task=".mx-task/apply_relaxed_chapter_content_matching.py"
+          task=".mx-task/fix_and_apply.py"
           [[ -f "$task" ]] || {
             echo "::error::Expected private maintenance task is missing"
             exit 1
