@@ -9,9 +9,9 @@
 - 源 ID：`4890981838474778925`
 - 基线：当前 Keiyoushi `@Source` + `KeiSource`
 - `libVersion = "1.6"`
-- 源码 `versionCode = 3`
-- Android APK versionCode：`106003`
-- APK versionName：`1.6.3`
+- 源码 `versionCode = 4`
+- Android APK versionCode：`106004`
+- APK versionName：`1.6.4`
 - 内容警告：NSFW
 - 默认详情 URL：`https://www.mangacopy.com`
 
@@ -303,3 +303,16 @@ v4 增加可开关的繁体转简体功能，默认开启。实现使用 Maven C
 作者与标签点击搜索同时缓存源站原名和简体显示名到同一 `path_word`，避免开启转换后详情页点击作者/标签失效。用户主动发表的评论正文不在发送前强制改写，只转换服务端返回后的展示文本。
 
 此功能只处理文本显示，不修改漫画 URL、章节 UUID、评论 ID、登录参数、图片地址或线路协议。
+
+
+## v4 详情页与繁简转换
+
+2026-09-04 用户实机确认：v3 的 Copy 线路首页/列表已经可以加载，但作品详情仍提示“拷贝漫画详情为空”；热辣线路基本正常，章评已经可以显示。因此 v4 不重写已验证可用的列表、书评和章评流程，只为详情请求增加独立契约。
+
+独立探针对七个 Copy 节点复现了当前现象：`/api/v3/comic2/<path_word>` 会返回 HTTP 200 / code 200，但 `results.comic` 为空。当前 Venera CopyManga 配置使用 `COPY/3.0.6`、`region=0`，详情请求为 `/api/v3/comic2/<id>?in_mainland=true&request_id=&platform=3`（region=0 时 request_id 为空）。v4 因此仅让详情请求使用这一 3.0.6 / region=0 契约；普通列表、章节、书评和章评继续保留此前已验证的请求头，降低回归风险。详情仍严格要求 `results.comic` 非空，否则继续尝试下一候选节点。
+
+v4 同时增加默认开启、可关闭的繁体转简体功能。使用 `io.github.laisuk:openccjava:1.4.2` 的 `t2s` 转换，覆盖漫画标题、作者、标签、简介、别名、章节分组、章节名、详情字段、书评/章评昵称和正文。作者与标签同时缓存源站原名和简体显示名到同一 `path_word`，保证点击跳转不因转换失效。URL、UUID、评论 ID、登录参数、图片地址和用户发送前的评论原文不改写。
+
+图标继续使用用户确认的蓝底白色原子状 CopyManga 图标资源。评论页长期显示的“请先登录 / 漫画源设置”底栏属于 MX App 宿主，已经在 APP 侧单独处理，不通过伪造扩展登录能力隐藏。
+
+上述代码需要通过当前 Keiyoushi Spotless / Debug 编译 / Release lint 后写入 `mx-dev`；详情、图标和繁简显示最终仍以 Android 实机反馈为准。

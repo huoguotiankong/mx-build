@@ -208,7 +208,7 @@ abstract class CopyMangaPlus :
     }
 
     private fun loadDetail(pathWord: String): Pair<SManga, List<SChapter>> {
-        val root = requestJson("/api/v3/comic2/${enc(pathWord)}?platform=3&_update=true")
+        val root = requestDetailJson(pathWord)
         val results = root.results() ?: throw IOException("拷贝漫画详情为空")
         val comic = results.obj("comic") ?: throw IOException("拷贝漫画作品信息为空")
         val authors = objectNames(comic.array("author"), authorWords)
@@ -316,7 +316,7 @@ abstract class CopyMangaPlus :
 
     override suspend fun getMangaDetailInfo(manga: SManga): MangaDetailInfo {
         val path = pathWord(manga)
-        val results = requestJson("/api/v3/comic2/${enc(path)}?platform=3&_update=true").results()
+        val results = requestDetailJson(path).results()
             ?: throw IOException("拷贝漫画详情信息为空")
         val comic = results.obj("comic") ?: throw IOException("拷贝漫画作品信息为空")
         val authors = objectNames(comic.array("author"), authorWords)
@@ -348,7 +348,7 @@ abstract class CopyMangaPlus :
                     ),
                 )
             }
-            comic.string("alias")?.takeIf(String::isNotBlank)?.let {
+            simplify(comic.string("alias"))?.takeIf(String::isNotBlank)?.let {
                 add(MangaDetailField("别名", listOf(MangaDetailValue(it))))
             }
             displayObject(comic.obj("region"))?.let {
@@ -393,7 +393,7 @@ abstract class CopyMangaPlus :
 
     override suspend fun getMangaCommentTarget(manga: SManga): CommentTarget {
         val path = pathWord(manga)
-        val comic = requestJson("/api/v3/comic2/${enc(path)}?platform=3&_update=true").results()?.obj("comic")
+        val comic = requestDetailJson(path).results()?.obj("comic")
         val id = comic?.string("uuid") ?: path
         return CommentTarget(id, getMangaUrl(manga), CommentTargetKind.MANGA)
     }
@@ -525,7 +525,7 @@ abstract class CopyMangaPlus :
         val content = simplify(o.string("comment") ?: o.string("roast")) ?: return null
         val user = o.obj("user")
         val userId = user?.string("user_id") ?: o.string("user_id")
-        val authorName = o.string("user_name") ?: user?.string("nickname") ?: user?.string("username") ?: "拷贝用户"
+        val authorName = simplify(o.string("user_name") ?: user?.string("nickname") ?: user?.string("username") ?: "拷贝用户").orEmpty()
         val avatar = o.string("user_avatar") ?: user?.string("avatar")
         val rawTime = o.string("create_at") ?: o.string("datetime_created") ?: o.string("created_at")
         val id = o.string("id") ?: o.string("uuid")
@@ -762,6 +762,65 @@ abstract class CopyMangaPlus :
         body: FormBody? = null,
         includeToken: Boolean = true,
     ): JsonObject = requestWithCandidates(path, method, body, includeToken, commentOnly = false)
+
+    private fun requestDetailJson(pathWord: String): JsonObject {
+        var last: Throwable? = null
+        apiCandidates(includeLast = true).distinctBy { it.serialized }.forEach { route ->
+            try {
+                val query = if (route.kind == RouteKind.COPY) {
+                    "in_mainland=true&request_id=&platform=3"
+                } else {
+                    "in_mainland=true&platform=3"
+                }
+                val request = Request.Builder()
+                    .url("https://${route.host}/api/v3/comic2/${enc(pathWord)}?$query")
+                    .headers(
+                        if (route.kind == RouteKind.COPY) {
+                            copyDetailHeaders(includeToken = true)
+                        } else {
+                            apiHeaders(RouteKind.HOT, includeToken = true)
+                        },
+                    )
+                    .get()
+                    .build()
+                client.newCall(request).execute().use { response ->
+                    val root = parseResponse(response.code, response.body.string())
+                    if (root.results()?.obj("comic") == null) {
+                        throw IOException("当前节点没有返回漫画详情")
+                    }
+                    preferences.edit().putString(PREF_LAST_HOST, route.serialized).apply()
+                    return root
+                }
+            } catch (e: Throwable) {
+                last = e
+            }
+        }
+        throw IOException(last?.message ?: "所有拷贝/热辣详情线路均不可用", last)
+    }
+
+    private fun copyDetailHeaders(includeToken: Boolean): Headers {
+        val timestamp = (System.currentTimeMillis() / 1000L).toString()
+        return Headers.Builder()
+            .set("User-Agent", "COPY/$COPY_DETAIL_VERSION")
+            .set("source", "copyApp")
+            .set("deviceinfo", copyDeviceInfo())
+            .set("dt", SimpleDateFormat("yyyy.MM.dd", Locale.US).format(Date()))
+            .set("platform", "3")
+            .set("referer", "com.copymanga.app-$COPY_DETAIL_VERSION")
+            .set("version", COPY_DETAIL_VERSION)
+            .set("device", copyDevice())
+            .set("pseudoid", copyPseudoId())
+            .set("Accept", "application/json")
+            .set("region", "0")
+            .set(
+                "Authorization",
+                if (includeToken && token().isNotBlank()) "Token ${token()}" else "Token",
+            )
+            .set("umstring", COPY_UMSTRING)
+            .set("x-auth-timestamp", timestamp)
+            .set("x-auth-signature", copySignature(timestamp))
+            .build()
+    }
 
     private fun requestCommentJson(
         path: String,
@@ -1092,6 +1151,7 @@ abstract class CopyMangaPlus :
         private const val COPY_VERSION = "3.0.9"
         private const val COPY_UA = "COPY/3.0.0"
         private const val COPY_REFERER_VERSION = "3.0.0"
+        private const val COPY_DETAIL_VERSION = "3.0.6"
         private const val COPY_HMAC_KEY = "3af08590311032efe0660500a0563a53"
         private const val COPY_UMSTRING = "b4c89ca4104ea9a97750314d791520ac"
         private const val COPY_PSEUDO_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"

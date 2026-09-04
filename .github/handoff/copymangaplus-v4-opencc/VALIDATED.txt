@@ -1,1 +1,1 @@
-validated: spotlessCheck + assembleDebug + lintRelease + validate_sources
+validated: finalized v4 Spotless + assembleDebug + lintRelease
