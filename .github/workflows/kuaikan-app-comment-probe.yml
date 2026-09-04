@@ -17,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Probe Kuaikan 8.22.0 comment APIs
+      - name: Probe Kuaikan comment image payload schema
         shell: bash
         run: |
           set -euo pipefail
@@ -28,8 +28,8 @@ jobs:
           from pathlib import Path
 
           BASE = "https://api.kkmh.com"
-          TOPIC_ID = 766
           UA = "Kuaikan/8.22.0/822000(Android;Scale/3.00)"
+          COMIC_IDS = (3192, 1750, 2020, 375133)
 
           def get(path, params=None):
               url = BASE + path
@@ -48,122 +48,107 @@ jobs:
                           data = json.loads(raw.decode("utf-8"))
                       except Exception:
                           data = None
-                      return r.status, r.headers.get("Content-Type", ""), len(raw), data
+                      return r.status, len(raw), data
               except Exception as exc:
-                  return None, "", 0, {"_error": type(exc).__name__ + ":" + str(exc)}
+                  return None, 0, {"_error": type(exc).__name__ + ":" + str(exc)}
 
           def keys(v):
               return ",".join(sorted(v.keys())) if isinstance(v, dict) else ""
 
-          def data_obj(root):
-              if not isinstance(root, dict): return None
-              d = root.get("data")
-              return d if isinstance(d, dict) else root
-
-          def find_values(v, wanted, depth=0):
-              if depth > 7: return []
-              out=[]
-              if isinstance(v, dict):
-                  for k,x in v.items():
-                      if k in wanted and isinstance(x,(str,int,float,bool)):
-                          out.append((k,x))
-                      if isinstance(x,(dict,list)):
-                          out.extend(find_values(x,wanted,depth+1))
-              elif isinstance(v,list):
-                  for x in v[:50]: out.extend(find_values(x,wanted,depth+1))
-              return out
-
           def find_array(v, names, depth=0):
-              if depth > 7: return None
-              if isinstance(v,dict):
+              if depth > 8:
+                  return None
+              if isinstance(v, dict):
                   for k in names:
-                      if isinstance(v.get(k),list): return v[k]
+                      if isinstance(v.get(k), list):
+                          return v[k]
                   for x in v.values():
-                      if isinstance(x,(dict,list)):
-                          r=find_array(x,names,depth+1)
-                          if r is not None: return r
-              elif isinstance(v,list):
-                  for x in v[:20]:
-                      r=find_array(x,names,depth+1)
-                      if r is not None: return r
+                      if isinstance(x, (dict, list)):
+                          found = find_array(x, names, depth + 1)
+                          if found is not None:
+                              return found
+              elif isinstance(v, list):
+                  for x in v[:30]:
+                      found = find_array(x, names, depth + 1)
+                      if found is not None:
+                          return found
               return None
 
-          lines=[]
-          topic_root=None
-          for gender in (0,1,2):
-              status,ct,n,root=get("/v2/topic/topic_detail", {"topic_id":TOPIC_ID,"gender":gender,"is_new_device":0})
-              lines.append(f"topic_detail.gender{gender}.http={status}")
-              lines.append(f"topic_detail.gender{gender}.bytes={n}")
-              lines.append(f"topic_detail.gender{gender}.root_keys={keys(root)}")
-              d=data_obj(root)
-              lines.append(f"topic_detail.gender{gender}.data_keys={keys(d)}")
-              if status == 200 and isinstance(d,dict) and "_error" not in d:
-                  topic_root=root
-                  break
+          def url_fields(v, path="", depth=0):
+              if depth > 10:
+                  return []
+              out = []
+              if isinstance(v, dict):
+                  for k, x in v.items():
+                      p = f"{path}.{k}" if path else k
+                      if isinstance(x, str) and (x.startswith("http://") or x.startswith("https://") or x.startswith("//")):
+                          parsed = urllib.parse.urlparse("https:" + x if x.startswith("//") else x)
+                          out.append((p, parsed.netloc + parsed.path))
+                      elif isinstance(x, (dict, list)):
+                          out.extend(url_fields(x, p, depth + 1))
+              elif isinstance(v, list):
+                  for i, x in enumerate(v[:20]):
+                      out.extend(url_fields(x, f"{path}[{i}]", depth + 1))
+              return out
 
-          comic_ids=[]
-          if topic_root:
-              vals=find_values(topic_root,{"comic_id","comicId","id","topic_id","topicId"})
-              for k,v in vals:
-                  if k in ("comic_id","comicId"):
-                      try:
-                          iv=int(v)
-                          if iv>0 and iv not in comic_ids: comic_ids.append(iv)
-                      except: pass
-              lines.append("topic_detail.comic_ids="+",".join(map(str,comic_ids[:12])))
+          def shape(v, depth=0):
+              if depth > 3:
+                  return "..."
+              if isinstance(v, dict):
+                  return {k: shape(x, depth + 1) for k, x in v.items()}
+              if isinstance(v, list):
+                  return [shape(v[0], depth + 1)] if v else []
+              return type(v).__name__
 
-          for name,path,params in [
-              ("tabs","/v1/ironman/topic_detail/tabs",{"topic_id":TOPIC_ID}),
-              ("score_head","/v1/graph/topic/score/head",{"topicId":TOPIC_ID}),
-              ("score_tip","/v1/graph/topic/score/tip",{"topicId":TOPIC_ID}),
-          ]:
-              status,ct,n,root=get(path,params)
-              d=data_obj(root)
-              lines += [f"{name}.http={status}",f"{name}.bytes={n}",f"{name}.root_keys={keys(root)}",f"{name}.data_keys={keys(d)}"]
-              vals=find_values(root,{"type","target_type","targetType","target_id","targetId","post_id","postId","feed_id","feedId","url","action","action_url","actionUrl","title"})
-              safe=[]
-              for k,v in vals[:50]:
-                  s=str(v).replace("\n"," ")
-                  if any(x in k.lower() for x in ("token","cookie","session")): continue
-                  if len(s)>180: s=s[:180]+"..."
-                  safe.append(k+"="+s)
-              if safe: lines.append(name+".interesting="+" | ".join(safe))
-
-          candidates=[("topic",TOPIC_ID),("feed",TOPIC_ID),("comic",TOPIC_ID)]
-          if comic_ids:
-              candidates.insert(0,("comic",comic_ids[0]))
-          seen=set()
-          for target_type,target_id in candidates:
-              if (target_type,target_id) in seen: continue
-              seen.add((target_type,target_id))
-              for order in ("HOTEST","NEWEST"):
-                  tag=f"floor.{target_type}.{target_id}.{order}"
-                  status,ct,n,root=get("/v2/comments/cruel/floor_list",{
-                      "target_type":target_type,"target_id":target_id,"order":order,
-                      "offset":0,"limit":20,"total":"true","source":0,
+          lines = []
+          for cid in COMIC_IDS:
+              for order in ("score", "time", "HOTEST", "NEWEST"):
+                  tag = f"floor.{cid}.{order}"
+                  status, n, root = get("/v2/comments/cruel/floor_list", {
+                      "target_type": "comic",
+                      "target_id": cid,
+                      "order": order,
+                      "offset": 0,
+                      "limit": 20,
+                      "total": "true",
+                      "source": 0,
                   })
-                  d=data_obj(root)
-                  arr=find_array(root,{"floors","floor_list","comments","comment_list","list"})
-                  lines += [f"{tag}.http={status}",f"{tag}.bytes={n}",f"{tag}.root_keys={keys(root)}",f"{tag}.data_keys={keys(d)}",f"{tag}.item_count={len(arr) if isinstance(arr,list) else -1}"]
-                  vals=find_values(root,{"since","offset","total","total_count","totalCount","comment_count","comments_count","has_more","hasMore","id","comment_id","floor_id"})
-                  if vals: lines.append(tag+".paging="+" | ".join(f"{k}={v}" for k,v in vals[:30]))
-                  if isinstance(arr,list) and arr and isinstance(arr[0],dict):
-                      lines.append(tag+".first_keys="+keys(arr[0]))
+                  lines += [f"{tag}.http={status}", f"{tag}.bytes={n}", f"{tag}.root_keys={keys(root)}"]
+                  data = root.get("data") if isinstance(root, dict) and isinstance(root.get("data"), dict) else None
+                  lines.append(f"{tag}.data_keys={keys(data)}")
+                  floors = data.get("comment_floors") if isinstance(data, dict) and isinstance(data.get("comment_floors"), list) else None
+                  lines.append(f"{tag}.floor_count={len(floors) if floors is not None else -1}")
+                  if floors:
+                      floor = floors[0]
+                      lines.append(f"{tag}.floor_keys={keys(floor)}")
+                      comment = floor.get("root") if isinstance(floor, dict) and isinstance(floor.get("root"), dict) else floor
+                      lines.append(f"{tag}.comment_keys={keys(comment)}")
+                      for arr_name in ("contents", "content_info", "content"):
+                          arr = comment.get(arr_name) if isinstance(comment, dict) else None
+                          if isinstance(arr, list):
+                              lines.append(f"{tag}.{arr_name}.count={len(arr)}")
+                              if arr:
+                                  lines.append(f"{tag}.{arr_name}.first_shape=" + json.dumps(shape(arr[0]), ensure_ascii=False, sort_keys=True))
+                      urls = url_fields(comment)
+                      if urls:
+                          lines.append(f"{tag}.url_fields=" + " | ".join(f"{p}={u}" for p, u in urls[:30]))
+                      break
 
-          if comic_ids:
-              cid=comic_ids[0]
-              for order in ("score","time"):
-                  tag=f"legacy_chapter.{cid}.{order}"
-                  status,ct,n,root=get(f"/v1/comics/{cid}/comments/0",{"order":order})
-                  arr=find_array(root,{"comments","list","floors"})
-                  lines += [f"{tag}.http={status}",f"{tag}.bytes={n}",f"{tag}.root_keys={keys(root)}",f"{tag}.item_count={len(arr) if isinstance(arr,list) else -1}"]
-                  vals=find_values(root,{"since","total","comment_count","comments_count"})
-                  if vals: lines.append(tag+".paging="+" | ".join(f"{k}={v}" for k,v in vals[:20]))
+              status, n, root = get(f"/v1/comics/{cid}/comments/0", {"order": "score"})
+              tag = f"legacy.{cid}.score"
+              lines += [f"{tag}.http={status}", f"{tag}.bytes={n}", f"{tag}.root_keys={keys(root)}"]
+              arr = find_array(root, {"comments", "comment_floors", "floors", "list"})
+              lines.append(f"{tag}.item_count={len(arr) if isinstance(arr, list) else -1}")
+              if isinstance(arr, list) and arr and isinstance(arr[0], dict):
+                  lines.append(f"{tag}.first_keys={keys(arr[0])}")
+                  urls = url_fields(arr[0])
+                  if urls:
+                      lines.append(f"{tag}.url_fields=" + " | ".join(f"{p}={u}" for p, u in urls[:30]))
 
-          out="\n".join(lines)+"\n"
+          out = "\n".join(lines) + "\n"
           print(out)
           Path("probe-results").mkdir(exist_ok=True)
-          Path("probe-results/kuaikan-app-comment-probe.txt").write_text(out,encoding="utf-8")
+          Path("probe-results/kuaikan-comment-image-schema.txt").write_text(out, encoding="utf-8")
           PY
 
       - name: Commit sanitized probe summary
@@ -172,11 +157,11 @@ jobs:
           set -euo pipefail
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add probe-results/kuaikan-app-comment-probe.txt
+          git add probe-results/kuaikan-comment-image-schema.txt
           if git diff --cached --quiet; then
             echo "Probe summary unchanged"
             exit 0
           fi
-          git commit -m "probe: record Kuaikan APP comment APIs"
+          git commit -m "probe: record Kuaikan comment image schema"
           git pull --rebase origin main
           git push
