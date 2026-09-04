@@ -1,0 +1,69 @@
+name: Kuaikan v25 Floor Detail Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/kuaikan-v25-floor-detail-probe.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Probe live chapter floor detail shape
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, urllib.parse, urllib.request
+          B='https://api.kkmh.com'; C=196392
+          H={'User-Agent':'Kuaikan/5.75.0/575000(iPhone;Scale/3.00) (iPhone; CPU)','Accept':'application/json, text/plain, */*','X-Device':'0'}
+          def get(path, params):
+              u=B+path+'?'+urllib.parse.urlencode(params)
+              req=urllib.request.Request(u,headers=H)
+              with urllib.request.urlopen(req,timeout=25) as r:
+                  return r.status,json.loads(r.read().decode())
+          st,o=get('/v2/comments/cruel/floor_list',{'target_type':'comic','target_id':C,'order':'score','offset':0,'limit':20,'total':'false','source':0})
+          d=o.get('data') or {}; floors=d.get('comment_floors') or []
+          chosen=None
+          for f in floors:
+              root=f.get('root') or {}
+              if (f.get('children_total') or 0)>0 and root.get('id'):
+                  chosen=(root.get('id'),f.get('children_total'),len(f.get('children_comments') or []),f.get('show_more'))
+                  break
+          print('list.http=',st,'code=',o.get('code'),'floors=',len(floors),'chosen=',chosen)
+          if not chosen:
+              raise SystemExit('no reply-bearing floor in sample page')
+          cid=chosen[0]
+          for params in (
+              {'comment_id':cid,'since':0,'limit':20,'direction':0},
+              {'comment_id':cid,'offset':0,'limit':20,'direction':0},
+              {'comment_id':cid,'since':0,'limit':20},
+          ):
+              try:
+                  st2,r=get('/v2/comments/cruel/floor_detail',params)
+              except Exception as e:
+                  print('detail.error',params,type(e).__name__,str(e)); continue
+              data=r.get('data')
+              print('detail.params=',params,'http=',st2,'code=',r.get('code'),'message=',r.get('message'))
+              print('detail.data.type=',type(data).__name__)
+              if isinstance(data,dict):
+                  print('detail.data.keys=',','.join(sorted(data.keys())))
+                  for k in ('since','down_since','up_since','total','normal_total'):
+                      if k in data: print('detail.data.'+k+'=',data.get(k))
+                  cf=data.get('comment_floors')
+                  print('comment_floors.type=',type(cf).__name__)
+                  if isinstance(cf,dict):
+                      print('comment_floors.keys=',','.join(sorted(cf.keys())))
+                      print('children_total=',cf.get('children_total'),'show_more=',cf.get('show_more'),'children_count=',len(cf.get('children_comments') or []))
+                      if cf.get('children_comments'):
+                          ch=cf['children_comments'][0]
+                          print('child.keys=',','.join(sorted(ch.keys())))
+                          print('child.content_info.type=',type(ch.get('content_info')).__name__,'child.contents.type=',type(ch.get('contents')).__name__)
+                  elif isinstance(cf,list):
+                      print('comment_floors.len=',len(cf))
+              print('---')
+          PY
