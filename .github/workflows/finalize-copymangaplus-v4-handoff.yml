@@ -46,9 +46,8 @@ jobs:
           mkdir -p upstream/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus
           cp .github/handoff/copymangaplus-v4-opencc/build.gradle.kts upstream/src/zh/copymangaplus/build.gradle.kts
           cp .github/handoff/copymangaplus-v4-opencc/CopyMangaPlus.kt upstream/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt
-          cp -a /tmp/nonexistent 2>/dev/null || true
 
-      - name: Copy current icon and proguard resources from private source
+      - name: Checkout current private source
         uses: actions/checkout@v5
         with:
           repository: huoguotiankong/mx-dev
@@ -58,11 +57,17 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Restore non-text module resources
+      - name: Restore module support files and resources
         shell: bash
         run: |
+          set -euo pipefail
           cp private-source/src/zh/copymangaplus/proguard-rules.pro upstream/src/zh/copymangaplus/proguard-rules.pro
           cp -a private-source/src/zh/copymangaplus/res upstream/src/zh/copymangaplus/res
+          cp private-source/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/Filters.kt \
+            upstream/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/Filters.kt
+          mkdir -p upstream/src/zh/copymangaplus/src/eu/kanade/tachiyomi/source
+          cp -a private-source/src/zh/copymangaplus/src/eu/kanade/tachiyomi/source/mx \
+            upstream/src/zh/copymangaplus/src/eu/kanade/tachiyomi/source/mx
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
