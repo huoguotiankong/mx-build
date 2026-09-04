@@ -1,0 +1,47 @@
+name: Kuaikan Chapter Floor Shape Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/kuaikan-chapter-floor-shape-probe-trigger"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Probe sanitized chapter floor content shape
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,urllib.parse,urllib.request
+          B='https://api.kkmh.com'; C=196392
+          H={'User-Agent':'Kuaikan/5.75.0/575000(iPhone;Scale/3.00) (iPhone; CPU)','Accept':'application/json, text/plain, */*','X-Device':'0'}
+          q=urllib.parse.urlencode({'target_type':'comic','target_id':C,'order':'score','offset':0,'limit':20,'total':'false','source':0})
+          with urllib.request.urlopen(urllib.request.Request(B+'/v2/comments/cruel/floor_list?'+q,headers=H),timeout=25) as r:o=json.loads(r.read().decode())
+          d=o.get('data') or {}; arr=d.get('comment_floors') or []
+          print('count='+str(len(arr))+' since='+str(d.get('since'))+' normal_total='+str(d.get('normal_total')))
+          for i,f in enumerate(arr[:2]):
+            root=f.get('root') or {}; print(f'root{i}.keys='+','.join(sorted(root.keys())))
+            for k in ('id','created_at','created_at_info','likes_count','is_liked','content_type'):
+              if k in root: print(f'root{i}.{k}={str(root[k])[:120]}')
+            ci=root.get('content_info'); print(f'root{i}.content_info.type={type(ci).__name__}')
+            if isinstance(ci,dict):
+              print(f'root{i}.content_info.keys='+','.join(sorted(ci.keys())))
+              for k,v in ci.items():
+                if not isinstance(v,(dict,list)): print(f'root{i}.content_info.{k}={str(v)[:200]}')
+                elif isinstance(v,list):
+                  print(f'root{i}.content_info.{k}.len={len(v)}')
+                  if v and isinstance(v[0],dict): print(f'root{i}.content_info.{k}[0].keys='+','.join(sorted(v[0].keys())))
+            u=root.get('user') or {}; print(f'root{i}.user.keys='+','.join(sorted(u.keys())))
+            for k in ('id','nickname','avatar_url'):
+              if k in u: print(f'root{i}.user.{k}={str(u[k])[:160]}')
+            print(f'floor{i}.children_total={f.get("children_total")} children_count={len(f.get("children_comments") or [])}')
+          PY
