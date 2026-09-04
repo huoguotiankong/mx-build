@@ -1,0 +1,49 @@
+name: Stage JMComic Plus v6 Source Handoff
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/handoff-jmcomicplus-v6-source.yml"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  handoff:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download validated v6 source candidate
+        uses: actions/download-artifact@v5
+        with:
+          name: jmcomicplus-v6-source-candidate
+          path: payload
+          github-token: ${{ github.token }}
+          repository: huoguotiankong/mx-build
+          run-id: 33837139674
+
+      - name: Checkout handoff repository
+        uses: actions/checkout@v5
+        with:
+          path: buildrepo
+          fetch-depth: 0
+
+      - name: Publish source handoff branch
+        working-directory: buildrepo
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch --orphan jmcomicplus-v6-source-handoff
+          git rm -rf . >/dev/null 2>&1 || true
+          cp -a ../payload/. .
+          test -f src/zh/jmcomicplus/build.gradle.kts
+          grep -q 'versionCode = 6' src/zh/jmcomicplus/build.gradle.kts
+          test -f src/zh/jmcomicplus/src/eu/kanade/tachiyomi/extension/zh/jmcomicplus/JmComicPlus.kt
+          test -f docs/sources/jmcomicplus.md
+          git add -A
+          git commit -m "Handoff validated JMComic Plus v6 source"
+          git push --force origin HEAD:refs/heads/handoff/jmcomicplus-v6-source
