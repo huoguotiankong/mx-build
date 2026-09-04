@@ -1,0 +1,48 @@
+name: Bilibili Tencent v23 v25 APK handoff
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/bilibili-tencent-v23-v25-handoff.yml"
+      - ".github/bilibili-tencent-v23-v25-handoff-trigger"
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout staged signed APKs
+        uses: actions/checkout@v5
+        with:
+          ref: extension-staging
+          persist-credentials: false
+
+      - name: Verify staged APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f test/apk/tachiyomi-zh.bilibilimanga-v1.6.23.apk
+          test -f test/apk/tachiyomi-zh.tencentcomics-v1.4.25.apk
+          sha256sum \
+            test/apk/tachiyomi-zh.bilibilimanga-v1.6.23.apk \
+            test/apk/tachiyomi-zh.tencentcomics-v1.4.25.apk
+
+      - name: Upload Bilibili APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: tachiyomi-zh.bilibilimanga-v1.6.23
+          path: test/apk/tachiyomi-zh.bilibilimanga-v1.6.23.apk
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload Tencent APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: tachiyomi-zh.tencentcomics-v1.4.25
+          path: test/apk/tachiyomi-zh.tencentcomics-v1.4.25.apk
+          if-no-files-found: error
+          retention-days: 1
