@@ -33,17 +33,19 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           path = Path('app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt')
           text = path.read_text('utf-8')
-          old = '''                        state.loginRequired -> LoginRequiredBar(
-                            canOpenSourceSettings = state.canOpenSourceSettings,
-                            onOpenSourceSettings = onOpenSourceSettings,
-                        )'''
-          count = text.count(old)
+          pattern = re.compile(
+              r'(?m)^(?P<i>\s*)state\.loginRequired\s*->\s*LoginRequiredBar\(\s*\n'
+              r'\s*canOpenSourceSettings\s*=\s*state\.canOpenSourceSettings,\s*\n'
+              r'\s*onOpenSourceSettings\s*=\s*onOpenSourceSettings,\s*\n'
+              r'\s*\)'
+          )
+          text, count = pattern.subn(lambda m: f"{m.group('i')}state.loginRequired -> Unit", text)
           if count != 3:
               raise SystemExit(f'Expected 3 persistent login bars, found {count}')
-          text = text.replace(old, '                        state.loginRequired -> Unit')
           path.write_text(text, 'utf-8')
           PY
 
