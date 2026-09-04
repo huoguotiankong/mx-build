@@ -1,0 +1,80 @@
+name: Check E-Hentai Plus v1
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/check-ehentaiplus-v1.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-ehentaiplus-v1
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check private source token
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+        run: test -n "$MX_PRIVATE_READ_TOKEN"
+
+      - name: Checkout E-Hentai Plus candidate
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: feat/ehentai-plus
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: dev
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout current Keiyoushi
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Overlay candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf upstream/src/zh/ehentaiplus
+          cp -a dev/src/zh/ehentaiplus upstream/src/zh/ehentaiplus
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Format and build
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:ehentaiplus:spotlessApply
+          ./gradlew :src:zh:ehentaiplus:spotlessCheck :src:zh:ehentaiplus:assembleDebug
+
+      - name: Upload formatted source
+        uses: actions/upload-artifact@v4
+        with:
+          name: ehentaiplus-v1-formatted-source
+          path: upstream/src/zh/ehentaiplus
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ehentaiplus-v1-debug-apk
+          path: upstream/src/zh/ehentaiplus/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
