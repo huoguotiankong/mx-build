@@ -34,12 +34,12 @@
         "name": "CopyManga Plus",
         "packageName": "eu.kanade.tachiyomi.extension.zh.copymangaplus",
         "resources": {
-          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.copymangaplus-v1.6.1.apk",
-          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.copymangaplus-v106001.png"
+          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.copymangaplus-v1.6.2.apk",
+          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.copymangaplus-v106002.png"
         },
         "extensionLib": "1.6",
-        "versionCode": 106001,
-        "versionName": "1.6.1",
+        "versionCode": 106002,
+        "versionName": "1.6.2",
         "contentWarning": "NSFW",
         "sources": [
           {
