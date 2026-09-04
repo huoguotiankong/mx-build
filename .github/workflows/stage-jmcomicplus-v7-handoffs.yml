@@ -1,0 +1,88 @@
+name: Stage JMComic Plus v7 Handoffs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/stage-jmcomicplus-v7-handoffs.yml"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  source-handoff:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download validated v7 source candidate
+        uses: actions/download-artifact@v5
+        with:
+          name: jmcomicplus-v7-source-candidate
+          path: payload
+          github-token: ${{ github.token }}
+          repository: huoguotiankong/mx-build
+          run-id: 33849589736
+
+      - name: Checkout handoff repository
+        uses: actions/checkout@v5
+        with:
+          path: buildrepo
+          fetch-depth: 0
+
+      - name: Publish v7 source handoff branch
+        working-directory: buildrepo
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch --orphan jmcomicplus-v7-source-handoff
+          git rm -rf . >/dev/null 2>&1 || true
+          cp -a ../payload/. .
+          test -f src/zh/jmcomicplus/build.gradle.kts
+          grep -q 'versionCode = 7' src/zh/jmcomicplus/build.gradle.kts
+          test -f src/zh/jmcomicplus/src/eu/kanade/tachiyomi/extension/zh/jmcomicplus/JmComicPlus.kt
+          test -f docs/sources/jmcomicplus.md
+          for d in ldpi mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            test -s "src/zh/jmcomicplus/res/mipmap-$d/ic_launcher.png"
+          done
+          git add -A
+          git commit -m "Handoff validated JMComic Plus v7 source"
+          git push --force origin HEAD:refs/heads/handoff/jmcomicplus-v7-source
+
+  store-handoff:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download validated v7 test store
+        uses: actions/download-artifact@v5
+        with:
+          name: jmcomicplus-v7-test-store
+          path: payload
+          github-token: ${{ github.token }}
+          repository: huoguotiankong/mx-build
+          run-id: 33849589736
+
+      - name: Checkout handoff repository
+        uses: actions/checkout@v5
+        with:
+          path: buildrepo
+          fetch-depth: 0
+
+      - name: Publish v7 test-store handoff branch
+        working-directory: buildrepo
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch --orphan jmcomicplus-v7-store-handoff
+          git rm -rf . >/dev/null 2>&1 || true
+          cp -a ../payload/. .
+          test -f apk/tachiyomi-zh.jmcomicplus-v1.6.7.apk
+          test -f icon/eu.kanade.tachiyomi.extension.zh.jmcomicplus-v106007.png
+          grep -q 'jmcomicplus' index.json
+          grep -Eq '1\.6\.7|106007' index.json repo.json
+          git add -A
+          git commit -m "Handoff validated JMComic Plus v7 test store"
+          git push --force origin HEAD:refs/heads/handoff/jmcomicplus-v7
