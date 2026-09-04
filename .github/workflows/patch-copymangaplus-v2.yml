@@ -31,7 +31,7 @@ jobs:
           token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
           path: source
           fetch-depth: 1
-          persist-credentials: false
+          persist-credentials: true
 
       - name: Patch CopyManga Plus v2
         run: |
@@ -72,6 +72,18 @@ jobs:
       - name: Validate v2
         working-directory: upstream
         run: ./gradlew :src:zh:copymangaplus:spotlessCheck :src:zh:copymangaplus:assembleDebug :src:zh:copymangaplus:lintRelease
+
+      - name: Stage validated v2 in private repository
+        id: stage_private
+        continue-on-error: true
+        working-directory: source
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/zh/copymangaplus
+          git commit -m "fix(copymangaplus): refresh mobile routes v2"
+          git push origin HEAD:refs/heads/copymanga-v2-staging --force
 
       - name: Upload patched v2 module
         uses: actions/upload-artifact@v4
