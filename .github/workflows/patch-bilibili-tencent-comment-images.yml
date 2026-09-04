@@ -1,0 +1,171 @@
+name: Patch Bilibili and Tencent comment images
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/bilibili-tencent-comment-images-trigger"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: patch-bilibili-tencent-comment-images
+  cancel-in-progress: false
+
+jobs:
+  patch-validate-writeback:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - name: Check private source token
+        shell: bash
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]] || { echo "::error::Missing MX_PRIVATE_READ_TOKEN"; exit 1; }
+
+      - name: Checkout private extension source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply Bilibili v22 and Tencent v24 image patch
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f scripts/patch_comment_images_bilibili_tencent.py
+          python3 scripts/patch_comment_images_bilibili_tencent.py
+          git diff --check
+          python3 scripts/validate_sources.py
+          grep -F 'versionCode = 22' src/zh/bilibilimanga/build.gradle.kts
+          grep -F 'versionCode = 24' src/zh/tencentcomics/build.gradle.kts
+          grep -F 'contentObject["pictures"]' src/zh/bilibilimanga/src/eu/kanade/tachiyomi/extension/zh/bilibilimanga/BilibiliManga.kt
+          grep -F 'picture.string("img_src")' src/zh/bilibilimanga/src/eu/kanade/tachiyomi/extension/zh/bilibilimanga/BilibiliManga.kt
+          grep -F '(topic["attach"] as? JsonArray)' src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+          grep -F 'attachment.string("picUrl")' src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Checkout current Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Overlay changed modules
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf upstream/src/zh/bilibilimanga upstream/src/zh/tencentcomics
+          mkdir -p upstream/src/zh
+          cp -a source/src/zh/bilibilimanga upstream/src/zh/bilibilimanga
+          cp -a source/src/zh/tencentcomics upstream/src/zh/tencentcomics
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          build-root-directory: upstream
+
+      - name: Format changed modules
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew \
+            :src:zh:bilibilimanga:spotlessApply \
+            :src:zh:tencentcomics:spotlessApply
+          ./gradlew \
+            :src:zh:bilibilimanga:spotlessCheck \
+            :src:zh:tencentcomics:spotlessCheck
+
+      - name: Copy formatted files back
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp upstream/src/zh/bilibilimanga/build.gradle.kts source/src/zh/bilibilimanga/build.gradle.kts
+          cp upstream/src/zh/bilibilimanga/src/eu/kanade/tachiyomi/extension/zh/bilibilimanga/BilibiliManga.kt \
+            source/src/zh/bilibilimanga/src/eu/kanade/tachiyomi/extension/zh/bilibilimanga/BilibiliManga.kt
+          cp upstream/src/zh/tencentcomics/build.gradle.kts source/src/zh/tencentcomics/build.gradle.kts
+          cp upstream/src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt \
+            source/src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+          git -C source diff --check
+
+      - name: Build Debug Release and lintRelease
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew \
+            :src:zh:bilibilimanga:assembleDebug \
+            :src:zh:bilibilimanga:assembleRelease \
+            :src:zh:bilibilimanga:lintRelease \
+            :src:zh:tencentcomics:assembleDebug \
+            :src:zh:tencentcomics:assembleRelease \
+            :src:zh:tencentcomics:lintRelease
+
+      - name: Verify Release image extraction strings
+        shell: bash
+        run: |
+          set -euo pipefail
+          for module in bilibilimanga tencentcomics; do
+            apk="$(find "upstream/src/zh/$module" -path '*/build/outputs/apk/release/*.apk' -type f | sort | head -n 1)"
+            [[ -n "$apk" ]] || { echo "::error::No $module Release APK"; exit 1; }
+            dump="$RUNNER_TEMP/$module-dex.txt"
+            : > "$dump"
+            while IFS= read -r dex; do
+              unzip -p "$apk" "$dex" | strings >> "$dump"
+            done < <(unzip -Z1 "$apk" | grep -E '^classes([0-9]+)?\.dex$' || true)
+            if [[ "$module" == "bilibilimanga" ]]; then
+              grep -Fq 'pictures' "$dump" || { echo "::error::Bilibili release lost pictures parser"; exit 1; }
+              grep -Fq 'img_src' "$dump" || { echo "::error::Bilibili release lost img_src parser"; exit 1; }
+            else
+              grep -Fq 'attach' "$dump" || { echo "::error::Tencent release lost attach parser"; exit 1; }
+              grep -Fq 'picUrl' "$dump" || { echo "::error::Tencent release lost picUrl parser"; exit 1; }
+            fi
+          done
+
+      - name: Commit validated source to mx-dev
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            src/zh/bilibilimanga \
+            src/zh/tencentcomics \
+            docs/sources/bilibilimanga.md \
+            docs/sources/tencentcomics.md
+          git diff --cached --check
+          git diff --cached --quiet && { echo "::error::No source changes to commit"; exit 1; }
+          git commit -m "feat(comments): show Bilibili and Tencent images"
+          git pull --rebase origin main
+          git push origin HEAD:main
+
+      - name: Record validation result
+        shell: bash
+        run: |
+          {
+            echo "### Bilibili v22 + Tencent v24"
+            echo
+            echo "- Bilibili reads content.pictures[].img_src and keeps image-only comments."
+            echo "- Tencent reads Topic.attach[].picUrl and keeps image-only topics."
+            echo "- Tencent PC fallback also keeps comment body images."
+            echo "- Spotless, Debug, Release, lintRelease and Release DEX string checks passed."
+            echo "- Changes were written back to private mx-dev main only after validation."
+            echo "- Android real-device image rendering remains a separate verification step."
+          } >> "$GITHUB_STEP_SUMMARY"
