@@ -1,0 +1,79 @@
+name: Sync JMComic Plus v9 to mx-dev
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/sync-jmcomicplus-v9-to-dev.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check private repo token
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]]
+
+      - name: Checkout validated v9 source handoff
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-build
+          ref: handoff/jmcomicplus-v9-source
+          path: source
+          persist-credentials: false
+
+      - name: Checkout private development repository
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: dev
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Validate v9 source payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f source/src/zh/jmcomicplus/build.gradle.kts
+          test -f source/src/zh/jmcomicplus/src/eu/kanade/tachiyomi/extension/zh/jmcomicplus/JmComicPlus.kt
+          test -f source/src/zh/jmcomicplus/src/eu/kanade/tachiyomi/extension/zh/jmcomicplus/ScrambledImageInterceptor.kt
+          test -f source/docs/sources/jmcomicplus.md
+          grep -q 'versionCode = 9' source/src/zh/jmcomicplus/build.gradle.kts
+          ! grep -q '__jm_author__' source/src/zh/jmcomicplus/src/eu/kanade/tachiyomi/extension/zh/jmcomicplus/JmComicPlus.kt
+          grep -q 'supportsChapterComments = true' source/src/zh/jmcomicplus/src/eu/kanade/tachiyomi/extension/zh/jmcomicplus/JmComicPlus.kt
+
+      - name: Sync validated source and maintenance record
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dev/src/zh/jmcomicplus
+          cp -a source/src/zh/jmcomicplus dev/src/zh/jmcomicplus
+          mkdir -p dev/docs/sources
+          cp source/docs/sources/jmcomicplus.md dev/docs/sources/jmcomicplus.md
+
+      - name: Commit validated v9 to mx-dev main
+        working-directory: dev
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/zh/jmcomicplus docs/sources/jmcomicplus.md
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "mx-dev already contains validated JMComic Plus v9"
+            exit 0
+          fi
+          git commit -m "fix(jmcomicplus): sync validated v9 real-device repairs"
+          git push origin HEAD:main
