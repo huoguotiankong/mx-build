@@ -52,14 +52,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Repair the helper typo in the checked-out build helper before execution.
           python3 - <<'PY'
           from pathlib import Path
+          import re
           p = Path('buildrepo/scripts/patch_jmcomicplus_v5.py')
           s = p.read_text('utf-8')
-          s = s.replace('d = DOC.read_text("utf-8")d = d.replace(', 'd = DOC.read_text("utf-8")\nd = d.replace(')
+          s, n = re.subn(r'd = DOC\.read_text\("utf-8"\)nd = d\.replace\(', 'd = DOC.read_text("utf-8")\n' + 'd = d.replace(', s, count=1)
+          if n != 1:
+              raise SystemExit(f'helper repair failed: {n}')
           p.write_text(s, 'utf-8')
           PY
+          python3 -m py_compile buildrepo/scripts/patch_jmcomicplus_v5.py
           python3 buildrepo/scripts/patch_jmcomicplus_v5.py
 
       - name: Validate source layout
