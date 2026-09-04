@@ -35,70 +35,81 @@ jobs:
           path = Path("app/src/main/java/eu/kanade/presentation/manga/MangaScreen.kt")
           text = path.read_text(encoding="utf-8")
 
-          old_title = '''                    title = if (manga.displayMode == Manga.CHAPTER_DISPLAY_NUMBER) {
-                        stringResource(
-                            MR.strings.display_mode_chapter,
-                            formatChapterNumber(item.chapter.chapterNumber),
-                        )
-                    } else {
-                        item.chapter.name
-                    },
-          '''
-          new_title = '''                    title = if (manga.displayMode == Manga.CHAPTER_DISPLAY_NUMBER) {
-                        chapterNumberDisplayTitle(
-                            sourceTitle = item.chapter.name,
-                            numberTitle = stringResource(
-                                MR.strings.display_mode_chapter,
-                                formatChapterNumber(item.chapter.chapterNumber),
-                            ),
-                        )
-                    } else {
-                        item.chapter.name
-                    },
-          '''
-
-          helper_anchor = '''private fun onChapterItemClick(
-          '''
-          helper = '''internal fun chapterNumberDisplayTitle(sourceTitle: String, numberTitle: String): String {
-              val body = sourceTitle.trimStart()
-              val marker = CHAPTER_ACCESS_MARKERS.firstOrNull(body::startsWith)
-              return marker?.let { "$it $numberTitle" } ?: numberTitle
-          }
-
-          private val CHAPTER_ACCESS_MARKERS = listOf("🔒", "✅", "🔓", "🆓")
-
-          '''
-
-          if new_title not in text:
-              if text.count(old_title) != 1:
-                  raise SystemExit(f"chapter title anchor mismatch: {text.count(old_title)}")
+          title_needle = "title = if (manga.displayMode == Manga.CHAPTER_DISPLAY_NUMBER) {\n"
+          call_marker = "chapterNumberDisplayTitle(\n"
+          if call_marker not in text:
+              if text.count(title_needle) != 1:
+                  raise SystemExit(f"chapter title anchor mismatch: {text.count(title_needle)}")
+              pos = text.index(title_needle)
+              line_start = text.rfind("\n", 0, pos) + 1
+              indent = text[line_start:pos]
+              old_title = "".join([
+                  indent + title_needle,
+                  indent + "    stringResource(\n",
+                  indent + "        MR.strings.display_mode_chapter,\n",
+                  indent + "        formatChapterNumber(item.chapter.chapterNumber),\n",
+                  indent + "    )\n",
+                  indent + "} else {\n",
+                  indent + "    item.chapter.name\n",
+                  indent + "},\n",
+              ])
+              if old_title not in text:
+                  raise SystemExit("chapter title block mismatch")
+              new_title = "".join([
+                  indent + title_needle,
+                  indent + "    chapterNumberDisplayTitle(\n",
+                  indent + "        sourceTitle = item.chapter.name,\n",
+                  indent + "        numberTitle = stringResource(\n",
+                  indent + "            MR.strings.display_mode_chapter,\n",
+                  indent + "            formatChapterNumber(item.chapter.chapterNumber),\n",
+                  indent + "        ),\n",
+                  indent + "    )\n",
+                  indent + "} else {\n",
+                  indent + "    item.chapter.name\n",
+                  indent + "},\n",
+              ])
               text = text.replace(old_title, new_title, 1)
 
-          if helper not in text:
+          helper_signature = "internal fun chapterNumberDisplayTitle(sourceTitle: String, numberTitle: String): String {"
+          if helper_signature not in text:
+              helper_anchor = "private fun onChapterItemClick(\n"
               if text.count(helper_anchor) != 1:
                   raise SystemExit(f"chapter helper anchor mismatch: {text.count(helper_anchor)}")
+              helper = "\n".join([
+                  helper_signature,
+                  "    val body = sourceTitle.trimStart()",
+                  "    val marker = CHAPTER_ACCESS_MARKERS.firstOrNull(body::startsWith)",
+                  "    return marker?.let { \"$it $numberTitle\" } ?: numberTitle",
+                  "}",
+                  "",
+                  "private val CHAPTER_ACCESS_MARKERS = listOf(\"🔒\", \"✅\", \"🔓\", \"🆓\")",
+                  "",
+                  "",
+              ])
               text = text.replace(helper_anchor, helper + helper_anchor, 1)
 
           path.write_text(text, encoding="utf-8")
 
           test = Path("app/src/test/java/eu/kanade/presentation/manga/MangaScreenChapterTitleTest.kt")
           test.parent.mkdir(parents=True, exist_ok=True)
-          test.write_text('''package eu.kanade.presentation.manga
-
-          import org.junit.jupiter.api.Assertions.assertEquals
-          import org.junit.jupiter.api.Test
-
-          class MangaScreenChapterTitleTest {
-              @Test
-              fun `number display preserves source access markers`() {
-                  assertEquals("✅ Chapter 10", chapterNumberDisplayTitle("✅ 第10话", "Chapter 10"))
-                  assertEquals("🔒 Chapter 10", chapterNumberDisplayTitle("🔒 第10话", "Chapter 10"))
-                  assertEquals("🔓 Chapter 10", chapterNumberDisplayTitle("🔓 第10话", "Chapter 10"))
-                  assertEquals("🆓 Chapter 10", chapterNumberDisplayTitle("🆓 第10话", "Chapter 10"))
-                  assertEquals("Chapter 10", chapterNumberDisplayTitle("第10话", "Chapter 10"))
-              }
-          }
-          ''', encoding="utf-8")
+          test.write_text("\n".join([
+              "package eu.kanade.presentation.manga",
+              "",
+              "import org.junit.jupiter.api.Assertions.assertEquals",
+              "import org.junit.jupiter.api.Test",
+              "",
+              "class MangaScreenChapterTitleTest {",
+              "    @Test",
+              "    fun `number display preserves source access markers`() {",
+              "        assertEquals(\"✅ Chapter 10\", chapterNumberDisplayTitle(\"✅ 第10话\", \"Chapter 10\"))",
+              "        assertEquals(\"🔒 Chapter 10\", chapterNumberDisplayTitle(\"🔒 第10话\", \"Chapter 10\"))",
+              "        assertEquals(\"🔓 Chapter 10\", chapterNumberDisplayTitle(\"🔓 第10话\", \"Chapter 10\"))",
+              "        assertEquals(\"🆓 Chapter 10\", chapterNumberDisplayTitle(\"🆓 第10话\", \"Chapter 10\"))",
+              "        assertEquals(\"Chapter 10\", chapterNumberDisplayTitle(\"第10话\", \"Chapter 10\"))",
+              "    }",
+              "}",
+              "",
+          ]), encoding="utf-8")
           PY
 
       - name: Set up Java
@@ -126,6 +137,10 @@ jobs:
           ./gradlew :app:testDebugUnitTest
           --tests eu.kanade.presentation.manga.comments.CommentRichContentTest
           --tests eu.kanade.presentation.manga.MangaScreenChapterTitleTest
+
+      - name: Full release unit tests
+        working-directory: source
+        run: ./gradlew testReleaseUnitTest
 
       - name: Build Preview APK
         working-directory: source
