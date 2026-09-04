@@ -6,6 +6,7 @@ on:
     paths:
       - ".github/workflows/patch-copymangaplus-v2.yml"
       - ".github/scripts/patch_copymangaplus_v2.py"
+      - ".github/scripts/refine_copymangaplus_v2.py"
   workflow_dispatch:
 
 permissions:
@@ -33,7 +34,9 @@ jobs:
           persist-credentials: false
 
       - name: Patch CopyManga Plus v2
-        run: python3 buildrepo/.github/scripts/patch_copymangaplus_v2.py
+        run: |
+          python3 buildrepo/.github/scripts/patch_copymangaplus_v2.py
+          python3 buildrepo/.github/scripts/refine_copymangaplus_v2.py
 
       - name: Set up Java
         uses: actions/setup-java@v5
