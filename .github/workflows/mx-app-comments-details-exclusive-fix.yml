@@ -94,16 +94,16 @@ jobs:
 
           presentation = Path("app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt")
           ptext = presentation.read_text(encoding="utf-8")
-          callback = "    onOpenSourceSettings: () -> Unit,\n"
-          if ptext.count(callback) != 3:
-              raise SystemExit(f"presentation source-settings callback count mismatch: {ptext.count(callback)}")
-          ptext = ptext.replace(callback, "")
           login_bar_pattern = re.compile(
               r"@Composable\nprivate fun LoginRequiredBar\([\s\S]*?\n\}\n\n(?=@Composable\nprivate fun EmptyContent)"
           )
           ptext, login_bar_count = login_bar_pattern.subn("", ptext, count=1)
           if login_bar_count != 1:
               raise SystemExit(f"dead LoginRequiredBar block mismatch: {login_bar_count}")
+          callback = "    onOpenSourceSettings: () -> Unit,\n"
+          if ptext.count(callback) != 3:
+              raise SystemExit(f"presentation source-settings callback count mismatch after bar cleanup: {ptext.count(callback)}")
+          ptext = ptext.replace(callback, "")
           presentation.write_text(ptext, encoding="utf-8")
 
           for rel in (
