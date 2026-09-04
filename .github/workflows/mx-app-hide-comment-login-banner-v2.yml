@@ -1,0 +1,87 @@
+name: MX App Hide Comment Login Banner V2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/mx-app-hide-comment-login-banner-v2-trigger"
+      - ".github/workflows/mx-app-hide-comment-login-banner-v2.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  patch-and-check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - name: Checkout MX App branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-app
+          ref: fix/hide-comment-login-banner-v2
+          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Remove persistent login/source-settings bars
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt')
+          text = path.read_text('utf-8')
+          old = '''                        state.loginRequired -> LoginRequiredBar(
+                            canOpenSourceSettings = state.canOpenSourceSettings,
+                            onOpenSourceSettings = onOpenSourceSettings,
+                        )'''
+          count = text.count(old)
+          if count != 3:
+              raise SystemExit(f'Expected 3 persistent login bars, found {count}')
+          text = text.replace(old, '                        state.loginRequired -> Unit')
+          path.write_text(text, 'utf-8')
+          PY
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          build-root-directory: source
+
+      - name: Apply Spotless
+        working-directory: source
+        run: ./gradlew spotlessApply
+
+      - name: Spotless check
+        working-directory: source
+        run: ./gradlew spotlessCheck
+
+      - name: Compile app Debug Kotlin
+        working-directory: source
+        run: ./gradlew :app:compileDebugKotlin
+
+      - name: Commit validated change
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "fix: hide persistent comment login banner"
+            git push origin HEAD:fix/hide-comment-login-banner-v2
+          fi
