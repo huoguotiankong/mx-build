@@ -1,0 +1,92 @@
+name: Patch CopyManga Plus v4 OpenCC handoff
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/patch-copymangaplus-opencc-v4d.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-export:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout build repository
+        uses: actions/checkout@v5
+        with:
+          path: helper
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Checkout private source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Apply conversion patch
+        run: python3 helper/.github/scripts/patch_copymangaplus_opencc_v4.py source
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Checkout current Keiyoushi
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Overlay module
+        shell: bash
+        run: |
+          rm -rf upstream/src/zh/copymangaplus
+          cp -a source/src/zh/copymangaplus upstream/src/zh/copymangaplus
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Format, build and lint
+        working-directory: upstream
+        run: |
+          ./gradlew :src:zh:copymangaplus:spotlessApply
+          ./gradlew :src:zh:copymangaplus:spotlessCheck
+          ./gradlew :src:zh:copymangaplus:assembleDebug :src:zh:copymangaplus:lintRelease
+
+      - name: Copy formatted module back and validate source layout
+        shell: bash
+        run: |
+          rm -rf source/src/zh/copymangaplus
+          cp -a upstream/src/zh/copymangaplus source/src/zh/copymangaplus
+          python3 source/scripts/validate_sources.py
+          git -C source diff --check
+
+      - name: Export validated text handoff
+        shell: bash
+        run: |
+          set -euo pipefail
+          out=helper/.github/handoff/copymangaplus-v4-opencc
+          rm -rf "$out"
+          mkdir -p "$out"
+          cp source/src/zh/copymangaplus/build.gradle.kts "$out/build.gradle.kts"
+          cp source/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt "$out/CopyMangaPlus.kt"
+          cp source/docs/sources/copymangaplus.md "$out/copymangaplus.md"
+          printf '%s\n' 'validated: spotlessCheck + assembleDebug + lintRelease + validate_sources' > "$out/VALIDATED.txt"
+          git -C helper config user.name "github-actions[bot]"
+          git -C helper config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C helper add .github/handoff/copymangaplus-v4-opencc
+          git -C helper commit -m "ci: export validated CopyManga v4 OpenCC handoff"
+          git -C helper pull --rebase origin main
+          git -C helper push origin HEAD:main
