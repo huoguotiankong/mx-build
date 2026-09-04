@@ -1,4 +1,4 @@
-requested=2026-09-05T02:10:00+08:00
+requested=2026-09-05T02:14:00+08:00
 branch=fix/comments-and-detail-tags
-reason=retry-with-robust-source-anchors
-attempt=2
+reason=retry-after-removing-dead-login-bar-before-callbacks
+attempt=3
