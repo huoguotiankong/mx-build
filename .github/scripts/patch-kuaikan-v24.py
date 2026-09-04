@@ -142,7 +142,7 @@ text = replace_once(text, old_fallback, new_fallback, "commentFromObject")
 
 marker = '''        const val H5_BASE_URL = "https://h5.kuaikanmanhua.com"
         const val DESKTOP_USER_AGENT = '''
-replacement = '''        const val H5_BASE_URL = "https://h5.kuaikanmanhua.com"
+replacement = r'''        const val H5_BASE_URL = "https://h5.kuaikanmanhua.com"
         val COMMENT_IMAGE_HOST_REGEX = Regex("^https://[^/]*(?:kkmh|v3mh)\\.com/", RegexOption.IGNORE_CASE)
         val COMMENT_IMAGE_FILE_REGEX = Regex("\\.(?:jpe?g|png|webp|gif|avif)(?:[?#].*)?$", RegexOption.IGNORE_CASE)
         const val DESKTOP_USER_AGENT = '''
