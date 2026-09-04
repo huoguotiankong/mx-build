@@ -83,3 +83,5 @@ jobs:
           git add src/zh/kuaikanmanhua
           git commit -m "style(kuaikanmanhua): apply Keiyoushi formatting"
           git push origin HEAD:main
+
+# v25 formatter trigger
