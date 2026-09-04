@@ -1,0 +1,48 @@
+name: Fix comment image patch script
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/fix-comment-image-patch-script-trigger"
+
+permissions:
+  contents: read
+
+jobs:
+  fix:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout private source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Fix final newline normalization and write back
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("scripts/patch_comment_images_bilibili_tencent.py")
+          text = path.read_text(encoding="utf-8")
+          old = 'docs_text = docs_text.rstrip() + tencent_section + "\\n"'
+          new = 'docs_text = docs_text.rstrip() + tencent_section.rstrip() + "\\n"'
+          if text.count(old) != 1:
+              raise SystemExit(f"expected one normalization anchor, found {text.count(old)}")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/patch_comment_images_bilibili_tencent.py
+          git commit -m "fix(ci): normalize Tencent comment image docs newline"
+          git pull --rebase origin main
+          git push origin HEAD:main
