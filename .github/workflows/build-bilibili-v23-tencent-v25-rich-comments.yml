@@ -68,13 +68,19 @@ jobs:
             docs/sources/tencentcomics.md || {
               echo "::error::Target source files changed after validated handoff base $base_sha"; exit 1;
             }
-          rm -rf source/src/zh/bilibilimanga source/src/zh/tencentcomics
-          cp -a "$handoff/src/zh/bilibilimanga" source/src/zh/bilibilimanga
-          cp -a "$handoff/src/zh/tencentcomics" source/src/zh/tencentcomics
+          # Overlay only the validated patch payload. Do not delete the complete source
+          # modules here: their module-local eu.kanade.tachiyomi.source.mx compile API
+          # stubs are intentionally absent from the handoff and must be preserved.
+          cp -a "$handoff/src/zh/bilibilimanga/." source/src/zh/bilibilimanga/
+          cp -a "$handoff/src/zh/tencentcomics/." source/src/zh/tencentcomics/
           cp "$handoff/docs/sources/bilibilimanga.md" source/docs/sources/bilibilimanga.md
           cp "$handoff/docs/sources/tencentcomics.md" source/docs/sources/tencentcomics.md
           grep -F 'versionCode = 23' source/src/zh/bilibilimanga/build.gradle.kts
           grep -F 'versionCode = 25' source/src/zh/tencentcomics/build.gradle.kts
+          test -f source/src/zh/bilibilimanga/src/eu/kanade/tachiyomi/source/mx/Comment.kt
+          test -f source/src/zh/bilibilimanga/src/eu/kanade/tachiyomi/source/mx/CommentSource.kt
+          test -f source/src/zh/tencentcomics/src/eu/kanade/tachiyomi/source/mx/Comment.kt
+          test -f source/src/zh/tencentcomics/src/eu/kanade/tachiyomi/source/mx/CommentSource.kt
           python3 source/scripts/validate_sources.py
           printf 'zh/bilibilimanga\nzh/tencentcomics\n' > "$RUNNER_TEMP/mx-test-targets.txt"
 
@@ -99,6 +105,8 @@ jobs:
           rm -rf upstream/src/zh/bilibilimanga upstream/src/zh/tencentcomics
           cp -a source/src/zh/bilibilimanga upstream/src/zh/bilibilimanga
           cp -a source/src/zh/tencentcomics upstream/src/zh/tencentcomics
+          test -f upstream/src/zh/bilibilimanga/src/eu/kanade/tachiyomi/source/mx/Comment.kt
+          test -f upstream/src/zh/tencentcomics/src/eu/kanade/tachiyomi/source/mx/Comment.kt
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
