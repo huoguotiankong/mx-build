@@ -1,0 +1,82 @@
+name: Format JMComic Plus
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/format-jmcomicplus.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check private source token
+        shell: bash
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]] || { echo "::error::Missing MX_PRIVATE_READ_TOKEN"; exit 1; }
+
+      - name: Checkout private source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Checkout current Keiyoushi
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Overlay JMComic Plus module
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf upstream/src/zh/jmcomicplus
+          cp -a source/src/zh/jmcomicplus upstream/src/zh/jmcomicplus
+
+      - name: Apply current Keiyoushi formatting
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:jmcomicplus:spotlessApply
+
+      - name: Copy formatting back to private source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf source/src/zh/jmcomicplus
+          cp -a upstream/src/zh/jmcomicplus source/src/zh/jmcomicplus
+
+          cd source
+          changed="$(git status --short -- src/zh/jmcomicplus)"
+          if [[ -z "$changed" ]]; then
+            echo "No formatting changes"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/zh/jmcomicplus
+          git commit -m "style(jmcomicplus): apply Keiyoushi formatting"
+          git push origin HEAD:main
