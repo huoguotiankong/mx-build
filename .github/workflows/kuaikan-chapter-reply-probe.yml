@@ -1,0 +1,53 @@
+name: Kuaikan Chapter Reply Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/kuaikan-chapter-reply-probe-trigger"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Probe chapter reply routes
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, urllib.parse, urllib.request
+          B='https://api.kkmh.com'; CID=1256258163682105729
+          H={'User-Agent':'Kuaikan/5.75.0/575000(iPhone;Scale/3.00) (iPhone; CPU)','Accept':'application/json, text/plain, */*','X-Device':'0'}
+          def call(path,p=None):
+            u=B+path
+            if p: u+='?'+urllib.parse.urlencode(p)
+            try:
+              with urllib.request.urlopen(urllib.request.Request(u,headers=H),timeout=25) as r:
+                return r.status,json.loads(r.read().decode())
+            except Exception as e: return None,{'_error':type(e).__name__+':'+str(e)}
+          for path in (f'/v1/graph/comments/{CID}/reply/v2',f'/v1/graph/comments/{CID}/reply',f'/v1/comments/{CID}/reply'):
+            for p in ({'since':0,'limit':20},{'offset':0,'limit':20},None):
+              st,o=call(path,p)
+              tag=path+'.'+('none' if p is None else ('since' if 'since' in p else 'offset'))
+              print(tag+' http='+str(st)+' code='+str(o.get('code'))+' message='+str(o.get('message'))[:80])
+              d=o.get('data')
+              if isinstance(d,dict):
+                print('data_keys='+','.join(sorted(d.keys())))
+                for k in ('since','total','count','show_more','showMore'):
+                  if k in d: print(k+'='+str(d[k]))
+                for k,v in d.items():
+                  if isinstance(v,list):
+                    print(k+'.len='+str(len(v)))
+                    if v and isinstance(v[0],dict):
+                      print(k+'.first_keys='+','.join(sorted(v[0].keys())))
+                      for sk,sv in v[0].items():
+                        if isinstance(sv,dict) and sk.lower() in ('user','author','root','reply'):
+                          print(k+'.first.'+sk+'.keys='+','.join(sorted(sv.keys())))
+              print('---')
+          PY
