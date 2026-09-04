@@ -134,6 +134,14 @@ jobs:
           done < <(find upstream/src/zh/jmcomicplus -path '*/build/outputs/apk/release/*.apk' -type f | sort)
           [[ "$found" -eq 1 ]] || { echo "::error::No release APK found"; exit 1; }
 
+      - name: Preserve signed APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jmcomicplus-v4-signed-test-apk
+          path: upstream/src/zh/jmcomicplus/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Checkout public distribution repository
         uses: actions/checkout@v5
         with:
@@ -157,6 +165,14 @@ jobs:
             --owner huoguotiankong \
             --repository mx-repo \
             --signing-key "$SIGNING_FINGERPRINT"
+
+      - name: Preserve generated test store artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jmcomicplus-v4-test-store
+          path: repo/test
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Commit test store
         working-directory: repo
@@ -193,14 +209,6 @@ jobs:
           python3 -m json.tool /tmp/repo.json >/dev/null
           python3 -m json.tool /tmp/index.json >/dev/null
           grep -q 'jmcomicplus' /tmp/index.json || { echo "::error::JMComic Plus missing from published test index"; exit 1; }
-
-      - name: Upload signed test APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: jmcomicplus-v4-signed-test-apk
-          path: upstream/src/zh/jmcomicplus/build/outputs/apk/release/*.apk
-          if-no-files-found: error
-          retention-days: 14
 
       - name: Cleanup signing material
         if: always()
