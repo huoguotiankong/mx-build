@@ -1,0 +1,240 @@
+name: MX App Comment Rich Content Fix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/mx-app-comment-rich-content-fix-trigger"
+
+permissions:
+  contents: read
+
+jobs:
+  patch-and-check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - name: Checkout MX App feature branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-app
+          ref: fix/comment-rich-images-count
+          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Patch comment rich images and count fallback
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          screen = Path("app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt")
+          text = screen.read_text(encoding="utf-8")
+
+          import_anchor = "import androidx.compose.ui.draw.clip\n"
+          import_line = "import androidx.compose.ui.layout.ContentScale\n"
+          if import_line not in text:
+              if text.count(import_anchor) != 1:
+                  raise SystemExit("CommentScreen ContentScale import anchor mismatch")
+              text = text.replace(import_anchor, import_anchor + import_line, 1)
+
+          old_subtitle = '''                subtitle = state.totalCount?.let {
+                    state.mangaTitle + " · " + stringResource(KMR.strings.comments_total_count, it)
+                } ?: state.mangaTitle,'''
+          new_subtitle = '''                subtitle = state.totalCount?.let {
+                    state.mangaTitle + " · " + stringResource(KMR.strings.comments_total_count, it)
+                } ?: if (state.comments.isNotEmpty()) {
+                    state.mangaTitle + " · " + stringResource(KMR.strings.comments_loaded_count, state.comments.size)
+                } else {
+                    state.mangaTitle
+                },'''
+          if old_subtitle in text:
+              if text.count(old_subtitle) != 1:
+                  raise SystemExit("Manga comment subtitle block mismatch")
+              text = text.replace(old_subtitle, new_subtitle, 1)
+          elif new_subtitle not in text:
+              raise SystemExit("Manga comment subtitle block not found")
+
+          old_body = '''                Text(
+                    text = comment.content,
+                    style = MaterialTheme.typography.bodyLarge,
+                )'''
+          new_body = '''                val richContent = remember(comment.content) {
+                    parseCommentRichContent(comment.content)
+                }
+                if (richContent.text.isNotBlank()) {
+                    Text(
+                        text = richContent.text,
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                }
+                richContent.imageUrls.forEach { imageUrl ->
+                    AsyncImage(
+                        model = imageUrl,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(MaterialTheme.shapes.medium),
+                        contentScale = ContentScale.FillWidth,
+                    )
+                }'''
+          if old_body in text:
+              if text.count(old_body) != 1:
+                  raise SystemExit("Comment body Text block mismatch")
+              text = text.replace(old_body, new_body, 1)
+          elif new_body not in text:
+              raise SystemExit("Comment body Text block not found")
+
+          helper_anchor = "private fun formatCommentTime(timestamp: Long): String {"
+          helpers = r'''internal data class CommentRichContent(
+              val text: String,
+              val imageUrls: List<String>,
+          )
+
+          internal fun parseCommentRichContent(content: String): CommentRichContent {
+              val imageUrls = mutableListOf<String>()
+              val text = COMMENT_URL_REGEX
+                  .replace(content) { match ->
+                      val rawUrl = match.value
+                      val normalizedUrl = rawUrl.trimEnd(*COMMENT_URL_TRAILING_PUNCTUATION)
+                      if (isCommentImageUrl(normalizedUrl)) {
+                          imageUrls += normalizedUrl
+                          ""
+                      } else {
+                          rawUrl
+                      }
+                  }
+                  .replace(COMMENT_TRAILING_SPACE_BEFORE_NEWLINE_REGEX, "\n")
+                  .replace(COMMENT_EXCESS_NEWLINES_REGEX, "\n\n")
+                  .trim()
+
+              return CommentRichContent(
+                  text = text,
+                  imageUrls = imageUrls.distinct(),
+              )
+          }
+
+          private fun isCommentImageUrl(url: String): Boolean {
+              val normalized = url.lowercase()
+              return COMMENT_IMAGE_FILE_REGEX.containsMatchIn(normalized) ||
+                  normalized.startsWith("https://cc-image.kkmh.com/comment/image/") ||
+                  COMMENT_V3MH_SOCIAL_IMAGE_REGEX.containsMatchIn(normalized)
+          }
+
+          private val COMMENT_URL_REGEX = Regex("""https?://[^\s<>\"']+""", RegexOption.IGNORE_CASE)
+          private val COMMENT_IMAGE_FILE_REGEX = Regex("""\.(?:jpe?g|png|webp|gif|avif)(?:[?#].*)?$""", RegexOption.IGNORE_CASE)
+          private val COMMENT_V3MH_SOCIAL_IMAGE_REGEX = Regex("""^https?://[^/]*\.v3mh\.com/social/""", RegexOption.IGNORE_CASE)
+          private val COMMENT_TRAILING_SPACE_BEFORE_NEWLINE_REGEX = Regex("""[ \t]+\n""")
+          private val COMMENT_EXCESS_NEWLINES_REGEX = Regex("""\n{3,}""")
+          private val COMMENT_URL_TRAILING_PUNCTUATION = charArrayOf(
+              '.', ',', '，', '。', ';', '；', ':', '：', '!', '！', '?', '？', ')', '）', ']', '】',
+          )
+
+          '''
+          if "internal fun parseCommentRichContent" not in text:
+              if text.count(helper_anchor) != 1:
+                  raise SystemExit("Comment rich helper insertion anchor mismatch")
+              text = text.replace(helper_anchor, helpers + helper_anchor, 1)
+
+          screen.write_text(text, encoding="utf-8")
+
+          strings = Path("i18n-kmk/src/commonMain/moko-resources/base/strings.xml")
+          xml = strings.read_text(encoding="utf-8")
+          old_string = '    <string name="comments_total_count">共 %d 条</string>\n'
+          new_string = old_string + '    <string name="comments_loaded_count">已加载 %d 条</string>\n'
+          if 'name="comments_loaded_count"' not in xml:
+              if xml.count(old_string) != 1:
+                  raise SystemExit("KMR comments_total_count anchor mismatch")
+              xml = xml.replace(old_string, new_string, 1)
+          strings.write_text(xml, encoding="utf-8")
+
+          test = Path("app/src/test/java/eu/kanade/presentation/manga/comments/CommentRichContentTest.kt")
+          test.parent.mkdir(parents=True, exist_ok=True)
+          test.write_text('''package eu.kanade.presentation.manga.comments
+
+          import org.junit.jupiter.api.Assertions.assertEquals
+          import org.junit.jupiter.api.Test
+
+          class CommentRichContentTest {
+
+              @Test
+              fun `kuaikan chapter image urls become rich images`() {
+                  val result = parseCommentRichContent(
+                      "正文\\nhttps://cc-image.kkmh.com/comment/image/1592609200331.jpg\\n" +
+                          "https://cc-image.kkmh.com/comment/image/1592609214776_0aAwHMPZ1y.jpg",
+                  )
+
+                  assertEquals("正文", result.text)
+                  assertEquals(2, result.imageUrls.size)
+              }
+
+              @Test
+              fun `kuaikan social watermark urls without extension become rich images`() {
+                  val url = "https://tncache1-f1.v3mh.com/social/825298cc2457afa0ca8408bb622aa251-watermark"
+                  val result = parseCommentRichContent("推荐\\n$url")
+
+                  assertEquals("推荐", result.text)
+                  assertEquals(listOf(url), result.imageUrls)
+              }
+
+              @Test
+              fun `normal links stay as comment text`() {
+                  val url = "https://www.kuaikanmanhua.com/web/topic/906"
+                  val result = parseCommentRichContent("看看 $url")
+
+                  assertEquals("看看 $url", result.text)
+                  assertEquals(emptyList<String>(), result.imageUrls)
+              }
+          }
+          ''', encoding="utf-8")
+          PY
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          build-root-directory: source
+
+      - name: Apply Spotless
+        working-directory: source
+        run: ./gradlew spotlessApply
+
+      - name: Spotless check
+        working-directory: source
+        run: ./gradlew spotlessCheck
+
+      - name: Comment parser unit test
+        working-directory: source
+        run: ./gradlew :app:testDebugUnitTest --tests eu.kanade.presentation.manga.comments.CommentRichContentTest
+
+      - name: Compile app Debug Kotlin
+        working-directory: source
+        run: ./gradlew :app:compileDebugKotlin
+
+      - name: Commit validated feature branch
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt \
+            app/src/test/java/eu/kanade/presentation/manga/comments/CommentRichContentTest.kt \
+            i18n-kmk/src/commonMain/moko-resources/base/strings.xml
+          if git diff --cached --quiet; then
+            echo "No feature changes to commit"
+          else
+            git commit -m "fix: render comment images and show loaded count"
+            git push origin HEAD:fix/comment-rich-images-count
+          fi
