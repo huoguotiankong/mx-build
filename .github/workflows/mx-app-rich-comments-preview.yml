@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: huoguotiankong/mx-app
-          ref: 6838945364a1bc70c25b8798450eb33568fbef43
+          ref: c89f5e5e1b0f3babb1844a78dd56c7e50dfc3738
           token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
           path: source
           fetch-depth: 0
@@ -42,7 +42,7 @@ jobs:
         run: |
           set -euo pipefail
           source_sha="$(git rev-parse HEAD)"
-          [[ "$source_sha" == "6838945364a1bc70c25b8798450eb33568fbef43" ]]
+          [[ "$source_sha" == "c89f5e5e1b0f3babb1844a78dd56c7e50dfc3738" ]]
           echo "SOURCE_SHA=$source_sha" >> "$GITHUB_ENV"
 
       - name: Set up Java
@@ -185,7 +185,7 @@ jobs:
           cat > README.md <<EOF
           # MX漫画 Private Preview
 
-          当前 Preview 包含评论图片渲染与书评已加载数量显示修复。
+          当前 Preview 包含评论图片富媒体识别优化与章节付费/解锁标识保留修复。
 
           - ARM64：\`apks/MX-Manga-arm64-v8a-preview.apk\`
           - 32 位 ARM：\`apks/MX-Manga-armeabi-v7a-preview.apk\`
@@ -194,7 +194,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add README.md apks
-          git commit -m "Publish MX漫画 rich-comments Preview ${SOURCE_SHA:0:7}"
+          git commit -m "Publish MX漫画 comment-media Preview ${SOURCE_SHA:0:7}"
           git push --force origin HEAD:downloads
 
       - name: Cleanup signing material
