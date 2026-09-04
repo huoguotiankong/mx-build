@@ -1,0 +1,261 @@
+name: MX App Comments and Details Exclusive Fix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/mx-app-comments-details-exclusive-fix-trigger"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  patch-validate-and-push:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout private MX App feature branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-app
+          ref: fix/comments-and-detail-tags
+          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply comment settings cleanup and exclusive detail renderer
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: Path, old: str, new: str, label: str) -> None:
+              text = path.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected exactly one match, got {count}")
+              path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          manga_screen = Path("app/src/main/java/eu/kanade/tachiyomi/ui/manga/MangaScreen.kt")
+          old_detail_loader = '''        // MX -->
+          var mangaDetailInfo by remember(successState.manga.id, successState.source.id) {
+              mutableStateOf<MangaDetailInfo?>(null)
+          }
+          LaunchedEffect(successState.manga, successState.source) {
+              val detailSource = successState.source as? MangaDetailSource
+              mangaDetailInfo = if (detailSource != null && successState.mergedData == null) {
+                  runCatching {
+                      withIOContext {
+                          detailSource.getMangaDetailInfo(successState.manga.toSManga())
+                      }
+                  }.onFailure { error ->
+                      logcat(LogPriority.WARN, error) { "Failed to load MX manga detail metadata" }
+                  }.getOrNull()
+              } else {
+                  null
+              }
+          }
+          '''
+          new_detail_loader = '''        // MX -->
+          val detailSource = remember(successState.source, successState.mergedData) {
+              (successState.source as? MangaDetailSource)
+                  ?.takeIf { successState.mergedData == null }
+          }
+          var mangaDetailInfo by remember(successState.manga.id, successState.source.id, detailSource) {
+              mutableStateOf<MangaDetailInfo?>(detailSource?.let { MangaDetailInfo() })
+          }
+          LaunchedEffect(successState.manga, detailSource) {
+              mangaDetailInfo = if (detailSource != null) {
+                  runCatching {
+                      withIOContext {
+                          detailSource.getMangaDetailInfo(successState.manga.toSManga())
+                      }
+                  }.onFailure { error ->
+                      logcat(LogPriority.WARN, error) { "Failed to load MX manga detail metadata" }
+                  }.getOrElse { MangaDetailInfo() }
+              } else {
+                  null
+              }
+          }
+          '''
+          replace_once(
+              manga_screen,
+              old_detail_loader,
+              new_detail_loader,
+              "exclusive structured manga detail renderer",
+          )
+
+          presentation = Path("app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt")
+          ptext = presentation.read_text(encoding="utf-8")
+          callback = "    onOpenSourceSettings: () -> Unit,\n"
+          if ptext.count(callback) != 3:
+              raise SystemExit(f"presentation source-settings callback count mismatch: {ptext.count(callback)}")
+          ptext = ptext.replace(callback, "")
+          old_login_bar = '''@Composable
+          private fun LoginRequiredBar(
+              canOpenSourceSettings: Boolean,
+              onOpenSourceSettings: () -> Unit,
+          ) {
+              Surface(
+                  tonalElevation = 3.dp,
+                  shadowElevation = 3.dp,
+              ) {
+                  Row(
+                      modifier = Modifier
+                          .fillMaxWidth()
+                          .navigationBarsPadding()
+                          .padding(horizontal = 16.dp, vertical = 12.dp),
+                      horizontalArrangement = Arrangement.SpaceBetween,
+                      verticalAlignment = Alignment.CenterVertically,
+                  ) {
+                      Text(
+                          text = stringResource(KMR.strings.comments_login_required),
+                          style = MaterialTheme.typography.bodyMedium,
+                          modifier = Modifier.weight(1f),
+                      )
+                      if (canOpenSourceSettings) {
+                          TextButton(onClick = onOpenSourceSettings) {
+                              Text(stringResource(KMR.strings.comments_source_settings))
+                          }
+                      }
+                  }
+              }
+          }
+
+          '''
+          if ptext.count(old_login_bar) != 1:
+              raise SystemExit("dead LoginRequiredBar block mismatch")
+          presentation.write_text(ptext.replace(old_login_bar, "", 1), encoding="utf-8")
+
+          for rel in (
+              "app/src/main/java/eu/kanade/tachiyomi/ui/manga/comments/CommentScreen.kt",
+              "app/src/main/java/eu/kanade/tachiyomi/ui/manga/comments/ChapterCommentScreen.kt",
+              "app/src/main/java/eu/kanade/tachiyomi/ui/manga/comments/CommentRepliesScreen.kt",
+          ):
+              path = Path(rel)
+              text = path.read_text(encoding="utf-8")
+              for import_line in (
+                  "import eu.kanade.tachiyomi.source.ConfigurableSource\n",
+                  "import eu.kanade.tachiyomi.ui.browse.extension.details.SourcePreferencesScreen\n",
+              ):
+                  if text.count(import_line) != 1:
+                      raise SystemExit(f"{rel}: import cleanup anchor mismatch for {import_line.strip()}")
+                  text = text.replace(import_line, "", 1)
+
+              settings_callback = '''            onOpenSourceSettings = {
+                  (state as? State.Success)?.takeIf { it.canOpenSourceSettings }?.let {
+                      navigator.push(SourcePreferencesScreen(it.sourceId))
+                  }
+              },
+          '''
+              if text.count(settings_callback) != 1:
+                  raise SystemExit(f"{rel}: settings callback block mismatch")
+              text = text.replace(settings_callback, "", 1)
+
+              if text.count("                        sourceId = manga.source,\n") != 1:
+                  raise SystemExit(f"{rel}: sourceId assignment mismatch")
+              text = text.replace("                        sourceId = manga.source,\n", "", 1)
+              if text.count("                        canOpenSourceSettings = sourceObject is ConfigurableSource,\n") != 1:
+                  raise SystemExit(f"{rel}: canOpenSourceSettings assignment mismatch")
+              text = text.replace(
+                  "                        canOpenSourceSettings = sourceObject is ConfigurableSource,\n",
+                  "",
+                  1,
+              )
+              if text.count("            val sourceId: Long,\n") != 1:
+                  raise SystemExit(f"{rel}: sourceId state field mismatch")
+              text = text.replace("            val sourceId: Long,\n", "", 1)
+              if text.count("            val canOpenSourceSettings: Boolean,\n") != 1:
+                  raise SystemExit(f"{rel}: canOpenSourceSettings state field mismatch")
+              text = text.replace("            val canOpenSourceSettings: Boolean,\n", "", 1)
+              path.write_text(text, encoding="utf-8")
+
+          strings = Path("i18n-kmk/src/commonMain/moko-resources/base/strings.xml")
+          replace_once(
+              strings,
+              '    <string name="comments_login_required">请先登录漫画源账号后再参与评论</string>\n',
+              "",
+              "remove obsolete comment login footer string",
+          )
+          replace_once(
+              strings,
+              '    <string name="comments_source_settings">漫画源设置</string>\n',
+              "",
+              "remove obsolete comment source-settings string",
+          )
+
+          comments_doc = Path("docs/COMMENTS.md")
+          replace_once(
+              comments_doc,
+              "If a source implements `AccountSource`, MX can read a sanitized `SourceAccount` for UI state. When authentication is required and no account is available, comment composition is disabled and MX can direct the user to that source's preferences when it is a `ConfigurableSource`.\n",
+              "If a source implements `AccountSource`, MX can read a sanitized `SourceAccount` for UI state. When authentication is required and no account is available, comment composition is disabled. Login and source-specific configuration remain outside the comment page; MX does not show a persistent source-settings action in the comment footer.\n",
+              "comment account UI documentation",
+          )
+
+          details_doc = Path("docs/MANGA_DETAILS.md")
+          details_text = details_doc.read_text(encoding="utf-8")
+          section_title = "## 2026-09-05 renderer exclusivity fix"
+          if section_title in details_text:
+              raise SystemExit("manga detail exclusivity documentation already exists")
+          details_doc.write_text(
+              details_text.rstrip()
+              + '''\n\n## 2026-09-05 renderer exclusivity fix\n\nFor a non-merged manga whose source implements `MangaDetailSource`, renderer ownership is now decided synchronously from the source capability instead of waiting for the asynchronous metadata response. MX immediately enters the structured information renderer with a safe `MangaDetailInfo()` fallback, then replaces it with provider data when loading completes.\n\nThis makes the two detail layouts mutually exclusive: an opted-in enhanced source never falls back to the legacy/default genre-chip block while metadata is loading or after a provider metadata failure. Sources that do not implement `MangaDetailSource` continue to use the ordinary Komikku detail/tag layout unchanged.\n''',
+              encoding="utf-8",
+          )
+
+          build_gradle = Path("app/build.gradle.kts")
+          replace_once(
+              build_gradle,
+              '        versionCode = 81\n        versionName = "1.14.1"\n',
+              '        versionCode = 82\n        versionName = "1.14.2"\n',
+              "MX app version bump",
+          )
+
+          one_shot = Path(".github/workflows/mx-one-shot-comments-details-fix.yml")
+          if not one_shot.exists():
+              raise SystemExit("temporary private one-shot workflow is missing")
+          one_shot.unlink()
+          PY
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          build-root-directory: source
+
+      - name: Apply Spotless
+        working-directory: source
+        run: ./gradlew spotlessApply
+
+      - name: Spotless check
+        working-directory: source
+        run: ./gradlew spotlessCheck
+
+      - name: Build Preview APK
+        working-directory: source
+        run: ./gradlew assemblePreview -Pdisable-code-shrink --no-configuration-cache
+
+      - name: Unit tests
+        working-directory: source
+        run: ./gradlew testReleaseUnitTest
+
+      - name: Commit validated feature branch
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: make structured manga details renderer exclusive"
+          git push origin HEAD:fix/comments-and-detail-tags
