@@ -1,0 +1,94 @@
+name: Patch CopyManga Plus v4 OpenCC script
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/scripts/patch_copymangaplus_opencc_v4.py"
+      - ".github/workflows/patch-copymangaplus-opencc-v4c.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  patch-build-commit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout build repository
+        uses: actions/checkout@v5
+        with:
+          path: runner
+          persist-credentials: false
+
+      - name: Checkout private source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply conversion patch
+        run: python3 runner/.github/scripts/patch_copymangaplus_opencc_v4.py source
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Checkout current Keiyoushi
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Overlay module
+        shell: bash
+        run: |
+          rm -rf upstream/src/zh/copymangaplus
+          cp -a source/src/zh/copymangaplus upstream/src/zh/copymangaplus
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          build-root-directory: upstream
+
+      - name: Format and build
+        working-directory: upstream
+        run: |
+          ./gradlew :src:zh:copymangaplus:spotlessApply
+          ./gradlew :src:zh:copymangaplus:spotlessCheck
+          ./gradlew :src:zh:copymangaplus:assembleDebug :src:zh:copymangaplus:lintRelease
+
+      - name: Copy formatted module back
+        shell: bash
+        run: |
+          rm -rf source/src/zh/copymangaplus
+          cp -a upstream/src/zh/copymangaplus source/src/zh/copymangaplus
+
+      - name: Validate source layout
+        working-directory: source
+        run: python3 scripts/validate_sources.py
+
+      - name: Commit verified changes
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/zh/copymangaplus docs/sources/copymangaplus.md
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "feat(copymangaplus): add traditional-to-simplified conversion"
+            git push origin HEAD:main
+          fi
