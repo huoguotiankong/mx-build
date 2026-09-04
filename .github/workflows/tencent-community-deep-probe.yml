@@ -1,0 +1,134 @@
+name: Tencent Community Deep Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/tencent-community-deep-probe.yml"
+      - ".github/tencent-community-deep-probe-trigger"
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Probe Tencent community pagination
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, hashlib, json, subprocess, time, urllib.request
+          from pathlib import Path
+
+          HOST = "a.ac.qq.com"
+          VERSION = "12.19.9"
+          CHANNEL = "dm306015002"
+          COMIC_ID = "650445"
+          SUFFIX = "4jo2YHMm0d2VGt59tVYndX9P7eFcw8TvRv5lMqFP1TT"
+          KEY = b"42e0d587d5bda41326c2000d"
+
+          def decrypt(raw: bytes):
+              stripped = raw.strip()
+              if stripped.startswith(b"{"):
+                  return json.loads(stripped.decode("utf-8"))
+              encrypted = base64.b64decode(stripped)
+              proc = subprocess.run(
+                  ["openssl", "enc", "-des-ede3", "-d", "-K", KEY.hex(), "-nosalt"],
+                  input=encrypted, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True,
+              )
+              return json.loads(proc.stdout.decode("utf-8"))
+
+          def request(path: str):
+              localtime = str(int(time.time() * 1000))
+              sc = hashlib.md5((path + HOST + "0" + localtime + SUFFIX).encode()).hexdigest()
+              req = urllib.request.Request(
+                  "https://" + HOST + path,
+                  headers={
+                      "Accept": "application/json, text/plain, */*",
+                      "User-Agent": "okhttp/4.10.0",
+                      "version": VERSION,
+                      "channel": CHANNEL,
+                      "fakeduin": "0",
+                      "localtime": localtime,
+                      "userstate": "1",
+                      "oversea": "1",
+                      "sc": sc,
+                  },
+              )
+              with urllib.request.urlopen(req, timeout=30) as resp:
+                  return decrypt(resp.read())
+
+          lines = [f"comic_id={COMIC_ID}"]
+          detail_path = f"/{VERSION}/CommunityTag/detailPage/target_type/1/target_id/{COMIC_ID}/comic_id/{COMIC_ID}"
+          detail = request(detail_path)
+          data = detail.get("data", {})
+          base = data.get("base_info", data.get("baseInfo", {}))
+          tag_id = str(base.get("tag_id", base.get("tagId", "")))
+          lines.append("tag_id=" + tag_id)
+          lines.append("topic_count=" + str(base.get("topic_count", base.get("topicCount"))))
+          topic_list = data.get("topic_list", data.get("topicList", {}))
+
+          for feed in ("recommend_topic", "new_publish_topic"):
+              bucket = topic_list.get(feed, {})
+              items = bucket.get("list") if isinstance(bucket, dict) else []
+              cursor = bucket.get("next_page_id", bucket.get("nextPageId")) if isinstance(bucket, dict) else None
+              ids = [str(x.get("topic_id", x.get("topicId", ""))) for x in items or [] if isinstance(x, dict)]
+              lines.append(f"{feed}.detail.count={len(ids)}")
+              lines.append(f"{feed}.detail.first={ids[0] if ids else ''}")
+              lines.append(f"{feed}.detail.last={ids[-1] if ids else ''}")
+              lines.append(f"{feed}.detail.next={cursor}")
+
+              seen_cursors = set()
+              seen_topics = set(ids)
+              page = 2
+              while cursor not in (None, "", 0, "0", -1, "-1") and page <= 30:
+                  cs = str(cursor)
+                  if cs in seen_cursors:
+                      lines.append(f"{feed}.page{page}.cursor_loop={cs}")
+                      break
+                  seen_cursors.add(cs)
+                  path = (
+                      f"/{VERSION}/CommunityTag/topicList/tag_id/{tag_id}"
+                      f"/type/{feed}/page_id/{cs}/comic_id/{COMIC_ID}"
+                  )
+                  root = request(path)
+                  d = root.get("data", {})
+                  b = d.get(feed, {}) if isinstance(d, dict) else {}
+                  arr = b.get("list") if isinstance(b, dict) else []
+                  next_cursor = b.get("next_page_id", b.get("nextPageId")) if isinstance(b, dict) else None
+                  page_ids = [str(x.get("topic_id", x.get("topicId", ""))) for x in arr or [] if isinstance(x, dict)]
+                  new_ids = [x for x in page_ids if x and x not in seen_topics]
+                  seen_topics.update(page_ids)
+                  lines.append(f"{feed}.page{page}.count={len(page_ids)}")
+                  lines.append(f"{feed}.page{page}.new={len(new_ids)}")
+                  lines.append(f"{feed}.page{page}.first={page_ids[0] if page_ids else ''}")
+                  lines.append(f"{feed}.page{page}.last={page_ids[-1] if page_ids else ''}")
+                  lines.append(f"{feed}.page{page}.next={next_cursor}")
+                  cursor = next_cursor
+                  page += 1
+              lines.append(f"{feed}.unique_total={len(seen_topics)}")
+
+          out = "\n".join(lines) + "\n"
+          print(out)
+          Path("probe-results").mkdir(exist_ok=True)
+          Path("probe-results/tencent-community-deep-probe.txt").write_text(out, encoding="utf-8")
+          PY
+
+      - name: Commit sanitized summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add probe-results/tencent-community-deep-probe.txt
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "probe: record Tencent deep community pagination"
+          git pull --rebase origin main
+          git push
