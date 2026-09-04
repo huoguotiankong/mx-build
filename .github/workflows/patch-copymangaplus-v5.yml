@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   patch:
@@ -25,7 +25,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           path: buildrepo
-          persist-credentials: false
+          persist-credentials: true
 
       - name: Checkout private source
         uses: actions/checkout@v5
@@ -35,7 +35,7 @@ jobs:
           token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
           path: source
           fetch-depth: 1
-          persist-credentials: true
+          persist-credentials: false
 
       - name: Checkout current Keiyoushi
         uses: actions/checkout@v5
@@ -107,7 +107,7 @@ jobs:
           rsync -a --delete --exclude build/ upstream/src/zh/copymangaplus/ source/src/zh/copymangaplus/
           python3 source/scripts/validate_sources.py
 
-      - name: Upload v5 handoff
+      - name: Upload v5 handoff artifact
         uses: actions/upload-artifact@v4
         with:
           name: copymangaplus-v5-source
@@ -117,15 +117,29 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: Commit and push v5 source
-        working-directory: source
+      - name: Publish validated v5 handoff to build repo
         shell: bash
         run: |
           set -euo pipefail
+          handoff="buildrepo/.github/handoff/copymangaplus-v5"
+          rm -rf "$handoff"
+          mkdir -p "$handoff"
+          cp source/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt "$handoff/CopyMangaPlus.kt"
+          cp source/src/zh/copymangaplus/build.gradle.kts "$handoff/build.gradle.kts"
+          cp source/docs/sources/copymangaplus.md "$handoff/copymangaplus.md"
+          cp source/src/zh/copymangaplus/res/mipmap-anydpi/ic_launcher.png "$handoff/ic_launcher.png"
+          printf '%s\n' \
+            'validated: CopyManga Plus v5 Spotless + assembleDebug + lintRelease' \
+            'versionName: 1.6.5' \
+            'androidVersionCode: 106005' \
+            'fix: restore v3 Copy list headers; keep detail headers isolated; official blue-white icon' \
+            > "$handoff/VALIDATED.txt"
+          cd buildrepo
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/zh/copymangaplus docs/sources/copymangaplus.md
+          git add .github/handoff/copymangaplus-v5
           git diff --cached --check
-          git diff --cached --quiet && exit 1
-          git commit -m "fix(copymangaplus): restore Copy content routes v5"
-          git push origin HEAD:main
+          if ! git diff --cached --quiet; then
+            git commit -m 'ci: publish validated CopyManga Plus v5 handoff'
+            git push origin HEAD:main
+          fi
