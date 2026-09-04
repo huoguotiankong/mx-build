@@ -1,0 +1,1 @@
+eu.kanade.tachiyomi.extension.zh.jmcomicplus:mipmap/ic_launcher = 0x7f010000

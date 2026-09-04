@@ -1,0 +1,8 @@
+eu.kanade.tachiyomi.extension.jmcomicplus-pngs-0 /home/runner/work/mx-build/mx-build/upstream/src/zh/jmcomicplus/build/generated/res/pngs/debug
+eu.kanade.tachiyomi.extension.jmcomicplus-updated_navigation_xml-1 /home/runner/work/mx-build/mx-build/upstream/src/zh/jmcomicplus/build/generated/updated_navigation_xml/debug
+eu.kanade.tachiyomi.extension.jmcomicplus-packageDebugResources-2 /home/runner/work/mx-build/mx-build/upstream/src/zh/jmcomicplus/build/intermediates/incremental/debug/packageDebugResources/merged.dir
+eu.kanade.tachiyomi.extension.jmcomicplus-packageDebugResources-3 /home/runner/work/mx-build/mx-build/upstream/src/zh/jmcomicplus/build/intermediates/incremental/debug/packageDebugResources/stripped.dir
+eu.kanade.tachiyomi.extension.jmcomicplus-debug-4 /home/runner/work/mx-build/mx-build/upstream/src/zh/jmcomicplus/build/intermediates/merged_res/debug/mergeDebugResources
+eu.kanade.tachiyomi.extension.jmcomicplus-jmcomicplus-5 /home/runner/work/mx-build/mx-build/upstream/src/zh/jmcomicplus/res
+eu.kanade.tachiyomi.extension.jmcomicplus-debug-6 /home/runner/work/mx-build/mx-build/upstream/src/zh/jmcomicplus/src/debug/res
+gradleHome-0 /home/runner/.gradle

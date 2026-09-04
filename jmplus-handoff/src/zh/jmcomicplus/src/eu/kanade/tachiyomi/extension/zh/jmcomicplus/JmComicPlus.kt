@@ -52,7 +52,6 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
-import okhttp3.RequestBody.Companion.toRequestBody
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import java.io.IOException
@@ -101,11 +100,9 @@ abstract class JmComicPlus :
         SearchScopeFilter(),
     )
 
-    override suspend fun getPopularManga(page: Int): MangasPage =
-        listWithFallback(page, "", "mv", "a", "0", "all")
+    override suspend fun getPopularManga(page: Int): MangasPage = listWithFallback(page, "", "mv", "a", "0", "all")
 
-    override suspend fun getLatestUpdates(page: Int): MangasPage =
-        listWithFallback(page, "", "mr", "a", "0", "all")
+    override suspend fun getLatestUpdates(page: Int): MangasPage = listWithFallback(page, "", "mr", "a", "0", "all")
 
     override suspend fun getSearchMangaList(page: Int, query: String, filters: FilterList): MangasPage {
         val category = filters.filterIsInstance<CategoryFilter>().firstOrNull()?.value() ?: "all"
@@ -232,11 +229,9 @@ abstract class JmComicPlus :
         }
     }
 
-    override fun getMangaUrl(manga: SManga): String =
-        "${webBase()}/album/${mangaId(manga)}"
+    override fun getMangaUrl(manga: SManga): String = "${webBase()}/album/${mangaId(manga)}"
 
-    override fun getChapterUrl(chapter: SChapter): String =
-        "${webBase()}/photo/${chapterId(chapter)}/"
+    override fun getChapterUrl(chapter: SChapter): String = "${webBase()}/photo/${chapterId(chapter)}/"
 
     override suspend fun getMangaByUrl(url: HttpUrl): SManga? {
         val id = albumId(url.toString()) ?: return null
@@ -256,8 +251,7 @@ abstract class JmComicPlus :
 
     override val supportsRelatedMangas: Boolean = true
 
-    override suspend fun fetchRelatedMangaList(manga: SManga): List<SManga> =
-        detail(mangaId(manga)).related
+    override suspend fun fetchRelatedMangaList(manga: SManga): List<SManga> = detail(mangaId(manga)).related
 
     private fun detail(id: String): DetailBundle {
         detailCache[id]?.takeIf { System.currentTimeMillis() - it.at < DETAIL_CACHE_TTL }?.let { return it.value }
@@ -440,16 +434,15 @@ abstract class JmComicPlus :
         return MangaDetailInfo(fields = fields, replaceDefaultFields = true)
     }
 
-    private fun clickableField(label: String, values: List<String>, prefix: String): MangaDetailField =
-        MangaDetailField(
-            label = label,
-            values = values.distinct().map { value ->
-                MangaDetailValue(
-                    text = prefix + value,
-                    action = MangaDetailAction(MangaDetailActionType.SOURCE_SEARCH, value),
-                )
-            },
-        )
+    private fun clickableField(label: String, values: List<String>, prefix: String): MangaDetailField = MangaDetailField(
+        label = label,
+        values = values.distinct().map { value ->
+            MangaDetailValue(
+                text = prefix + value,
+                action = MangaDetailAction(MangaDetailActionType.SOURCE_SEARCH, value),
+            )
+        },
+    )
 
     override suspend fun getPageList(chapter: SChapter): List<Page> {
         val pid = chapterId(chapter)
@@ -667,11 +660,9 @@ abstract class JmComicPlus :
         return CommentPage(comments, hasNext, comments.size.toLong())
     }
 
-    override suspend fun postComment(target: CommentTarget, content: String): Comment =
-        postWebComment(target, null, content)
+    override suspend fun postComment(target: CommentTarget, content: String): Comment = postWebComment(target, null, content)
 
-    override suspend fun postCommentReply(target: CommentTarget, parent: Comment, content: String): Comment =
-        postWebComment(target, parent, content)
+    override suspend fun postCommentReply(target: CommentTarget, parent: Comment, content: String): Comment = postWebComment(target, parent, content)
 
     private fun postWebComment(target: CommentTarget, parent: Comment?, content: String): Comment {
         val text = content.trim()
@@ -709,7 +700,9 @@ abstract class JmComicPlus :
 
     // ---------- account ----------
 
-    override suspend fun getSourceAccount(): SourceAccount? {
+    override suspend fun getSourceAccount(): SourceAccount? = getSourceAccountNow()
+
+    private fun getSourceAccountNow(): SourceAccount? {
         val profile = profileObject()
         if (profile != null) return sourceAccountFromProfile(profile)
         if (!hasCredentials() && preferences.getString(PREF_WEB_USER, "").isNullOrBlank()) return null
@@ -768,7 +761,7 @@ abstract class JmComicPlus :
             summary = "留空使用自动更新；填写完整域名或网址后优先使用"
         }.also(screen::addPreference)
 
-        Preference(screen.context).apply {
+        Preference().apply {
             title = "立即刷新 APP/API + Web 域名"
             summary = "重新拉取禁漫动态节点并更新本地缓存"
             setOnPreferenceClickListener {
@@ -800,7 +793,7 @@ abstract class JmComicPlus :
             setOnBindEditTextListener { it.inputType = 0x00000081 }
         }.also(screen::addPreference)
 
-        Preference(screen.context).apply {
+        Preference().apply {
             title = "账号登录 / 刷新登录"
             summary = "同时尝试 APP/API AVS 登录与网页 Session 登录"
             setOnPreferenceClickListener {
@@ -815,7 +808,7 @@ abstract class JmComicPlus :
             }
         }.also(screen::addPreference)
 
-        Preference(screen.context).apply {
+        Preference().apply {
             title = "网页登录"
             summary = "打开当前可用禁漫网页登录页，适合验证码 / 手工登录"
             setOnPreferenceClickListener {
@@ -833,11 +826,11 @@ abstract class JmComicPlus :
             }
         }.also(screen::addPreference)
 
-        Preference(screen.context).apply {
+        Preference().apply {
             title = "登录状态"
             setOnPreferenceClickListener {
                 client.dispatcher.executorService.execute {
-                    val account = runCatching { getSourceAccount() }.getOrNull()
+                    val account = runCatching { getSourceAccountNow() }.getOrNull()
                     val msg = buildString {
                         append("账号：").append(account?.name ?: "未登录")
                         account?.id?.let { append("\nUID：").append(it) }
@@ -852,7 +845,7 @@ abstract class JmComicPlus :
             }
         }.also(screen::addPreference)
 
-        Preference(screen.context).apply {
+        Preference().apply {
             title = "清除登录状态"
             summary = "清除 AVS 与账号缓存；不会删除你填写的账号密码"
             setOnPreferenceClickListener {
@@ -867,7 +860,7 @@ abstract class JmComicPlus :
             }
         }.also(screen::addPreference)
 
-        Preference(screen.context).apply {
+        Preference().apply {
             title = "线路诊断"
             summary = "分别检测 APP/API 与网页线路"
             setOnPreferenceClickListener {
@@ -959,12 +952,10 @@ abstract class JmComicPlus :
         webLogin()
     }
 
-    private fun hasCredentials(): Boolean =
-        preferences.getString(PREF_USERNAME, "").orEmpty().isNotBlank() &&
-            preferences.getString(PREF_PASSWORD, "").orEmpty().isNotBlank()
+    private fun hasCredentials(): Boolean = preferences.getString(PREF_USERNAME, "").orEmpty().isNotBlank() &&
+        preferences.getString(PREF_PASSWORD, "").orEmpty().isNotBlank()
 
-    private fun profileObject(): JsonObject? =
-        preferences.getString(PREF_PROFILE, null)?.let(::parseJsonObject)
+    private fun profileObject(): JsonObject? = preferences.getString(PREF_PROFILE, null)?.let(::parseJsonObject)
 
     // ---------- APP/API transport ----------
 
@@ -1014,15 +1005,14 @@ abstract class JmComicPlus :
         throw IOException("APP/API 请求失败：${errors.takeLast(5).joinToString(" | ")}")
     }
 
-    private fun apiHeaders(ts: String, tokenSecret: String, version: String, noAvs: Boolean): Headers =
-        Headers.Builder().apply {
-            set("User-Agent", APP_UA)
-            set("Accept-Encoding", "gzip, deflate")
-            set("token", md5(ts + tokenSecret))
-            set("tokenparam", "$ts,$version")
-            set("Accept", "application/json")
-            if (!noAvs && avs().isNotBlank()) set("Cookie", "AVS=${avs()}")
-        }.build()
+    private fun apiHeaders(ts: String, tokenSecret: String, version: String, noAvs: Boolean): Headers = Headers.Builder().apply {
+        set("User-Agent", APP_UA)
+        set("Accept-Encoding", "gzip, deflate")
+        set("token", md5(ts + tokenSecret))
+        set("tokenparam", "$ts,$version")
+        set("Accept", "application/json")
+        if (!noAvs && avs().isNotBlank()) set("Cookie", "AVS=${avs()}")
+    }.build()
 
     private fun decodeEnvelope(raw: String, ts: String): JsonElement {
         val root = parseJsonObject(raw) ?: throw IOException("API 返回不是 JSON")
@@ -1034,7 +1024,9 @@ abstract class JmComicPlus :
         return when (data) {
             is JsonPrimitive -> {
                 val encrypted = data.contentOrNull.orEmpty()
-                if (encrypted.isBlank()) JsonNull else {
+                if (encrypted.isBlank()) {
+                    JsonNull
+                } else {
                     val decoded = aesDecrypt(encrypted, ts, DATA_SECRET)
                     runCatching { json.parseToJsonElement(decoded) }.getOrElse { JsonPrimitive(decoded) }
                 }
@@ -1247,19 +1239,15 @@ abstract class JmComicPlus :
         preferences.edit().putString(PREF_LAST_ROUTE, route.key).apply()
     }
 
-    private fun mangaId(manga: SManga): String =
-        albumId(manga.url) ?: throw IOException("无法解析禁漫作品 ID")
+    private fun mangaId(manga: SManga): String = albumId(manga.url) ?: throw IOException("无法解析禁漫作品 ID")
 
-    private fun chapterId(chapter: SChapter): String =
-        photoId(chapter.url) ?: throw IOException("无法解析禁漫章节 ID")
+    private fun chapterId(chapter: SChapter): String = photoId(chapter.url) ?: throw IOException("无法解析禁漫章节 ID")
 
-    private fun albumId(value: String): String? =
-        Regex("""/album/(\d+)""").find(value)?.groupValues?.getOrNull(1)
-            ?: Regex("""[?&](?:id|aid|jm_album)=(\d+)""").find(value)?.groupValues?.getOrNull(1)
+    private fun albumId(value: String): String? = Regex("""/album/(\d+)""").find(value)?.groupValues?.getOrNull(1)
+        ?: Regex("""[?&](?:id|aid|jm_album)=(\d+)""").find(value)?.groupValues?.getOrNull(1)
 
-    private fun photoId(value: String): String? =
-        Regex("""/photo/(\d+)""").find(value)?.groupValues?.getOrNull(1)
-            ?: Regex("""[?&](?:pid|photo)=(\d+)""").find(value)?.groupValues?.getOrNull(1)
+    private fun photoId(value: String): String? = Regex("""/photo/(\d+)""").find(value)?.groupValues?.getOrNull(1)
+        ?: Regex("""[?&](?:pid|photo)=(\d+)""").find(value)?.groupValues?.getOrNull(1)
 
     private fun coverUrl(o: JsonObject, id: String): String {
         val raw = o.string("image") ?: o.string("pic_s") ?: o.string("cover") ?: o.string("thumb")
@@ -1294,8 +1282,7 @@ abstract class JmComicPlus :
         }
     }
 
-    private fun extractChapterNumber(value: String): Float? =
-        Regex("""(?:第\s*)?(\d+(?:\.\d+)?)""").find(value)?.groupValues?.getOrNull(1)?.toFloatOrNull()
+    private fun extractChapterNumber(value: String): Float? = Regex("""(?:第\s*)?(\d+(?:\.\d+)?)""").find(value)?.groupValues?.getOrNull(1)?.toFloatOrNull()
 
     private fun resolveDetailDocument(html: String, base: String): Document {
         val document = Jsoup.parse(html, base)
@@ -1322,12 +1309,11 @@ abstract class JmComicPlus :
         }
     }
 
-    private fun normalizeHost(value: String): String =
-        value.trim()
-            .removePrefix("https://")
-            .removePrefix("http://")
-            .substringBefore("/")
-            .trimEnd('.')
+    private fun normalizeHost(value: String): String = value.trim()
+        .removePrefix("https://")
+        .removePrefix("http://")
+        .substringBefore("/")
+        .trimEnd('.')
 
     private fun normalizeBase(value: String): String {
         val host = normalizeHost(value)
@@ -1432,19 +1418,15 @@ abstract class JmComicPlus :
         }.distinct()
     }
 
-    private fun parseJsonObject(raw: String): JsonObject? =
-        runCatching { json.parseToJsonElement(raw.trim()).jsonObject }.getOrNull()
+    private fun parseJsonObject(raw: String): JsonObject? = runCatching { json.parseToJsonElement(raw.trim()).jsonObject }.getOrNull()
 
-    private fun formBody(vararg pairs: Pair<String, String>): FormBody =
-        FormBody.Builder().apply { pairs.forEach { (k, v) -> add(k, v) } }.build()
+    private fun formBody(vararg pairs: Pair<String, String>): FormBody = FormBody.Builder().apply { pairs.forEach { (k, v) -> add(k, v) } }.build()
 
-    private fun enc(value: String): String =
-        URLEncoder.encode(value, Charsets.UTF_8.name()).replace("+", "%20")
+    private fun enc(value: String): String = URLEncoder.encode(value, Charsets.UTF_8.name()).replace("+", "%20")
 
-    private fun md5(value: String): String =
-        MessageDigest.getInstance("MD5")
-            .digest(value.toByteArray(Charsets.UTF_8))
-            .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+    private fun md5(value: String): String = MessageDigest.getInstance("MD5")
+        .digest(value.toByteArray(Charsets.UTF_8))
+        .joinToString("") { "%02x".format(it.toInt() and 0xff) }
 
     private fun aesDecrypt(encoded: String, timestamp: String, secret: String): String {
         val key = md5(timestamp + secret).toByteArray(Charsets.UTF_8)
@@ -1470,8 +1452,7 @@ abstract class JmComicPlus :
         return 0L
     }
 
-    private fun replyKey(target: CommentTarget, commentId: String) =
-        "${target.kind}:${target.id}:$commentId"
+    private fun replyKey(target: CommentTarget, commentId: String) = "${target.kind}:${target.id}:$commentId"
 
     private fun avs(): String = preferences.getString(PREF_AVS, "").orEmpty()
 
@@ -1583,5 +1564,4 @@ abstract class JmComicPlus :
     }
 }
 
-private fun android.content.Context.toast(message: String) =
-    android.widget.Toast.makeText(this, message, android.widget.Toast.LENGTH_LONG).show()
+private fun android.content.Context.toast(message: String) = android.widget.Toast.makeText(this, message, android.widget.Toast.LENGTH_LONG).show()
