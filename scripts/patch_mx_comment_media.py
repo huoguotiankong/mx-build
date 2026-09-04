@@ -249,7 +249,7 @@ new_tail = '''    @Test
         val html = "https://example.org/asset?id=html"
         val bbcode = "https://example.org/asset?id=bbcode"
         val result = parseCommentRichContent(
-            "MD ![图]($markdown)\\nHTML <img data-src=\"$html\">\\nBB [img]$bbcode[/img]",
+            "MD ![图]($markdown)\\nHTML <img data-src='$html'>\\nBB [img]$bbcode[/img]",
         )
         assertEquals("MD\\nHTML\\nBB", result.text)
         assertEquals(listOf(markdown, html, bbcode), result.imageUrls)
