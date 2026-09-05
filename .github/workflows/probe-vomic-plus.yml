@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - name: Extract VomicMHPlus core DTO mapping
+      - name: Extract VomicMHPlus image and filter details
         run: |
           set -euo pipefail
           curl -L --fail --retry 4 -o /tmp/vomic.apk 'https://raw.githubusercontent.com/LittleSurvival/copymanga-copy20/main/apk/tachiyomi-zh.vomicmh-v1.4.4.apk'
@@ -24,14 +24,7 @@ jobs:
           unzip -q /tmp/jadx.zip -d /tmp/jadx
           /tmp/jadx/bin/jadx --no-res -d /tmp/vomic-src /tmp/vomic.apk >/dev/null 2>&1
           root=/tmp/vomic-src/sources/eu/kanade/tachiyomi/extension/zh/vomicmh
-          echo '=== DTO FILES ==='
-          find "$root/api/dto" -maxdepth 1 -type f -printf '%f\n' | sort
-          echo '=== KEY DTO MAPPERS ==='
-          for f in "$root"/api/dto/*.java; do
-            if grep -qE 'toSManga|toSChapter|toPageList|chapter_list|img_list|cover|commentNum' "$f"; then
-              echo "===== $(basename "$f") ====="
-              grep -nE -C 5 'toSManga|toSChapter|toPageList|chapter_list|img_list|cover|commentNum|carId|car_id|group|process|author|intro|name|content' "$f" | head -n 320 || true
-            fi
+          for f in api/dto/Img.java api/dto/Comment.java api/dto/User.java CCOption.java ResolutionOption.java FilterKt.java language/Translate.java; do
+            echo "===== $f ====="
+            sed -n '1,420p' "$root/$f"
           done
-          echo '=== CORE REQUEST/PARSE METHODS ==='
-          grep -nE -C 8 'popularMangaRequest|popularMangaParse|latestUpdatesRequest|latestUpdatesParse|searchMangaRequest|searchMangaParse|mangaDetailsRequest|mangaDetailsParse|fetchChapterList|chapterListParse|pageListRequest|pageListParse|getMangaUrl|getChapterUrl' "$root/VomicMHPlus.java" | head -n 700
