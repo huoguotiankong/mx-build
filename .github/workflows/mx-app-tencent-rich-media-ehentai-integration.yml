@@ -1,5 +1,6 @@
 name: MX Tencent Rich Media + EHentai Integration
 
+# Registered workflow retry: subsequent edits to this file trigger the validation build.
 on:
   push:
     branches: [main]
