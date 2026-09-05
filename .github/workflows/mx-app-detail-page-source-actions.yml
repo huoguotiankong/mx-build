@@ -32,6 +32,13 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
+      - name: Reset already-staged detail-chip file to main baseline
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout origin/main -- app/src/main/java/eu/kanade/presentation/manga/components/MangaDetailInfoSection.kt
+
       - name: Apply detail page source action enhancements
         working-directory: source
         run: python3 ../build-infra/scripts/mx-app-detail-page-source-actions.py
