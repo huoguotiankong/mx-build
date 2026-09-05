@@ -9,6 +9,46 @@
   "extensionList": {
     "extensions": [
       {
+        "name": "Baozi Manhua Plus",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.baozimanhuaplus",
+        "resources": {
+          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.baozimanhuaplus-v1.6.2.apk",
+          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.baozimanhuaplus-v106002.png"
+        },
+        "extensionLib": "1.6",
+        "versionCode": 106002,
+        "versionName": "1.6.2",
+        "contentWarning": "SAFE",
+        "sources": [
+          {
+            "id": 7842936105724418301,
+            "name": "包子漫画 Plus",
+            "language": "zh",
+            "homeUrl": "https://cn.baozimh.com",
+            "mirrorUrls": [
+              "https://cn.baozimh.com",
+              "https://tw.baozimh.com",
+              "https://www.baozimh.com",
+              "https://cn.webmota.com",
+              "https://tw.webmota.com",
+              "https://www.webmota.com",
+              "https://cn.kukuc.co",
+              "https://tw.kukuc.co",
+              "https://www.kukuc.co",
+              "https://cn.twmanga.com",
+              "https://tw.twmanga.com",
+              "https://www.twmanga.com",
+              "https://cn.dinnerku.com",
+              "https://tw.dinnerku.com",
+              "https://www.dinnerku.com",
+              "https://appcn.baozimh.com",
+              "https://appgb.baozimh.com"
+            ],
+            "message": null
+          }
+        ]
+      },
+      {
         "name": "Bilibili Manga",
         "packageName": "eu.kanade.tachiyomi.extension.zh.bilibilimanga",
         "resources": {
