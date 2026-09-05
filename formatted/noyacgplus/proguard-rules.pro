@@ -1,0 +1,3 @@
+-keep class eu.kanade.tachiyomi.source.mx.** { *; }
+-keep interface eu.kanade.tachiyomi.source.mx.** { *; }
+-keepattributes *Annotation*
