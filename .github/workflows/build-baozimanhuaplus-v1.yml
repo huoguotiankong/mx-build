@@ -29,10 +29,11 @@ jobs:
           [[ -n "$MANGA_SIGNING_BUNDLE" ]]
           [[ -n "$MX_PRIVATE_READ_TOKEN" ]]
 
-      - name: Checkout current Keiyoushi framework
+      - name: Checkout pinned Keiyoushi framework
         uses: actions/checkout@v5
         with:
           repository: keiyoushi/extensions-source
+          ref: 0ca8b46ec5229955a6a76b736de27642bca0808f
           path: upstream
           fetch-depth: 1
           persist-credentials: false
@@ -44,8 +45,8 @@ jobs:
           ref: main
           token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
           path: dev
-          fetch-depth: 1
-          persist-credentials: false
+          fetch-depth: 0
+          persist-credentials: true
 
       - name: Set up Java
         uses: actions/setup-java@v5
@@ -53,19 +54,45 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Overlay Baozi Manhua Plus and preserve official icon
+      - name: Restore complete upstream Baozi baseline in Plus module
         shell: bash
         run: |
           set -euo pipefail
-          test -f dev/src/zh/baozimanhuaplus/build.gradle.kts
-          grep -q 'versionCode = 1' dev/src/zh/baozimanhuaplus/build.gradle.kts
+          SRC='upstream/src/zh/baozimanhua'
+          SRC_KT="$SRC/src/eu/kanade/tachiyomi/extension/zh/baozimanhua"
+          DST='dev/src/zh/baozimanhuaplus'
+          DST_KT="$DST/src/eu/kanade/tachiyomi/extension/zh/baozimanhuaplus"
+
+          test -f "$DST/build.gradle.kts"
+          grep -q 'versionCode = 1' "$DST/build.gradle.kts"
+          mkdir -p "$DST_KT"
+          rm -rf "$DST/src/eu/kanade/tachiyomi/extension/zh/baozimanhua"
+
+          # Keep every original Baozi filter and the complete banner remover.
+          for file in Filters.kt BannerChecker.kt BannerConstants.kt BaoziBannerInterceptor.kt; do
+            cp "$SRC_KT/$file" "$DST_KT/$file"
+            sed -i 's/package eu\.kanade\.tachiyomi\.extension\.zh\.baozimanhua/package eu.kanade.tachiyomi.extension.zh.baozimanhuaplus/' "$DST_KT/$file"
+          done
+
+          # Keep the official icon in all Android density buckets.
+          rm -rf "$DST/res"
+          cp -a "$SRC/res" "$DST/res"
+          for d in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            test -f "$DST/res/mipmap-${d}/ic_launcher.png"
+          done
+
+          # Banner code is local to Plus; remove the stale cross-package import.
+          sed -i '/import eu\.kanade\.tachiyomi\.extension\.zh\.baozimanhua\.BaoziBannerInterceptor/d' "$DST_KT/BaoziPlus.kt"
+
+          python3 dev/scripts/validate_sources.py
+          git -C dev diff --check
+
+      - name: Overlay Baozi Manhua Plus
+        shell: bash
+        run: |
+          set -euo pipefail
           rm -rf upstream/src/zh/baozimanhuaplus
           cp -a dev/src/zh/baozimanhuaplus upstream/src/zh/baozimanhuaplus
-          rm -rf upstream/src/zh/baozimanhuaplus/res
-          cp -a upstream/src/zh/baozimanhua/res upstream/src/zh/baozimanhuaplus/res
-          for d in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
-            test -f "upstream/src/zh/baozimanhuaplus/res/mipmap-${d}/ic_launcher.png"
-          done
 
       - name: Format and static validation
         working-directory: upstream
@@ -113,21 +140,34 @@ jobs:
           echo "fingerprint=$expected" >> "$GITHUB_OUTPUT"
           echo "apk=$apk" >> "$GITHUB_OUTPUT"
 
-      - name: Upload signed APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: baozimanhuaplus-v1-signed-test-apk
-          path: upstream/src/zh/baozimanhuaplus/**/build/outputs/apk/release/*.apk
-          if-no-files-found: error
-          retention-days: 14
+      - name: Sync validated formatted module and status to private source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dev/src/zh/baozimanhuaplus
+          cp -a upstream/src/zh/baozimanhuaplus dev/src/zh/baozimanhuaplus
+          rm -rf dev/src/zh/baozimanhuaplus/build
 
-      - name: Upload formatted source candidate
-        uses: actions/upload-artifact@v4
-        with:
-          name: baozimanhuaplus-v1-formatted-source
-          path: upstream/src/zh/baozimanhuaplus
-          if-no-files-found: error
-          retention-days: 14
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('dev/docs/sources/baozimanhuaplus.md')
+          s = p.read_text()
+          s = s.replace('| 上游横幅源码同步 | 执行中/待 CI 写回 |', '| 上游横幅源码同步 | 已完成 |')
+          s = s.replace('| Spotless | 待本次 CI |', '| Spotless | 已通过 |')
+          s = s.replace('| Debug APK 构建 | 待本次 CI |', '| Debug APK 构建 | 已通过 |')
+          if '完整上游筛选项与图标' not in s:
+              s = s.replace(
+                  '4. **搜索与元数据细节**',
+                  '4. **完整上游筛选项与图标**\n'
+                  '   - 完整同步上游标签/地区/进度/标题开头筛选，不使用精简列表。\n'
+                  '   - 保留上游 mdpi/hdpi/xhdpi/xxhdpi/xxxhdpi 五档 launcher icon，避免安装后回落默认图标。\n\n'
+                  '5. **搜索与元数据细节**',
+              )
+          p.write_text(s)
+          PY
+
+          python3 dev/scripts/validate_sources.py
+          git -C dev diff --check
 
       - name: Generate isolated test store
         env:
@@ -135,8 +175,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf dev/src/zh/baozimanhuaplus/res
-          cp -a upstream/src/zh/baozimanhua/res dev/src/zh/baozimanhuaplus/res
           printf '%s\n' 'zh/baozimanhuaplus' > targets.txt
           python3 dev/scripts/publish_test_repo.py \
             --targets targets.txt \
@@ -149,6 +187,37 @@ jobs:
           test -f teststore/index.json
           test -f teststore/repo.json
           find teststore/apk -type f -name '*baozimanhuaplus*.apk' -print -quit | grep -q .
+
+      - name: Commit validated source to private development repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C dev config user.name "github-actions[bot]"
+          git -C dev config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C dev add src/zh/baozimanhuaplus docs/sources/baozimanhuaplus.md
+          if git -C dev diff --cached --quiet; then
+            echo "Baozi Manhua Plus source is already current"
+          else
+            git -C dev commit -m "fix(baozimanhuaplus): validate complete upstream baseline"
+            git -C dev pull --rebase origin main
+            git -C dev push origin HEAD:main
+          fi
+
+      - name: Upload signed APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: baozimanhuaplus-v1-signed-test-apk
+          path: upstream/src/zh/baozimanhuaplus/**/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload validated formatted source
+        uses: actions/upload-artifact@v4
+        with:
+          name: baozimanhuaplus-v1-formatted-source
+          path: dev/src/zh/baozimanhuaplus
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Upload isolated test store
         uses: actions/upload-artifact@v4
