@@ -1,4 +1,5 @@
 name: Validate MX App Detail Source Actions
+# validation trigger: mx-app detail tag compile fix f4e95c0
 
 on:
   push:
