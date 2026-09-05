@@ -1,0 +1,107 @@
+name: Patch MX Rich Comment Content V3
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/comment-rich-content-v3-helper]
+    paths:
+      - ".github/workflows/patch-mx-comment-rich-v3.yml"
+      - "scripts/patch_mx_comment_rich_v3.py"
+
+permissions:
+  contents: read
+
+jobs:
+  patch-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check private repository token
+        shell: bash
+        env:
+          MX_APP_PUBLISH_TOKEN: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_APP_PUBLISH_TOKEN" ]] || {
+            echo "::error::Missing MX_APP_PUBLISH_TOKEN"
+            exit 1
+          }
+
+      - name: Checkout build helper
+        uses: actions/checkout@v5
+        with:
+          path: infra
+          persist-credentials: false
+
+      - name: Checkout MX rich-comment feature branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-app
+          ref: feat/comment-rich-content-v2
+          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          path: app-src
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply rich comment finalization patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 infra/scripts/patch_mx_comment_rich_v3.py app-src
+          git -C app-src diff --check
+          grep -F 'decodeCommentEntities' app-src/app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt
+          grep -F 'onError = { imageLoadFailed = true }' app-src/app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt
+          if grep -Fq 'SubcomposeAsyncImage' app-src/app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt; then
+            echo "::error::SubcomposeAsyncImage still present in comment rendering"
+            exit 1
+          fi
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          build-root-directory: app-src
+
+      - name: Spotless apply
+        working-directory: app-src
+        run: ./gradlew spotlessApply
+
+      - name: Spotless gate
+        working-directory: app-src
+        run: ./gradlew spotlessCheck
+
+      - name: Comment rich-content unit tests
+        working-directory: app-src
+        run: ./gradlew :app:testReleaseUnitTest --tests 'eu.kanade.presentation.manga.comments.CommentRichContentTest'
+
+      - name: Release unit tests
+        working-directory: app-src
+        run: ./gradlew testReleaseUnitTest
+
+      - name: Build Preview
+        working-directory: app-src
+        run: ./gradlew assemblePreview -Pdisable-code-shrink --no-configuration-cache
+
+      - name: Commit verified feature branch
+        working-directory: app-src
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt \
+            app/src/test/java/eu/kanade/presentation/manga/comments/CommentRichContentTest.kt \
+            docs/COMMENTS.md
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "No new rich-comment finalization changes to commit"
+          else
+            git commit -m "fix: finalize rich comment compatibility and rendering"
+            git push origin HEAD:feat/comment-rich-content-v2
+          fi
