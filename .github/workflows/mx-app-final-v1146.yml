@@ -124,11 +124,18 @@ jobs:
               raise SystemExit(f"Signing bundle missing fields: {', '.join(missing)}")
           path = Path(os.environ["RUNNER_TEMP"]) / "mx-app-final.jks"
           path.write_bytes(base64.b64decode(bundle["signingKey"]))
+          # The stable MX JKS was created with one password for both the store and
+          # alias private key. Older successful MX Preview workflows deliberately
+          # use storePassword for both. Do not consume an optional/stale keyPassword
+          # field from the bundle here, because that lets certificate export succeed
+          # while packagePreview later fails when decrypting alias `mx`.
+          store_password = str(bundle["storePassword"])
           values = {
               "MX_KEYSTORE_PATH": str(path),
               "MX_KEY_ALIAS": str(bundle["alias"]),
-              "MX_KEYSTORE_PASSWORD": str(bundle["storePassword"]),
-              "MX_KEY_PASSWORD": str(bundle.get("keyPassword") or bundle["storePassword"]),
+              "MX_KEYSTORE_PASSWORD": store_password,
+              "MX_STORE_PASSWORD": store_password,
+              "MX_KEY_PASSWORD": store_password,
           }
           with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as f:
               for name, value in values.items():
@@ -136,13 +143,30 @@ jobs:
                   f.write(f"{name}<<__MX_FINAL_SIGN_EOF__\n{value}\n__MX_FINAL_SIGN_EOF__\n")
           PY
 
-      - name: Verify stable MX signing identity
+      - name: Verify stable MX signing identity and private key
         shell: bash
         run: |
           set -euo pipefail
           expected="c230be9c78bf5d28a101c2cb785923b899aa569ead15961309dea8bbcb34ec33"
           actual="$(keytool -exportcert -alias "$MX_KEY_ALIAS" -keystore "$MX_KEYSTORE_PATH" -storepass "$MX_KEYSTORE_PASSWORD" | sha256sum | awk '{print $1}' | tr '[:upper:]' '[:lower:]')"
           [[ "$actual" == "$expected" ]] || { echo "::error::MX signing certificate mismatch"; exit 1; }
+
+          # Validate that the same credentials can actually decrypt the private key,
+          # not merely read the public certificate from the keystore.
+          probe="$RUNNER_TEMP/mx-signing-probe.p12"
+          rm -f "$probe"
+          keytool -importkeystore \
+            -srckeystore "$MX_KEYSTORE_PATH" \
+            -srcstorepass "$MX_KEYSTORE_PASSWORD" \
+            -srcalias "$MX_KEY_ALIAS" \
+            -srckeypass "$MX_KEY_PASSWORD" \
+            -destkeystore "$probe" \
+            -deststoretype PKCS12 \
+            -deststorepass "$MX_KEYSTORE_PASSWORD" \
+            -destkeypass "$MX_KEY_PASSWORD" \
+            -noprompt >/dev/null
+          rm -f "$probe"
+
           echo "MX_SIGNING_FINGERPRINT=$actual" >> "$GITHUB_ENV"
 
       - name: Build final Preview APK
@@ -212,4 +236,4 @@ jobs:
       - name: Cleanup signing material
         if: always()
         shell: bash
-        run: rm -f "$RUNNER_TEMP/mx-app-final.jks"
+        run: rm -f "$RUNNER_TEMP/mx-app-final.jks" "$RUNNER_TEMP/mx-signing-probe.p12"
