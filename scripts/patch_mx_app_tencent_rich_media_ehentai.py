@@ -23,6 +23,18 @@ if old in text:
 elif new not in text:
     raise SystemExit("Comment URL normalization baseline not found")
 
+cleanup_old = '''        }
+        .replace(COMMENT_TRAILING_SPACE_BEFORE_NEWLINE_REGEX, "\\n")
+'''
+cleanup_new = '''        }
+        .replace(COMMENT_EMPTY_MARKDOWN_IMAGE_REGEX, "")
+        .replace(COMMENT_TRAILING_SPACE_BEFORE_NEWLINE_REGEX, "\\n")
+'''
+if cleanup_old in text:
+    text = text.replace(cleanup_old, cleanup_new, 1)
+elif cleanup_new not in text:
+    raise SystemExit("Comment markdown cleanup baseline not found")
+
 old = '''private fun isCommentImageUrl(url: String): Boolean {
     val normalized = url.lowercase()
     return COMMENT_IMAGE_FILE_REGEX.containsMatchIn(normalized) ||
@@ -57,10 +69,19 @@ private val COMMENT_TENCENT_IMAGE_HOST_REGEX = Regex(
     "^https?://(?:manhua\\\\.acimg\\\\.cn|manhua\\\\.qpic\\\\.cn|ugc\\\\.qpic\\\\.cn|gtimg\\\\.ac\\\\.qq\\\\.com|gtimgcdn\\\\.ac\\\\.qq\\\\.com)/",
     RegexOption.IGNORE_CASE,
 )
+private val COMMENT_EMPTY_MARKDOWN_IMAGE_REGEX = Regex("!\\\\[[^\\\\]]*]\\\\(")
 '''
 if old in text:
     text = text.replace(old, new, 1)
-elif new not in text:
+elif "COMMENT_TENCENT_IMAGE_HOST_REGEX" in text and "COMMENT_EMPTY_MARKDOWN_IMAGE_REGEX" not in text:
+    marker = '''private val COMMENT_TRAILING_SPACE_BEFORE_NEWLINE_REGEX = Regex("[ \\t]+\\n")
+'''
+    addition = '''private val COMMENT_EMPTY_MARKDOWN_IMAGE_REGEX = Regex("!\\\\[[^\\\\]]*]\\\\(")
+'''
+    if marker not in text:
+        raise SystemExit("Comment markdown regex insertion marker not found")
+    text = text.replace(marker, addition + marker, 1)
+elif "COMMENT_TENCENT_IMAGE_HOST_REGEX" not in text:
     raise SystemExit("Comment image matcher baseline not found")
 
 screen.write_text(text, encoding="utf-8")
@@ -114,11 +135,32 @@ insert = '''    @Test
         assertEquals(urls, result.imageUrls)
     }
 
+    @Test
+    fun `markdown image wrapper is removed after rich image extraction`() {
+        val url = "https://manhua.acimg.cn/comment/example.jpg/0?tp=sharp"
+        val result = parseCommentRichContent("正文\\n![配图]($url)")
+        assertEquals("正文", result.text)
+        assertEquals(listOf(url), result.imageUrls)
+    }
+
 '''
 if "tencent transformed jpg urls become rich images" not in test_text:
     if marker not in test_text:
         raise SystemExit("CommentRichContentTest insertion marker not found")
     test_text = test_text.replace(marker, insert + marker, 1)
+elif "markdown image wrapper is removed after rich image extraction" not in test_text:
+    markdown_test = '''    @Test
+    fun `markdown image wrapper is removed after rich image extraction`() {
+        val url = "https://manhua.acimg.cn/comment/example.jpg/0?tp=sharp"
+        val result = parseCommentRichContent("正文\\n![配图]($url)")
+        assertEquals("正文", result.text)
+        assertEquals(listOf(url), result.imageUrls)
+    }
+
+'''
+    if marker not in test_text:
+        raise SystemExit("CommentRichContentTest markdown insertion marker not found")
+    test_text = test_text.replace(marker, markdown_test + marker, 1)
 tests.write_text(test_text, encoding="utf-8")
 
 doc_text = docs.read_text(encoding="utf-8")
@@ -130,8 +172,15 @@ note = '''
 - The parser recognizes additional common image extensions (`jfif`, `apng`, `bmp`, `heic`, `heif`) and keeps existing `jpg/png/webp/gif/avif` support.
 - Protocol-relative media URLs are normalized to HTTPS and HTML-escaped `&amp;` query separators are decoded before image loading.
 - Known Tencent Comics image CDNs discovered in the official Android 12.19.9 package are treated as image media even when the URL has no file extension: `manhua.acimg.cn`, `manhua.qpic.cn`, `ugc.qpic.cn`, `gtimg.ac.qq.com`, `gtimgcdn.ac.qq.com`.
+- Markdown image wrappers such as `![配图](URL)` are cleaned after the URL is extracted, preventing leftover `![配图](` text in the comment body.
 - Normal non-image links remain comment text.
 '''
 if "## 2026-09-05 Tencent / Kuaikan rich-media compatibility follow-up" not in doc_text:
     doc_text += note
+elif "Markdown image wrappers" not in doc_text:
+    doc_text = doc_text.replace(
+        "- Normal non-image links remain comment text.",
+        "- Markdown image wrappers such as `![配图](URL)` are cleaned after the URL is extracted, preventing leftover `![配图](` text in the comment body.\n- Normal non-image links remain comment text.",
+        1,
+    )
 docs.write_text(doc_text, encoding="utf-8")
