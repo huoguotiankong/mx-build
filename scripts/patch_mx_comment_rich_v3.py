@@ -71,38 +71,86 @@ if old_render in src:
 else:
     assert new_render in src, "rich comment image render anchor mismatch"
 
-old_parser_start = '''internal fun parseCommentRichContent(content: String): CommentRichContent {
-    val explicitImageUrls = linkedSetOf<String>()
-    val normalizedContent = normalizeExplicitCommentMedia(content, explicitImageUrls)
-    val imageUrls = mutableListOf<String>()
-'''
-new_parser_start = '''internal fun parseCommentRichContent(content: String): CommentRichContent {
-    val explicitImageUrls = linkedSetOf<String>()
+# Parse explicit markup and bare URLs in their original source order. Explicit media is never
+# re-injected as URL text, so inline prose cannot be swallowed by the URL regex.
+parser_start = src.index("internal fun parseCommentRichContent(content: String): CommentRichContent {")
+parser_end = src.index("\nprivate fun extractHtmlMediaUrl(tag: String): String? {", parser_start)
+new_parser = r'''internal fun parseCommentRichContent(content: String): CommentRichContent {
     val decodedContent = decodeCommentEntities(content)
-    val normalizedContent = normalizeExplicitCommentMedia(decodedContent, explicitImageUrls)
-    val imageUrls = explicitImageUrls.toMutableList()
-'''
-if old_parser_start in src:
-    src = src.replace(old_parser_start, new_parser_start, 1)
-else:
-    assert new_parser_start in src, "rich comment parser start anchor mismatch"
+    val explicitMedia = collectExplicitCommentMedia(decodedContent)
+    val imageUrls = linkedSetOf<String>()
+    val textWithoutImages = buildString {
+        var cursor = 0
+        explicitMedia.forEach { media ->
+            append(extractBareCommentMedia(decodedContent.substring(cursor, media.range.first), imageUrls))
+            imageUrls += media.url
+            cursor = media.range.last + 1
+        }
+        append(extractBareCommentMedia(decodedContent.substring(cursor), imageUrls))
+    }
 
-# Explicit HTML/Markdown/BBCode media is already recorded in explicitImageUrls. Remove the
-# markup from the text stream instead of injecting the raw URL back into it. Re-injection can
-# glue a URL to adjacent prose (for example `前文<img ...>后文`) and make the URL regex swallow
-# the trailing text. Seeding imageUrls from explicitImageUrls preserves the media without that
-# ambiguity.
-old_explicit_return = '''            explicitImageUrls += url
-            url
+    return CommentRichContent(
+        text = normalizeCommentMarkup(textWithoutImages),
+        imageUrls = imageUrls.toList(),
+    )
+}
+
+private data class CommentExplicitMedia(
+    val range: IntRange,
+    val url: String,
+)
+
+private fun collectExplicitCommentMedia(content: String): List<CommentExplicitMedia> {
+    val candidates = buildList {
+        COMMENT_HTML_MEDIA_TAG_REGEX.findAll(content).forEach { match ->
+            extractHtmlMediaUrl(match.value)?.let { url ->
+                add(CommentExplicitMedia(match.range, url))
+            }
+        }
+        COMMENT_MARKDOWN_IMAGE_REGEX.findAll(content).forEach { match ->
+            extractExplicitMediaUrl(match)?.let { url ->
+                add(CommentExplicitMedia(match.range, url))
+            }
+        }
+        COMMENT_BBCODE_IMAGE_REGEX.findAll(content).forEach { match ->
+            extractExplicitMediaUrl(match)?.let { url ->
+                add(CommentExplicitMedia(match.range, url))
+            }
+        }
+    }.sortedWith(
+        compareBy<CommentExplicitMedia> { it.range.first }
+            .thenByDescending { it.range.last },
+    )
+
+    val result = mutableListOf<CommentExplicitMedia>()
+    candidates.forEach { candidate ->
+        if (result.lastOrNull()?.range?.last?.let { it >= candidate.range.first } == true) {
+            return@forEach
+        }
+        result += candidate
+    }
+    return result
+}
+
+private fun extractExplicitMediaUrl(match: MatchResult): String? {
+    val rawUrl = match.groupValues.getOrNull(1).orEmpty()
+    return normalizeCommentUrl(rawUrl).takeIf(::isHttpCommentUrl)
+}
+
+private fun extractBareCommentMedia(
+    value: String,
+    imageUrls: MutableSet<String>,
+): String = COMMENT_URL_REGEX.replace(value) { match ->
+    val normalizedUrl = normalizeCommentUrl(match.value)
+    if (isCommentImageUrl(normalizedUrl)) {
+        imageUrls += normalizedUrl
+        ""
+    } else {
+        match.value
+    }
+}
 '''
-new_explicit_return = '''            explicitImageUrls += url
-            ""
-'''
-if old_explicit_return in src:
-    assert src.count(old_explicit_return) == 2, "explicit media return anchor count mismatch"
-    src = src.replace(old_explicit_return, new_explicit_return)
-else:
-    assert src.count(new_explicit_return) == 2, "explicit media removal anchor mismatch"
+src = src[:parser_start] + new_parser + src[parser_end:]
 
 old_normalize_url = '''private fun normalizeCommentUrl(value: String): String {
     val unescaped = org.jsoup.parser.Parser.unescapeEntities(value.trim(), false)
@@ -170,6 +218,18 @@ extra_tests = '''    @Test
         assertEquals(listOf(url), result.imageUrls)
     }
 
+    @Test
+    fun `mixed bare and explicit media preserve source order`() {
+        val bare = "https://tncache1-f1.v3mh.com/firstOpaqueAsset12345"
+        val explicit = "https://assets.example.org/object?id=inline"
+        val last = "https://assets.example.org/last.webp"
+        val result = parseCommentRichContent(
+            "$bare 前文<img src=\"$explicit\">后文 $last",
+        )
+        assertEquals("前文后文", result.text)
+        assertEquals(listOf(bare, explicit, last), result.imageUrls)
+    }
+
 '''
 if extra_tests not in tests:
     assert tests.count(anchor) == 1, "comment rich-content test anchor mismatch"
@@ -184,10 +244,10 @@ fall back to readable `【表情：附议】` text instead of leaking raw markup
 new_docs = '''Provider-specific emoji/sticker images can be supplied as explicit image markup even when the asset URL
 has no extension or comes from an unknown CDN. HTML media tags are decoded before extraction, including
 entity-escaped and double-escaped payloads such as `&lt;img ...&gt;`, so provider serialization does not
-silently turn images or stickers into raw text. Explicit media markup is removed from the text stream
-after its URL is captured, preventing adjacent prose from being accidentally consumed as part of a URL.
-Unresolved Kuaikan-style tokens such as `[热词_附议]` fall back to readable `【表情：附议】` text instead
-of leaking raw markup.
+silently turn images or stickers into raw text. Explicit markup and bare image URLs are walked in source
+order, keeping mixed comment media in the same sequence as the provider response while preventing
+adjacent prose from being consumed as part of a URL. Unresolved Kuaikan-style tokens such as
+`[热词_附议]` fall back to readable `【表情：附议】` text instead of leaking raw markup.
 
 Comment-card media uses the ordinary Coil `AsyncImage` path instead of per-item subcomposition. Failed
 loads fall back to the original media URL as readable text, while successful image-heavy threads avoid
