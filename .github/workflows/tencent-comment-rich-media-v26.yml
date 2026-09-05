@@ -93,8 +93,6 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-        with:
-          build-root-directory: upstream
 
       - name: Verify formatting and compile
         working-directory: upstream
@@ -159,13 +157,23 @@ jobs:
           cert_output="$("$apksigner" verify --print-certs "$apk" 2>&1)"
           normalized="$(printf '%s' "$cert_output" | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')"
           [[ "$normalized" == *"$SIGNING_FINGERPRINT"* ]] || { echo "::error::Tencent APK signing certificate mismatch"; exit 1; }
+
+          src="source/src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt"
+          grep -Fq 'TENCENT_EMOJI_PACK_PREFIXES' "$src"
+          grep -Fq 'commentInlineImageUrls' "$src"
+          grep -Fq 'data-actualsrc' "$src"
+          grep -Fq 'originalUrl' "$src"
+          grep -Fq 'manhua.acimg.cn' source/docs/sources/tencentcomics.md
+
+          # GNU strings is reliable for the ASCII JSON/HTML keys that must survive R8.
+          # Do not use non-ASCII UI text as a DEX sentinel: DEX modified UTF-8 makes
+          # that check runner/tool-version dependent even when the compiled code is valid.
           dump="$RUNNER_TEMP/tencent-v26-dex.txt"
           : > "$dump"
           while IFS= read -r dex; do unzip -p "$apk" "$dex" | strings >> "$dump"; done < <(unzip -Z1 "$apk" | grep -E '^classes([0-9]+)?\.dex$' || true)
-          grep -Fq 'TENCENT_EMOJI_PACK_PREFIXES' source/src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
-          grep -Fq 'manhua.acimg.cn' source/docs/sources/tencentcomics.md
-          grep -Fq '【表情：' "$dump"
-          grep -Fq 'originalUrl' "$dump"
+          for marker in picUrl originalUrl data-actualsrc; do
+            grep -Fq "$marker" "$dump" || { echo "::error::Tencent APK missing rich-media marker: $marker"; exit 1; }
+          done
 
       - name: Commit verified Tencent v26 source branch
         working-directory: source
