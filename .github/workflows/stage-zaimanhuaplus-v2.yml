@@ -1,0 +1,245 @@
+name: Stage Zaimanhua Plus v1.4.2 Fix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/stage-zaimanhuaplus-v2.yml"
+      - ".github/scripts/fix_zaimanhuaplus_v2.py"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stage-zaimanhuaplus-v2
+  cancel-in-progress: false
+
+jobs:
+  stage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check required secrets
+        shell: bash
+        env:
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MANGA_SIGNING_BUNDLE" ]]
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]]
+
+      - name: Checkout current Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          ref: main
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout MX private source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: dev
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Patch login and restore complete icon densities
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/fix_zaimanhuaplus_v2.py
+          target='dev/src/zh/zaimanhuaplus/res'
+          rm -rf "$target"/mipmap-mdpi "$target"/mipmap-hdpi "$target"/mipmap-xhdpi "$target"/mipmap-xxhdpi "$target"/mipmap-xxxhdpi
+          for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            src="upstream/src/zh/zaimanhua/res/mipmap-$density"
+            dst="$target/mipmap-$density"
+            test -d "$src"
+            mkdir -p "$dst"
+            icon="$(find "$src" -maxdepth 1 -type f -name 'ic_launcher.*' | head -n1)"
+            test -n "$icon"
+            cp "$icon" "$dst/$(basename "$icon")"
+          done
+          for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            find "$target/mipmap-$density" -maxdepth 1 -type f -name 'ic_launcher.*' | grep -q .
+          done
+          python3 dev/scripts/validate_sources.py
+          git -C dev diff --check
+
+      - name: Overlay patched source
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os,re
+          from pathlib import Path
+          text=Path('dev/src/zh/zaimanhuaplus/build.gradle.kts').read_text('utf-8')
+          code=re.search(r'versionCode\s*=\s*(\d+)', text)
+          lib=re.search(r'libVersion\s*=\s*"([0-9]+\.[0-9]+)"', text)
+          if not code or not lib: raise SystemExit('Unable to resolve version')
+          code=int(code.group(1)); version=f'{lib.group(1)}.{code}'
+          if code != 2: raise SystemExit(f'Expected source versionCode 2, got {code}')
+          with Path(os.environ['GITHUB_OUTPUT']).open('a',encoding='utf-8') as f:
+              f.write(f'source_code={code}\nversion_name={version}\n')
+          print(f'Zaimanhua Plus versionName={version}')
+          PY
+          rm -rf upstream/src/zh/zaimanhuaplus
+          cp -a dev/src/zh/zaimanhuaplus upstream/src/zh/zaimanhuaplus
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Format and validate
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:zaimanhuaplus:spotlessApply
+          ./gradlew :src:zh:zaimanhuaplus:spotlessCheck
+
+      - name: Prepare stable signing key
+        shell: bash
+        env:
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64,json,os
+          from pathlib import Path
+          b=json.loads(os.environ['MANGA_SIGNING_BUNDLE'])
+          required=('signingKey','alias','storePassword','keyPassword')
+          missing=[k for k in required if not b.get(k)]
+          if missing: raise SystemExit('Signing bundle missing: '+', '.join(missing))
+          Path('upstream/signingkey.jks').write_bytes(base64.b64decode(b['signingKey']))
+          with Path(os.environ['GITHUB_ENV']).open('a',encoding='utf-8') as f:
+              for e,k in (('ALIAS','alias'),('KEY_STORE_PASSWORD','storePassword'),('KEY_PASSWORD','keyPassword')):
+                  v=str(b[k]); print(f'::add-mask::{v}'); f.write(f'{e}<<EOF_SIGN\n{v}\nEOF_SIGN\n')
+          PY
+
+      - name: Build debug release and lint
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:zaimanhuaplus:assembleDebug :src:zh:zaimanhuaplus:assembleRelease :src:zh:zaimanhuaplus:lintRelease
+
+      - name: Verify signing identity and icon resources
+        id: signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(keytool -exportcert -alias "$ALIAS" -keystore upstream/signingkey.jks -storepass "$KEY_STORE_PASSWORD" | sha256sum | awk '{print $1}' | tr '[:upper:]' '[:lower:]')"
+          designated='1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620'
+          [[ "$actual" == "$designated" ]]
+          apk="$(find upstream/src/zh/zaimanhuaplus -path '*/build/outputs/apk/release/*.apk' -type f | head -n1)"
+          test -n "$apk"
+          apksigner="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n1)"
+          "$apksigner" verify "$apk"
+          for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            find "upstream/src/zh/zaimanhuaplus/res/mipmap-$density" -maxdepth 1 -type f -name 'ic_launcher.*' | grep -q .
+          done
+          echo "fingerprint=$actual" >> "$GITHUB_OUTPUT"
+
+      - name: Sync validated source and maintenance record
+        shell: bash
+        env:
+          EXPECTED_VERSION: ${{ steps.version.outputs.version_name }}
+        run: |
+          set -euo pipefail
+          rm -rf dev/src/zh/zaimanhuaplus
+          cp -a upstream/src/zh/zaimanhuaplus dev/src/zh/zaimanhuaplus
+          rm -rf dev/src/zh/zaimanhuaplus/build
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('dev/docs/sources/zaimanhuaplus.md')
+          text=p.read_text('utf-8')
+          marker='## v2 实机反馈修复记录'
+          block='''\n\n## v2 实机反馈修复记录\n\n- 2026-09-06 用户实机确认 v1.4.1 无法完成账号登录，且安装后的源列表显示为共享 core 默认书签图标。\n- 登录链路不再照搬旧上游裸请求：账号接口增加当前 APP 风格参数 `platform=android`、`timestamp`、`_v=2.3.7`、`_c=101_01_01_000`，并增加 `Platform`、持久化随机 `X-Client-ID`、`AppVersion`、`BuildNumber=1502277`、`Channel` 等请求头。\n- 登录表单改为正常 URL 编码，登录失败不再清空用户名和密码；新增可点击的“立即登录 / 检查登录”和可读登录状态，便于直接看到服务端错误。\n- Token 有效性优先通过账号 API 校验，不再依赖本地 JWT payload 解析作为登录成功的前置条件。\n- 图标问题根因是 v1 仅保留 `mipmap-xxhdpi/ic_launcher`；Android 在其它屏幕密度上可命中 shared core 默认图标。v2 恢复 Keiyoushi 再漫画的 mdpi/hdpi/xhdpi/xxhdpi/xxxhdpi 五档完整图标资源。\n- v2 源码版本 `versionCode = 2`，扩展版本 `1.4.2` / Android `versionCode = 104002`。\n- v2 已在现行 Keiyoushi 框架完成 Spotless、Debug/Release、lint、固定签名和五档图标资源校验，并生成隔离测试商店 APK。登录成功本身仍需真实账号实机确认。\n'''
+          if marker not in text:
+              text += block
+          p.write_text(text, 'utf-8')
+          PY
+          python3 dev/scripts/validate_sources.py
+          git -C dev diff --check
+          git -C dev config user.name 'github-actions[bot]'
+          git -C dev config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C dev add src/zh/zaimanhuaplus docs/sources/zaimanhuaplus.md
+          if git -C dev diff --cached --quiet; then
+            echo 'Zaimanhua Plus v2 source already current'
+          else
+            git -C dev commit -m "fix(zaimanhuaplus): repair login and launcher icon v2"
+            git -C dev pull --rebase origin main
+            git -C dev push origin HEAD:main
+          fi
+
+      - name: Checkout extension staging
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-build
+          ref: extension-staging
+          token: ${{ github.token }}
+          path: staging
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Generate isolated test store snapshot
+        shell: bash
+        env:
+          SIGNING_FINGERPRINT: ${{ steps.signing.outputs.fingerprint }}
+          EXPECTED_VERSION: ${{ steps.version.outputs.version_name }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' 'zh/zaimanhuaplus' > targets.txt
+          python3 dev/scripts/publish_test_repo.py \
+            --targets targets.txt \
+            --upstream-root upstream \
+            --source-root dev \
+            --repo-dir staging/test \
+            --owner huoguotiankong \
+            --repository mx-repo \
+            --signing-key "$SIGNING_FINGERPRINT"
+          test -f staging/test/index.json
+          test -f staging/test/repo.json
+          test -f "staging/test/apk/tachiyomi-zh.zaimanhuaplus-v${EXPECTED_VERSION}.apk"
+          grep -q 'eu.kanade.tachiyomi.extension.zh.zaimanhuaplus' staging/test/index.json
+
+      - name: Commit staged test store
+        working-directory: staging
+        shell: bash
+        env:
+          EXPECTED_VERSION: ${{ steps.version.outputs.version_name }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add test
+          if git diff --cached --quiet; then
+            echo 'No staging changes'
+          else
+            git commit -m "Stage Zaimanhua Plus v${EXPECTED_VERSION} test store"
+            git push origin HEAD:extension-staging
+          fi
+
+      - name: Upload signed APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: zaimanhuaplus-v${{ steps.version.outputs.source_code }}-signed-apk
+          path: upstream/src/zh/zaimanhuaplus/**/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Cleanup signing material
+        if: always()
+        run: rm -f upstream/signingkey.jks
