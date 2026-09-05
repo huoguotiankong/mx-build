@@ -36,8 +36,8 @@ jobs:
           repository: huoguotiankong/mx-build
           ref: main
           path: buildrepo
-          fetch-depth: 1
-          persist-credentials: false
+          fetch-depth: 0
+          persist-credentials: true
 
       - name: Checkout current Keiyoushi framework
         uses: actions/checkout@v5
@@ -56,7 +56,7 @@ jobs:
           token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
           path: dev
           fetch-depth: 0
-          persist-credentials: true
+          persist-credentials: false
 
       - name: Patch login and restore complete icon densities
         shell: bash
@@ -161,10 +161,8 @@ jobs:
           done
           echo "fingerprint=$actual" >> "$GITHUB_OUTPUT"
 
-      - name: Sync validated source and maintenance record
+      - name: Prepare validated source handoff
         shell: bash
-        env:
-          EXPECTED_VERSION: ${{ steps.version.outputs.version_name }}
         run: |
           set -euo pipefail
           rm -rf dev/src/zh/zaimanhuaplus
@@ -182,15 +180,19 @@ jobs:
           PY
           python3 dev/scripts/validate_sources.py
           git -C dev diff --check
-          git -C dev config user.name 'github-actions[bot]'
-          git -C dev config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git -C dev add src/zh/zaimanhuaplus docs/sources/zaimanhuaplus.md
-          if git -C dev diff --cached --quiet; then
-            echo 'Zaimanhua Plus v2 source already current'
+          rm -rf buildrepo/.github/handoff/zaimanhuaplus-v2
+          mkdir -p buildrepo/.github/handoff/zaimanhuaplus-v2
+          cp -a dev/src/zh/zaimanhuaplus buildrepo/.github/handoff/zaimanhuaplus-v2/module
+          cp dev/docs/sources/zaimanhuaplus.md buildrepo/.github/handoff/zaimanhuaplus-v2/zaimanhuaplus.md
+          git -C buildrepo config user.name 'github-actions[bot]'
+          git -C buildrepo config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C buildrepo add .github/handoff/zaimanhuaplus-v2
+          if git -C buildrepo diff --cached --quiet; then
+            echo 'Validated handoff already current'
           else
-            git -C dev commit -m "fix(zaimanhuaplus): repair login and launcher icon v2"
-            git -C dev pull --rebase origin main
-            git -C dev push origin HEAD:main
+            git -C buildrepo commit -m 'handoff: validated Zaimanhua Plus v1.4.2 source'
+            git -C buildrepo pull --rebase origin main
+            git -C buildrepo push origin HEAD:main
           fi
 
       - name: Checkout extension staging
