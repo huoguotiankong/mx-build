@@ -1,0 +1,303 @@
+name: MX Tencent Rich Media + EHentai Integration
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/mx-app-tencent-rich-media-ehentai-integration.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mx-tencent-rich-media-ehentai-integration
+  cancel-in-progress: false
+
+jobs:
+  patch-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Check required secrets
+        shell: bash
+        env:
+          MX_APP_PUBLISH_TOKEN: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          MX_APP_SIGNING_BUNDLE: ${{ secrets.MX_APP_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_APP_PUBLISH_TOKEN" ]] || { echo "::error::Missing MX_APP_PUBLISH_TOKEN"; exit 1; }
+          [[ -n "$MX_APP_SIGNING_BUNDLE" ]] || { echo "::error::Missing MX_APP_SIGNING_BUNDLE"; exit 1; }
+
+      - name: Checkout latest EHentai integration branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-app
+          ref: integration/mx-final-ehentai-comment-rich-20260905-v2
+          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Patch Tencent comment rich-media recognition
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          screen = Path('app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt')
+          tests = Path('app/src/test/java/eu/kanade/presentation/manga/comments/CommentRichContentTest.kt')
+          docs = Path('docs/COMMENTS.md')
+
+          text = screen.read_text(encoding='utf-8')
+          old = '''            val rawUrl = match.value
+            val normalizedUrl = rawUrl.trimEnd(*COMMENT_URL_TRAILING_PUNCTUATION)
+            if (isCommentImageUrl(normalizedUrl)) {
+                imageUrls += normalizedUrl
+'''
+          new = '''            val rawUrl = match.value
+            val normalizedUrl = normalizeCommentMediaUrl(rawUrl)
+            if (isCommentImageUrl(normalizedUrl)) {
+                imageUrls += normalizedUrl
+'''
+          if old in text:
+              text = text.replace(old, new, 1)
+          elif new not in text:
+              raise SystemExit('Comment URL normalization baseline not found')
+
+          old = '''private fun isCommentImageUrl(url: String): Boolean {
+    val normalized = url.lowercase()
+    return COMMENT_IMAGE_FILE_REGEX.containsMatchIn(normalized) ||
+        normalized.startsWith("https://cc-image.kkmh.com/comment/image/") ||
+        COMMENT_V3MH_SOCIAL_IMAGE_REGEX.containsMatchIn(normalized)
+}
+
+private val COMMENT_URL_REGEX = Regex("https?://[^\\s<>\\\"']+", RegexOption.IGNORE_CASE)
+private val COMMENT_IMAGE_FILE_REGEX = Regex("\\.(?:jpe?g|png|webp|gif|avif)(?:[?#].*)?$", RegexOption.IGNORE_CASE)
+private val COMMENT_V3MH_SOCIAL_IMAGE_REGEX = Regex("^https?://[^/]*\\.v3mh\\.com/social/", RegexOption.IGNORE_CASE)
+'''
+          new = '''private fun normalizeCommentMediaUrl(rawUrl: String): String = rawUrl
+    .trimEnd(*COMMENT_URL_TRAILING_PUNCTUATION)
+    .replace("&amp;", "&", ignoreCase = true)
+    .let { if (it.startsWith("//")) "https:$it" else it }
+
+private fun isCommentImageUrl(url: String): Boolean {
+    val normalized = url.lowercase()
+    return COMMENT_IMAGE_FILE_REGEX.containsMatchIn(normalized) ||
+        normalized.startsWith("https://cc-image.kkmh.com/comment/image/") ||
+        COMMENT_V3MH_SOCIAL_IMAGE_REGEX.containsMatchIn(normalized) ||
+        COMMENT_TENCENT_IMAGE_HOST_REGEX.containsMatchIn(normalized)
+}
+
+private val COMMENT_URL_REGEX = Regex("(?:https?:)?//[^\\s<>\\\"']+", RegexOption.IGNORE_CASE)
+private val COMMENT_IMAGE_FILE_REGEX = Regex(
+    "\\.(?:jpe?g|jfif|png|apng|webp|gif|avif|bmp|heic|heif)(?:/[^?#\\s]*)?(?:[?#].*)?$",
+    RegexOption.IGNORE_CASE,
+)
+private val COMMENT_V3MH_SOCIAL_IMAGE_REGEX = Regex("^https?://[^/]*\\.v3mh\\.com/social/", RegexOption.IGNORE_CASE)
+private val COMMENT_TENCENT_IMAGE_HOST_REGEX = Regex(
+    "^https?://(?:manhua\\.acimg\\.cn|manhua\\.qpic\\.cn|ugc\\.qpic\\.cn|gtimg\\.ac\\.qq\\.com|gtimgcdn\\.ac\\.qq\\.com)/",
+    RegexOption.IGNORE_CASE,
+)
+'''
+          if old in text:
+              text = text.replace(old, new, 1)
+          elif new not in text:
+              raise SystemExit('Comment image matcher baseline not found')
+          screen.write_text(text, encoding='utf-8')
+
+          test_text = tests.read_text(encoding='utf-8')
+          marker = '''    @Test
+    fun `normal links stay as comment text`() {
+'''
+          insert = '''    @Test
+    fun `tencent transformed jpg urls become rich images`() {
+        val url = "https://manhua.acimg.cn/comment/example.jpg/0?tp=sharp&wxfrom=5"
+        val result = parseCommentRichContent("腾讯图片\\n$url")
+        assertEquals("腾讯图片", result.text)
+        assertEquals(listOf(url), result.imageUrls)
+    }
+
+    @Test
+    fun `tencent image cdn urls without file extension become rich images`() {
+        val url = "https://ugc.qpic.cn/qqcomic/comment/abcdef012345"
+        val result = parseCommentRichContent("配图\\n$url")
+        assertEquals("配图", result.text)
+        assertEquals(listOf(url), result.imageUrls)
+    }
+
+    @Test
+    fun `protocol relative media url is normalized`() {
+        val result = parseCommentRichContent("//manhua.qpic.cn/comment/sample.webp")
+        assertEquals("", result.text)
+        assertEquals(listOf("https://manhua.qpic.cn/comment/sample.webp"), result.imageUrls)
+    }
+
+    @Test
+    fun `html encoded image query parameters are normalized`() {
+        val result = parseCommentRichContent("https://manhua.acimg.cn/comment/a.png/0?tp=sharp&amp;quality=90")
+        assertEquals("", result.text)
+        assertEquals(
+            listOf("https://manhua.acimg.cn/comment/a.png/0?tp=sharp&quality=90"),
+            result.imageUrls,
+        )
+    }
+
+    @Test
+    fun `additional image extensions are recognized`() {
+        val urls = listOf(
+            "https://example.com/a.apng",
+            "https://example.com/b.jfif?x=1",
+            "https://example.com/c.heic/0?quality=90",
+        )
+        val result = parseCommentRichContent(urls.joinToString("\\n"))
+        assertEquals("", result.text)
+        assertEquals(urls, result.imageUrls)
+    }
+
+'''
+          if 'tencent transformed jpg urls become rich images' not in test_text:
+              if marker not in test_text:
+                  raise SystemExit('CommentRichContentTest insertion marker not found')
+              test_text = test_text.replace(marker, insert + marker, 1)
+          tests.write_text(test_text, encoding='utf-8')
+
+          doc_text = docs.read_text(encoding='utf-8')
+          note = '''
+
+## 2026-09-05 Tencent / Kuaikan rich-media compatibility follow-up
+
+- Comment media parsing now accepts CDN transform paths such as `...jpg/0?tp=sharp`, rather than requiring the image extension to be the final URL path segment.
+- The parser recognizes additional common image extensions (`jfif`, `apng`, `bmp`, `heic`, `heif`) and keeps existing `jpg/png/webp/gif/avif` support.
+- Protocol-relative media URLs are normalized to HTTPS and HTML-escaped `&amp;` query separators are decoded before image loading.
+- Known Tencent Comics image CDNs discovered in the official Android 12.19.9 package are treated as image media even when the URL has no file extension: `manhua.acimg.cn`, `manhua.qpic.cn`, `ugc.qpic.cn`, `gtimg.ac.qq.com`, `gtimgcdn.ac.qq.com`.
+- Normal non-image links remain comment text.
+'''
+          if '## 2026-09-05 Tencent / Kuaikan rich-media compatibility follow-up' not in doc_text:
+              doc_text += note
+          docs.write_text(doc_text, encoding='utf-8')
+          PY
+          git diff --check
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Format and verify unit tests
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew spotlessApply
+          git diff --check
+          ./gradlew testReleaseUnitTest
+
+      - name: Prepare stable signing key
+        shell: bash
+        env:
+          MX_APP_SIGNING_BUNDLE: ${{ secrets.MX_APP_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, json, os
+          from pathlib import Path
+          bundle = json.loads(os.environ['MX_APP_SIGNING_BUNDLE'])
+          required = ('signingKey', 'alias', 'storePassword')
+          missing = [key for key in required if not bundle.get(key)]
+          if missing:
+              raise SystemExit('Signing bundle missing required fields')
+          path = Path(os.environ['RUNNER_TEMP']) / 'mx-app.jks'
+          path.write_bytes(base64.b64decode(bundle['signingKey']))
+          values = {
+              'MX_KEYSTORE_PATH': str(path),
+              'MX_KEY_ALIAS': str(bundle['alias']),
+              'MX_KEYSTORE_PASSWORD': str(bundle['storePassword']),
+              'MX_KEY_PASSWORD': str(bundle['storePassword']),
+          }
+          with Path(os.environ['GITHUB_ENV']).open('a', encoding='utf-8') as f:
+              for name, value in values.items():
+                  print(f'::add-mask::{value}')
+                  f.write(f'{name}<<__MX_SIGNING_EOF__\n{value}\n__MX_SIGNING_EOF__\n')
+          PY
+
+      - name: Verify stable signing identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="c230be9c78bf5d28a101c2cb785923b899aa569ead15961309dea8bbcb34ec33"
+          actual="$(keytool -exportcert -alias "$MX_KEY_ALIAS" -keystore "$MX_KEYSTORE_PATH" -storepass "$MX_KEYSTORE_PASSWORD" | sha256sum | awk '{print $1}')"
+          [[ "$actual" == "$expected" ]] || { echo "::error::MX signing certificate mismatch"; exit 1; }
+
+      - name: Build signed integration Preview APK
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew assemblePreview \
+            -Pdisable-code-shrink \
+            --no-configuration-cache \
+            -Pandroid.injected.signing.store.file="$MX_KEYSTORE_PATH" \
+            -Pandroid.injected.signing.store.password="$MX_KEYSTORE_PASSWORD" \
+            -Pandroid.injected.signing.key.alias="$MX_KEY_ALIAS" \
+            -Pandroid.injected.signing.key.password="$MX_KEY_PASSWORD"
+
+      - name: Normalize and verify Preview APK signing certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="c230be9c78bf5d28a101c2cb785923b899aa569ead15961309dea8bbcb34ec33"
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          found=0
+          while IFS= read -r apk; do
+            found=1
+            signed="${apk%.apk}.mx-signed.apk"
+            "$apksigner" sign \
+              --ks "$MX_KEYSTORE_PATH" \
+              --ks-key-alias "$MX_KEY_ALIAS" \
+              --ks-pass env:MX_KEYSTORE_PASSWORD \
+              --key-pass env:MX_KEY_PASSWORD \
+              --out "$signed" "$apk"
+            mv "$signed" "$apk"
+            cert_output="$("$apksigner" verify --print-certs "$apk" 2>&1)"
+            normalized="$(printf '%s' "$cert_output" | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')"
+            [[ "$normalized" == *"$expected"* ]] || { echo "::error::APK signing certificate mismatch"; exit 1; }
+          done < <(find source/app/build/outputs/apk/preview -type f -name '*.apk' | sort)
+          [[ "$found" -eq 1 ]] || { echo "::error::No Preview APK found"; exit 1; }
+
+      - name: Commit verified integration changes
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt \
+            app/src/test/java/eu/kanade/presentation/manga/comments/CommentRichContentTest.kt \
+            docs/COMMENTS.md
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git commit -m "fix: expand Tencent comment rich-media recognition"
+            git push origin HEAD:integration/mx-final-ehentai-comment-rich-20260905-v2
+          fi
+
+      - name: Upload integration Preview APKs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mx-tencent-rich-media-ehentai-integration
+          path: source/app/build/outputs/apk/preview/*.apk
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Cleanup signing material
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/mx-app.jks"
