@@ -1,0 +1,1 @@
+validated: v4 source/build; image cache-bust + file magic guard + nl fallback + verified account state; Spotless + public reader smoke + Release + lint + stable signing
