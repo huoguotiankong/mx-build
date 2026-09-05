@@ -60,7 +60,21 @@ jobs:
           git fetch origin \
             integration/mx-final-ehentai-comment-rich-20260905-v2:refs/remotes/origin/mx-eh-final
           git merge --no-edit --no-ff -X theirs origin/mx-eh-final
-          git diff --check HEAD^ HEAD || true
+
+          # The two integration lines edited these files independently. The ort auto-merge can
+          # splice neighbouring Kotlin blocks together even when no conflict marker remains.
+          # Use the already validated EHentai/Tencent versions for the interaction-heavy overlap,
+          # while all library/category/performance-only files remain from the library branch.
+          git checkout origin/mx-eh-final -- \
+            app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt \
+            app/src/main/java/eu/kanade/presentation/manga/components/MangaDetailInfoSection.kt \
+            app/src/main/java/eu/kanade/tachiyomi/ui/manga/comments/CommentScreen.kt \
+            app/src/test/java/eu/kanade/presentation/manga/comments/CommentRichContentTest.kt \
+            docs/COMMENTS.md \
+            docs/MANGA_DETAILS.md \
+            source-api/src/commonMain/kotlin/eu/kanade/tachiyomi/source/mx/MangaRatingSource.kt
+
+          git diff --check
           test -f app/src/main/java/eu/kanade/tachiyomi/source/online/all/EHentaiMxFeatureProvider.kt
           test -f app/src/main/java/eu/kanade/presentation/library/components/LibraryToolbar.kt
 
