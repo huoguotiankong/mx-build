@@ -1,4 +1,4 @@
-name: Build Baozi Manhua Plus v1
+name: Build And Stage Baozi Manhua Plus
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: build-baozimanhuaplus-v1
+  group: build-baozimanhuaplus
   cancel-in-progress: false
 
 jobs:
@@ -48,6 +48,28 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
+      - name: Resolve source version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, re
+          from pathlib import Path
+          p = Path('dev/src/zh/baozimanhuaplus/build.gradle.kts')
+          text = p.read_text('utf-8')
+          code = re.search(r'versionCode\s*=\s*(\d+)', text)
+          lib = re.search(r'libVersion\s*=\s*"([0-9]+\.[0-9]+)"', text)
+          if not code or not lib:
+              raise SystemExit('Unable to resolve Baozi Plus version')
+          code = int(code.group(1))
+          version_name = f'{lib.group(1)}.{code}'
+          with Path(os.environ['GITHUB_OUTPUT']).open('a', encoding='utf-8') as f:
+              f.write(f'source_code={code}\n')
+              f.write(f'version_name={version_name}\n')
+          print(f'Resolved Baozi Plus source versionCode={code}, versionName={version_name}')
+          PY
+
       - name: Set up Java
         uses: actions/setup-java@v5
         with:
@@ -64,7 +86,7 @@ jobs:
           DST_KT="$DST/src/eu/kanade/tachiyomi/extension/zh/baozimanhuaplus"
 
           test -f "$DST/build.gradle.kts"
-          grep -q 'versionCode = 1' "$DST/build.gradle.kts"
+          grep -Eq 'versionCode = [0-9]+' "$DST/build.gradle.kts"
           mkdir -p "$DST_KT"
           rm -rf "$DST/src/eu/kanade/tachiyomi/extension/zh/baozimanhua"
 
@@ -137,7 +159,7 @@ jobs:
           echo "fingerprint=$expected" >> "$GITHUB_OUTPUT"
           echo "apk=$apk" >> "$GITHUB_OUTPUT"
 
-      - name: Sync validated formatted module and status to private source
+      - name: Sync validated formatted module to source checkout
         shell: bash
         run: |
           set -euo pipefail
@@ -160,6 +182,7 @@ jobs:
       - name: Generate isolated test store in staging
         env:
           SIGNING_FINGERPRINT: ${{ steps.signing.outputs.fingerprint }}
+          EXPECTED_VERSION: ${{ steps.version.outputs.version_name }}
         shell: bash
         run: |
           set -euo pipefail
@@ -174,11 +197,13 @@ jobs:
             --signing-key "$SIGNING_FINGERPRINT"
           test -f staging/test/index.json
           test -f staging/test/repo.json
-          test -f staging/test/apk/tachiyomi-zh.baozimanhuaplus-v1.6.1.apk
+          test -f "staging/test/apk/tachiyomi-zh.baozimanhuaplus-v${EXPECTED_VERSION}.apk"
           grep -q 'baozimanhuaplus' staging/test/index.json
 
       - name: Commit staging snapshot
         working-directory: staging
+        env:
+          EXPECTED_VERSION: ${{ steps.version.outputs.version_name }}
         shell: bash
         run: |
           set -euo pipefail
@@ -188,11 +213,13 @@ jobs:
           if git diff --cached --quiet; then
             echo 'No staging changes'
           else
-            git commit -m 'Stage Baozi Manhua Plus v1 test store'
+            git commit -m "Stage Baozi Manhua Plus v${EXPECTED_VERSION} test store"
             git push origin HEAD:extension-staging
           fi
 
       - name: Verify staging online
+        env:
+          EXPECTED_VERSION: ${{ steps.version.outputs.version_name }}
         shell: bash
         run: |
           set -euo pipefail
@@ -207,7 +234,7 @@ jobs:
             [[ "$ok" -eq 1 ]]
           done
           python3 - <<'PY'
-          import json
+          import json, os
           from pathlib import Path
           data=json.loads(Path('/tmp/index.json').read_text('utf-8'))
           package='eu.kanade.tachiyomi.extension.zh.baozimanhuaplus'
@@ -215,8 +242,9 @@ jobs:
           if len(items) != 1:
               raise SystemExit(f'Expected one staged {package}, got {len(items)}')
           item=items[0]
-          if item.get('versionName') != '1.6.1':
-              raise SystemExit(f"Unexpected version {item.get('versionName')}")
+          expected=os.environ['EXPECTED_VERSION']
+          if item.get('versionName') != expected:
+              raise SystemExit(f"Unexpected version {item.get('versionName')}, expected {expected}")
           print(f"Staged {package} versionName={item.get('versionName')} versionCode={item.get('versionCode')}")
           PY
 
@@ -239,7 +267,7 @@ jobs:
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: baozimanhuaplus-v1-signed-test-apk
+          name: baozimanhuaplus-v${{ steps.version.outputs.source_code }}-signed-test-apk
           path: upstream/src/zh/baozimanhuaplus/**/build/outputs/apk/release/*.apk
           if-no-files-found: error
           retention-days: 14
@@ -247,7 +275,7 @@ jobs:
       - name: Upload validated formatted source
         uses: actions/upload-artifact@v4
         with:
-          name: baozimanhuaplus-v1-formatted-source
+          name: baozimanhuaplus-v${{ steps.version.outputs.source_code }}-formatted-source
           path: dev/src/zh/baozimanhuaplus
           if-no-files-found: error
           retention-days: 14
@@ -255,7 +283,7 @@ jobs:
       - name: Upload isolated test store
         uses: actions/upload-artifact@v4
         with:
-          name: baozimanhuaplus-v1-test-store
+          name: baozimanhuaplus-v${{ steps.version.outputs.source_code }}-test-store
           path: staging/test
           if-no-files-found: error
           retention-days: 14
