@@ -62,6 +62,10 @@ jobs:
           BASE='https://manwali.cc'
           curl -L --fail --retry 3 -A "$UA" "$BASE/cate/" -o report/site/cate.html
           curl -L --fail --retry 3 -A "$UA" "$BASE/comic/94413" -o report/site/comic-94413.html
+          curl -L --fail --retry 3 -A "$UA" -H 'Accept: application/json' -H 'Authorization: Bearer null' \
+            "$BASE/api/comments?comic_id=94413&page=1&page_size=20&sort=time" -o report/site/comments-time.json
+          curl -L --fail --retry 3 -A "$UA" -H 'Accept: application/json' -H 'Authorization: Bearer null' \
+            "$BASE/api/comments?comic_id=94413&page=1&page_size=20&sort=hot" -o report/site/comments-hot.json
           python3 - <<'PY'
           from pathlib import Path
           import html,re,subprocess,urllib.parse
@@ -81,10 +85,16 @@ jobs:
               subprocess.run(['curl','-L','--fail','--retry','2','-A',ua,u,'-o',str(out)],check=False)
           PY
           grep -RniE 'comment|comments|評論|评论|reply|like|api/|fetch\(|ajax|XMLHttpRequest|signalr|hub' report/site > report/site/comment-api-hints.txt || true
-          echo '=== current script URLs ==='
-          cat report/site/script-urls.txt || true
-          echo '=== comment/API hints ==='
-          sed -n '1,1600p' report/site/comment-api-hints.txt || true
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          for name in ('comments-time.json','comments-hot.json'):
+              p=Path('report/site')/name
+              obj=json.loads(p.read_text('utf-8'))
+              (Path('report/site')/(name+'.pretty')).write_text(json.dumps(obj,ensure_ascii=False,indent=2),'utf-8')
+          PY
+          echo '=== comment JSON ==='
+          sed -n '1,800p' report/site/comments-time.json.pretty
 
       - name: Upload inspection report
         uses: actions/upload-artifact@v4
