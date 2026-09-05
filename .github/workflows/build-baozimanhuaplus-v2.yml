@@ -1,0 +1,259 @@
+name: Build Baozi Manhua Plus v2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/build-baozimanhuaplus-v2.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-baozimanhuaplus-v2
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check required secrets
+        env:
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "$MANGA_SIGNING_BUNDLE" ]]
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]]
+
+      - name: Checkout pinned Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          ref: 0ca8b46ec5229955a6a76b736de27642bca0808f
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout MX development source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: dev
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Restore complete upstream Baozi baseline in Plus module
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC='upstream/src/zh/baozimanhua'
+          SRC_KT="$SRC/src/eu/kanade/tachiyomi/extension/zh/baozimanhua"
+          DST='dev/src/zh/baozimanhuaplus'
+          DST_KT="$DST/src/eu/kanade/tachiyomi/extension/zh/baozimanhuaplus"
+
+          test -f "$DST/build.gradle.kts"
+          grep -q 'versionCode = 2' "$DST/build.gradle.kts"
+          mkdir -p "$DST_KT"
+          rm -rf "$DST/src/eu/kanade/tachiyomi/extension/zh/baozimanhua"
+
+          for file in Filters.kt BannerChecker.kt BannerConstants.kt BaoziBannerInterceptor.kt; do
+            cp "$SRC_KT/$file" "$DST_KT/$file"
+            sed -i 's/package eu\.kanade\.tachiyomi\.extension\.zh\.baozimanhua/package eu.kanade.tachiyomi.extension.zh.baozimanhuaplus/' "$DST_KT/$file"
+          done
+
+          rm -rf "$DST/res"
+          cp -a "$SRC/res" "$DST/res"
+          for d in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            test -f "$DST/res/mipmap-${d}/ic_launcher.png"
+          done
+
+          sed -i '/import eu\.kanade\.tachiyomi\.extension\.zh\.baozimanhua\.BaoziBannerInterceptor/d' "$DST_KT/BaoziPlus.kt"
+
+          python3 dev/scripts/validate_sources.py
+          git -C dev diff --check
+
+      - name: Overlay Baozi Manhua Plus
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf upstream/src/zh/baozimanhuaplus
+          cp -a dev/src/zh/baozimanhuaplus upstream/src/zh/baozimanhuaplus
+
+      - name: Format and static validation
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:baozimanhuaplus:spotlessApply
+          ./gradlew :src:zh:baozimanhuaplus:spotlessCheck
+
+      - name: Prepare signing key
+        env:
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, json, os
+          from pathlib import Path
+          b=json.loads(os.environ['MANGA_SIGNING_BUNDLE'])
+          Path('upstream/signingkey.jks').write_bytes(base64.b64decode(b['signingKey']))
+          with Path(os.environ['GITHUB_ENV']).open('a', encoding='utf-8') as f:
+              for e,k in (('ALIAS','alias'),('KEY_STORE_PASSWORD','storePassword'),('KEY_PASSWORD','keyPassword')):
+                  v=str(b[k]); print(f'::add-mask::{v}'); f.write(f'{e}<<EOF_SIGN\n{v}\nEOF_SIGN\n')
+          PY
+
+      - name: Build debug, signed release and lint
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:baozimanhuaplus:assembleDebug :src:zh:baozimanhuaplus:assembleRelease :src:zh:baozimanhuaplus:lintRelease
+
+      - name: Verify signing identity
+        id: signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(keytool -exportcert -alias "$ALIAS" -keystore upstream/signingkey.jks -storepass "$KEY_STORE_PASSWORD" | sha256sum | awk '{print $1}' | tr '[:upper:]' '[:lower:]')"
+          designated='1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620'
+          [[ "$expected" == "$designated" ]]
+          apk="$(find upstream/src/zh/baozimanhuaplus -path '*/build/outputs/apk/release/*.apk' -type f | head -n1)"
+          test -n "$apk"
+          apksigner="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n1)"
+          "$apksigner" verify "$apk"
+          echo "fingerprint=$expected" >> "$GITHUB_OUTPUT"
+          echo "apk=$apk" >> "$GITHUB_OUTPUT"
+
+      - name: Sync validated formatted module and status to private source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dev/src/zh/baozimanhuaplus
+          cp -a upstream/src/zh/baozimanhuaplus dev/src/zh/baozimanhuaplus
+          rm -rf dev/src/zh/baozimanhuaplus/build
+          python3 dev/scripts/validate_sources.py
+          git -C dev diff --check
+
+      - name: Checkout extension staging
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-build
+          ref: extension-staging
+          token: ${{ github.token }}
+          path: staging
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Generate isolated test store in staging
+        env:
+          SIGNING_FINGERPRINT: ${{ steps.signing.outputs.fingerprint }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' 'zh/baozimanhuaplus' > targets.txt
+          python3 dev/scripts/publish_test_repo.py \
+            --targets targets.txt \
+            --upstream-root upstream \
+            --source-root dev \
+            --repo-dir staging/test \
+            --owner huoguotiankong \
+            --repository mx-repo \
+            --signing-key "$SIGNING_FINGERPRINT"
+          test -f staging/test/index.json
+          test -f staging/test/repo.json
+          test -f staging/test/apk/tachiyomi-zh.baozimanhuaplus-v1.6.2.apk
+          grep -q 'baozimanhuaplus' staging/test/index.json
+
+      - name: Commit staging snapshot
+        working-directory: staging
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add test
+          if git diff --cached --quiet; then
+            echo 'No staging changes'
+          else
+            git commit -m 'Stage Baozi Manhua Plus v2 test store'
+            git push origin HEAD:extension-staging
+          fi
+
+      - name: Verify staging online
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://raw.githubusercontent.com/huoguotiankong/mx-build/extension-staging/test'
+          for f in index.json repo.json; do
+            ok=0
+            for n in 1 2 3 4 5 6; do
+              code="$(curl -L -sS -o "/tmp/$f" -w '%{http_code}' "$base/$f" || true)"
+              if [[ "$code" == 200 ]]; then ok=1; break; fi
+              sleep $((n*2))
+            done
+            [[ "$ok" -eq 1 ]]
+          done
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          data=json.loads(Path('/tmp/index.json').read_text('utf-8'))
+          package='eu.kanade.tachiyomi.extension.zh.baozimanhuaplus'
+          items=[x for x in data['extensionList']['extensions'] if x.get('packageName') == package]
+          if len(items) != 1:
+              raise SystemExit(f'Expected one staged {package}, got {len(items)}')
+          item=items[0]
+          if item.get('versionName') != '1.6.2':
+              raise SystemExit(f"Unexpected version {item.get('versionName')}")
+          print(f"Staged {package} versionName={item.get('versionName')} versionCode={item.get('versionCode')}")
+          PY
+
+      - name: Commit validated source to private development repository
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C dev config user.name "github-actions[bot]"
+          git -C dev config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C dev add src/zh/baozimanhuaplus
+          if git -C dev diff --cached --quiet; then
+            echo "Baozi Manhua Plus source is already current"
+          else
+            git -C dev commit -m "fix(baozimanhuaplus): validate complete upstream baseline v2"
+            git -C dev pull --rebase origin main
+            git -C dev push origin HEAD:main
+          fi
+
+      - name: Upload signed APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: baozimanhuaplus-v2-signed-test-apk
+          path: upstream/src/zh/baozimanhuaplus/**/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload validated formatted source
+        uses: actions/upload-artifact@v4
+        with:
+          name: baozimanhuaplus-v2-formatted-source
+          path: dev/src/zh/baozimanhuaplus
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload isolated test store
+        uses: actions/upload-artifact@v4
+        with:
+          name: baozimanhuaplus-v2-test-store
+          path: staging/test
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Cleanup signing material
+        if: always()
+        run: rm -f upstream/signingkey.jks
