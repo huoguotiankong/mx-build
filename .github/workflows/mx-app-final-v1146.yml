@@ -1,0 +1,201 @@
+name: MX App Final 1.14.6
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/mx-app-final-v1146.yml"
+      - "scripts/prepare_mx_final_integration_v1146.py"
+      - "scripts/patch_mx_app_tencent_rich_media_ehentai.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mx-app-final-v1146
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check required secrets
+        shell: bash
+        env:
+          MX_APP_SIGNING_BUNDLE: ${{ secrets.MX_APP_SIGNING_BUNDLE }}
+          MX_APP_PUBLISH_TOKEN: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_APP_SIGNING_BUNDLE" ]] || { echo "::error::Missing MX_APP_SIGNING_BUNDLE"; exit 1; }
+          [[ -n "$MX_APP_PUBLISH_TOKEN" ]] || { echo "::error::Missing MX_APP_PUBLISH_TOKEN"; exit 1; }
+
+      - name: Checkout build helper
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-build
+          ref: main
+          path: helper
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout latest library/comment integration
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-app
+          ref: integration/library-comment-20260905
+          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Merge latest EHentai and Tencent integration
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin \
+            integration/mx-final-ehentai-comment-rich-20260905-v2:refs/remotes/origin/mx-eh-final
+          git merge --no-edit --no-ff -X theirs origin/mx-eh-final
+          git diff --check HEAD^ HEAD || true
+          test -f app/src/main/java/eu/kanade/tachiyomi/source/online/all/EHentaiMxFeatureProvider.kt
+          test -f app/src/main/java/eu/kanade/presentation/library/components/LibraryToolbar.kt
+
+      - name: Prepare final version and compatibility layer
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 helper/scripts/prepare_mx_final_integration_v1146.py source
+          python3 helper/scripts/patch_mx_app_tencent_rich_media_ehentai.py source
+          git -C source diff --check
+          grep -F 'versionCode = 86' source/app/build.gradle.kts
+          grep -F 'versionName = "1.14.6"' source/app/build.gradle.kts
+          grep -F 'CommentVoteState' source/app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt
+          grep -F 'COMMENT_TENCENT_IMAGE_HOST_REGEX' source/app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Format and run release unit tests
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew spotlessApply
+          git diff --check
+          ./gradlew spotlessCheck testReleaseUnitTest --no-configuration-cache
+
+      - name: Prepare stable MX signing key
+        shell: bash
+        env:
+          MX_APP_SIGNING_BUNDLE: ${{ secrets.MX_APP_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, json, os
+          from pathlib import Path
+          bundle = json.loads(os.environ["MX_APP_SIGNING_BUNDLE"])
+          required = ("signingKey", "alias", "storePassword")
+          missing = [key for key in required if not bundle.get(key)]
+          if missing:
+              raise SystemExit(f"Signing bundle missing fields: {', '.join(missing)}")
+          path = Path(os.environ["RUNNER_TEMP"]) / "mx-app-final.jks"
+          path.write_bytes(base64.b64decode(bundle["signingKey"]))
+          values = {
+              "MX_KEYSTORE_PATH": str(path),
+              "MX_KEY_ALIAS": str(bundle["alias"]),
+              "MX_KEYSTORE_PASSWORD": str(bundle["storePassword"]),
+              "MX_KEY_PASSWORD": str(bundle.get("keyPassword") or bundle["storePassword"]),
+          }
+          with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as f:
+              for name, value in values.items():
+                  print(f"::add-mask::{value}")
+                  f.write(f"{name}<<__MX_FINAL_SIGN_EOF__\n{value}\n__MX_FINAL_SIGN_EOF__\n")
+          PY
+
+      - name: Verify stable MX signing identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="c230be9c78bf5d28a101c2cb785923b899aa569ead15961309dea8bbcb34ec33"
+          actual="$(keytool -exportcert -alias "$MX_KEY_ALIAS" -keystore "$MX_KEYSTORE_PATH" -storepass "$MX_KEYSTORE_PASSWORD" | sha256sum | awk '{print $1}' | tr '[:upper:]' '[:lower:]')"
+          [[ "$actual" == "$expected" ]] || { echo "::error::MX signing certificate mismatch"; exit 1; }
+          echo "MX_SIGNING_FINGERPRINT=$actual" >> "$GITHUB_ENV"
+
+      - name: Build final Preview APK
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew assemblePreview \
+            -Pdisable-code-shrink \
+            --no-configuration-cache \
+            -Pandroid.injected.signing.store.file="$MX_KEYSTORE_PATH" \
+            -Pandroid.injected.signing.store.password="$MX_KEYSTORE_PASSWORD" \
+            -Pandroid.injected.signing.key.alias="$MX_KEY_ALIAS" \
+            -Pandroid.injected.signing.key.password="$MX_KEY_PASSWORD"
+
+      - name: Normalize APK name and verify certificate
+        id: apk
+        shell: bash
+        run: |
+          set -euo pipefail
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          apk="$(find source/app/build/outputs/apk/preview -type f -name '*.apk' | sort | head -n 1)"
+          [[ -f "$apk" ]] || { echo "::error::No Preview APK found"; exit 1; }
+          output="source/app/build/outputs/apk/preview/MX-manga-v1.14.6-final.apk"
+          if [[ "$apk" != "$output" ]]; then cp "$apk" "$output"; fi
+          signed="${output%.apk}.signed.apk"
+          "$apksigner" sign \
+            --ks "$MX_KEYSTORE_PATH" \
+            --ks-key-alias "$MX_KEY_ALIAS" \
+            --ks-pass env:MX_KEYSTORE_PASSWORD \
+            --key-pass env:MX_KEY_PASSWORD \
+            --out "$signed" "$output"
+          mv "$signed" "$output"
+          "$apksigner" verify --verbose "$output"
+          cert_output="$("$apksigner" verify --print-certs "$output" 2>&1)"
+          normalized="$(printf '%s' "$cert_output" | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')"
+          [[ "$normalized" == *"$MX_SIGNING_FINGERPRINT"* ]] || { echo "::error::Final APK signing certificate mismatch"; exit 1; }
+          echo "path=$output" >> "$GITHUB_OUTPUT"
+          sha256sum "$output"
+
+      - name: Snapshot merged source metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p final-metadata
+          git -C source log -10 --oneline > final-metadata/merged-commits.txt
+          git -C source status --short > final-metadata/working-tree.txt
+          printf 'versionName=1.14.6\nversionCode=86\nsigning=%s\n' "$MX_SIGNING_FINGERPRINT" > final-metadata/build.txt
+
+      - name: Upload final MX APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: MX-manga-v1.14.6-final
+          path: source/app/build/outputs/apk/preview/MX-manga-v1.14.6-final.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload final integration metadata
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: MX-manga-v1.14.6-final-metadata
+          path: final-metadata
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Cleanup signing material
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/mx-app-final.jks"
