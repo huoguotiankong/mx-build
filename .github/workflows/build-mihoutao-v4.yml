@@ -1,0 +1,611 @@
+name: Build MiHouTao v4
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/build-mihoutao-v4.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-mihoutao-v4
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - name: Check required secrets
+        env:
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "$MANGA_SIGNING_BUNDLE" ]]
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]]
+
+      - name: Checkout pinned Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          ref: 0ca8b46ec5229955a6a76b736de27642bca0808f
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout MX development source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: dev
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply complete Manwa Plus transport and AES refresh
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='dev/src/zh/mihoutao'
+          KT="$BASE/src/eu/kanade/tachiyomi/extension/zh/mihoutao"
+          python3 - <<'PY'
+          from pathlib import Path
+          build = Path('dev/src/zh/mihoutao/build.gradle.kts')
+          text = build.read_text('utf-8')
+          if 'versionCode = 3' not in text:
+              raise SystemExit('Expected MiHouTao versionCode 3 before v4 patch')
+          build.write_text(text.replace('versionCode = 3', 'versionCode = 4', 1), 'utf-8')
+
+          path = Path('dev/src/zh/mihoutao/src/eu/kanade/tachiyomi/extension/zh/mihoutao/MiHouTaoEnhancedBase.kt')
+          text = path.read_text('utf-8')
+
+          old = '''    override fun OkHttpClient.Builder.configureClient() = apply {
+              addInterceptor(::imageInterceptor)
+              dispatcher(imageDispatcher)
+              connectTimeout(10.seconds)
+              readTimeout(40.seconds)
+          }
+          '''
+          new = '''    override fun OkHttpClient.Builder.configureClient() = apply {
+              followRedirects(false)
+              addInterceptor(::imageInterceptor)
+              addInterceptor(ApiRedirectInterceptor(API_HOST_NAMES))
+              addNetworkInterceptor(ExtraCookieInterceptor())
+              dispatcher(imageDispatcher)
+              connectTimeout(10.seconds)
+              readTimeout(40.seconds)
+          }
+          '''
+          if old not in text:
+              raise SystemExit('configureClient block not found')
+          text = text.replace(old, new, 1)
+
+          old = '''                val originalContentType = response.body.contentType()
+                  val bytes = response.body.bytes()
+                  val decoded = decodeImage(bytes)
+                  if (decoded == null) {
+                      lastError = IOException("无法解码图片: ${candidateUrl.host}")
+                      response.close()
+                      continue
+                  }
+                  return response.newBuilder()
+                      .body(decoded.toResponseBody(imageContentType(decoded) ?: originalContentType))
+                      .build()
+          '''
+          new = '''                val originalContentType = response.body.contentType()
+                  val bytes = response.body.bytes()
+                  var decoded = decodeImage(bytes, currentAesKey())
+                  if (decoded == null) {
+                      refreshAesKey(chain)?.let { refreshedKey ->
+                          decoded = decodeImage(bytes, refreshedKey)
+                      }
+                  }
+                  if (decoded == null) {
+                      lastError = IOException("无法解码图片: ${candidateUrl.host}")
+                      response.close()
+                      continue
+                  }
+                  return response.newBuilder()
+                      .body(decoded!!.toResponseBody(imageContentType(decoded!!) ?: originalContentType))
+                      .build()
+          '''
+          if old not in text:
+              raise SystemExit('image decode block not found')
+          text = text.replace(old, new, 1)
+
+          start = text.index('    private fun decodeImage(bytes: ByteArray): ByteArray? {')
+          end = text.index('    private fun looksLikeImage(bytes: ByteArray): Boolean', start)
+          replacement = '''    private fun currentAesKey(): String = preferences
+              .getString(AES_KEY_KEY, DEFAULT_AES_KEY)
+              .orEmpty()
+              .ifBlank { DEFAULT_AES_KEY }
+
+          private fun decodeImage(bytes: ByteArray, key: String): ByteArray? {
+              if (looksLikeImage(bytes)) return bytes
+              if (bytes.size <= AES_IV_SIZE) return null
+              return runCatching {
+                  val iv = bytes.copyOfRange(0, AES_IV_SIZE)
+                  val encrypted = bytes.copyOfRange(AES_IV_SIZE, bytes.size)
+                  val keyBytes = key.toByteArray(Charsets.UTF_8).copyOf(32)
+                  val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
+                  cipher.init(
+                      Cipher.DECRYPT_MODE,
+                      SecretKeySpec(keyBytes, "AES"),
+                      IvParameterSpec(iv),
+                  )
+                  cipher.doFinal(encrypted)
+              }.getOrNull()?.takeIf(::looksLikeImage)
+          }
+
+          private fun refreshAesKey(chain: Interceptor.Chain): String? = try {
+              synchronized(AES_KEY_LOCK) {
+                  val candidates = buildList {
+                      add(activeBaseUrl())
+                      addAll(API_HOST_VALUES)
+                  }.distinct()
+
+                  for (candidate in candidates) {
+                      val request = Request.Builder()
+                          .url("${candidate.trimEnd('/')}/static/assets/js/base.js")
+                          .header("Accept", "*/*")
+                          .header("Referer", "${candidate.trimEnd('/')}/")
+                          .build()
+                      val refreshed = chain.proceed(request).use { response ->
+                          if (!response.isSuccessful) return@use null
+                          AES_KEY_REGEX.find(response.body.string())
+                              ?.groupValues
+                              ?.getOrNull(1)
+                              ?.trim()
+                              ?.takeIf(String::isNotBlank)
+                      }
+                      if (refreshed != null) {
+                          preferences.edit().putString(AES_KEY_KEY, refreshed).apply()
+                          return@synchronized refreshed
+                      }
+                  }
+                  null
+              }
+          } catch (_: Exception) {
+              null
+          }
+
+          '''
+          text = text[:start] + replacement + text[end:]
+
+          text = text.replace('const val COVER_CACHE_REVISION = "mihoutao-cover-v3"', 'const val COVER_CACHE_REVISION = "mihoutao-cover-v4"', 1)
+          marker = '''        val KNOWN_MIRRORS = listOf(
+          '''
+          idx = text.index(marker)
+          end_list = text.index('        val IMAGE_HOST_LABELS = arrayOf(', idx)
+          block = text[idx:end_list]
+          if 'API_HOST_NAMES' not in block:
+              insert = '''        val API_HOST_NAMES = KNOWN_MIRRORS
+              .mapNotNull { it.toHttpUrlOrNull()?.host }
+              .toSet()
+
+          '''
+              text = text[:end_list] + insert + text[end_list:]
+          const_marker = '        const val COVER_CACHE_REVISION = "mihoutao-cover-v4"\n'
+          text = text.replace(const_marker, const_marker + '        val AES_KEY_REGEX = Regex("""AES_KEY\\s*:\\s*[\'\\\"]([^\'\\\"]+)[\'\\\"]""")\n        val AES_KEY_LOCK = Any()\n', 1)
+          path.write_text(text, 'utf-8')
+          PY
+
+          cat > "$KT/ExtraCookieInterceptor.kt" <<'EOF'
+          package eu.kanade.tachiyomi.extension.zh.mihoutao
+
+          import okhttp3.Interceptor
+          import okhttp3.Response
+
+          internal class ExtraCookieInterceptor : Interceptor {
+              override fun intercept(chain: Interceptor.Chain): Response {
+                  val request = chain.request()
+                  val extraCookie = request.header(EXTRA_COOKIE_HEADER) ?: return chain.proceed(request)
+                  val existing = request.header("Cookie")
+                  val cookie = if (existing.isNullOrBlank()) extraCookie else "$existing; $extraCookie"
+                  val updated = request.newBuilder()
+                      .header("Cookie", cookie)
+                      .removeHeader(EXTRA_COOKIE_HEADER)
+                      .build()
+                  return chain.proceed(updated)
+              }
+
+              private companion object {
+                  const val EXTRA_COOKIE_HEADER = "X-Extra-Cookie"
+              }
+          }
+          EOF
+
+          cat > "$KT/ApiRedirectInterceptor.kt" <<'EOF'
+          package eu.kanade.tachiyomi.extension.zh.mihoutao
+
+          import java.io.IOException
+          import okhttp3.HttpUrl
+          import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+          import okhttp3.Interceptor
+          import okhttp3.Request
+          import okhttp3.Response
+
+          internal class ApiRedirectInterceptor(
+              private val apiHosts: Set<String>,
+          ) : Interceptor {
+              override fun intercept(chain: Interceptor.Chain): Response {
+                  var request = chain.request()
+                  var response = chain.proceed(request)
+
+                  repeat(MAX_REDIRECTS) {
+                      val redirectUrl = response.redirectUrl() ?: return response
+                      val redirected = redirectTo(request, redirectUrl, response.code) ?: return response
+                      response.close()
+                      request = redirected
+                      response = chain.proceed(request)
+                  }
+
+                  if (response.redirectUrl() != null) {
+                      response.close()
+                      throw IOException("Too many Manwa API redirects")
+                  }
+                  return response
+              }
+
+              private fun Response.redirectUrl(): HttpUrl? {
+                  if (code !in REDIRECT_CODES) return null
+                  val location = header("Location") ?: return null
+                  return request.url.resolve(location)
+              }
+
+              private fun redirectTo(request: Request, url: HttpUrl, statusCode: Int): Request? {
+                  if (url.scheme != "https") return null
+
+                  val apiRedirect = url.isApiUrl() &&
+                      request.url.isApiUrl() &&
+                      url.host in apiHosts &&
+                      request.url.host in apiHosts
+
+                  if (
+                      request.method != "GET" &&
+                      request.method != "HEAD" &&
+                      statusCode !in CONVERT_TO_GET_CODES &&
+                      !apiRedirect
+                  ) {
+                      return null
+                  }
+
+                  val hadOrigin = request.header("Origin") != null
+                  val referer = request.header("Referer")
+                  val builder = request.newBuilder().url(url)
+
+                  if (request.method == "POST" && statusCode in CONVERT_TO_GET_CODES) {
+                      builder.method("GET", null)
+                      builder.removeHeader("Content-Length")
+                      builder.removeHeader("Content-Type")
+                  }
+
+                  if (request.url.host != url.host && !apiRedirect) {
+                      builder.removeHeader("Authorization")
+                      builder.removeHeader("Cookie")
+                  }
+
+                  if (apiRedirect) {
+                      val origin = url.origin()
+                      if (hadOrigin) builder.header("Origin", origin)
+                      referer?.toHttpUrlOrNull()?.let { oldReferer ->
+                          builder.header(
+                              "Referer",
+                              oldReferer.newBuilder()
+                                  .scheme(url.scheme)
+                                  .host(url.host)
+                                  .port(url.port)
+                                  .build()
+                                  .toString(),
+                          )
+                      }
+                  }
+
+                  return builder.build()
+              }
+
+              private fun HttpUrl.isApiUrl(): Boolean = encodedPath == "/api" || encodedPath.startsWith("/api/")
+
+              private fun HttpUrl.origin(): String {
+                  val defaultPort = (scheme == "https" && port == 443) || (scheme == "http" && port == 80)
+                  return "$scheme://$host" + if (defaultPort) "" else ":$port"
+              }
+
+              private companion object {
+                  const val MAX_REDIRECTS = 5
+                  val REDIRECT_CODES = setOf(301, 302, 303, 307, 308)
+                  val CONVERT_TO_GET_CODES = setOf(302, 303)
+              }
+          }
+          EOF
+
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('dev/docs/sources/mihoutao.md')
+          text=p.read_text('utf-8')
+          text=text.replace('当前源码 versionCode：2','当前源码 versionCode：4')
+          text=text.replace('当前 versionName：1.6.2','当前 versionName：1.6.4')
+          if '## 2026-09-05 v1.6.4' not in text:
+              text += '''\n\n## 2026-09-05 v1.6.4：对齐漫蛙2Plus并增强评论\n\n- 参考 `LittleSurvival/copymanga-copy20` 的 `漫蛙2Plus 1.4.7` 实际 APK 反编译结果，不再只参考索引元数据。\n- 完整加入六条 AP 线路、完整分类筛选、简繁转换、可选图源、AES Key 设置。\n- 补齐参考实现的 `ExtraCookieInterceptor`：`X-Extra-Cookie` 在网络层合并成真实 `Cookie`，保证 `route_idx` / `typeId` 分类条件真实送到站点。\n- 补齐参考实现的 API 重定向策略：关闭 OkHttp 默认重定向，跨已知漫蛙 API 域名时保留 POST 与站点头，最多跟随 5 次。\n- 补齐并增强图片 AES Key 自动刷新：当前 Key 解密失败时从站点 `/static/assets/js/base.js` 重新提取 `AES_KEY` 并持久化，再重试当前图片。\n- 保留我们原有动态域名发现、最后成功域名缓存、多图床自动回退和封面缓存修订。\n- 新增 MX 漫画评论页：公开 `/api/comments`，支持“最新 / 最热”、头像、昵称、点赞数、章节名和内嵌回复；当前仅开放只读，发评论/回复/点赞等登录写操作未伪装为已支持。\n- `v1.6.3` 已通过 Debug/Release/Lint/固定签名构建，但从 `mx-build` 直接推送 `mx-repo` 测试仓库仍被 GitHub 403 拒绝，因此公开测试发布继续使用 `mx-repo` 自仓库 promotion 工作流。\n'''
+          p.write_text(text,'utf-8')
+          PY
+
+          python3 dev/scripts/validate_sources.py
+          git -C dev diff --check
+
+      - name: Resolve source version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os,re
+          from pathlib import Path
+          text=Path('dev/src/zh/mihoutao/build.gradle.kts').read_text('utf-8')
+          code=int(re.search(r'versionCode\s*=\s*(\d+)',text).group(1))
+          lib=re.search(r'libVersion\s*=\s*"([0-9]+\.[0-9]+)"',text).group(1)
+          if code != 4:
+              raise SystemExit(f'Expected v4, got {code}')
+          version=f'{lib}.{code}'
+          with Path(os.environ['GITHUB_OUTPUT']).open('a',encoding='utf-8') as f:
+              f.write(f'source_code={code}\nversion_name={version}\n')
+          print(f'MiHouTao source versionCode={code} versionName={version}')
+          PY
+
+      - name: Probe current public APIs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, subprocess
+          hosts=['https://manwari.cc','https://manwaan.cc','https://manwaye.cc','https://manware.cc','https://manwaqi.cc','https://manwana.cc','https://manwali.cc']
+          payload={
+              'page': {'page':1,'pageSize':4},
+              'sort':0,
+              'comic': {'areaId':0,'day':0,'level':0,'status':-1,'tag':'','typeId':0},
+              'category':'comic',
+          }
+          body=json.dumps(payload,separators=(',',':'),ensure_ascii=False)
+          chosen=None
+          category=None
+          for host in hosts:
+              cmd=['curl','-L','--fail','--silent','--show-error','--max-time','12',
+                   '-H','User-Agent: Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140.0 Mobile Safari/537.36',
+                   '-H','Accept: */*','-H','Authorization: Bearer null','-H','Content-Type: application/json',
+                   '-H','Cookie: route_idx=0; typeId=0','-H',f'Origin: {host}','-H',f'Referer: {host}/cate?page=1',
+                   '-H','X-Requested-With: XMLHttpRequest','--data-binary',body,f'{host}/api/cate']
+              try:
+                  raw=subprocess.check_output(cmd,text=True,stderr=subprocess.STDOUT)
+                  data=json.loads(raw)
+                  if data.get('code')==200 and isinstance(data.get('data',{}).get('list'),list):
+                      chosen=host; category=data; break
+              except Exception:
+                  pass
+          if not chosen:
+              raise SystemExit('No Manwa category API mirror passed smoke test')
+          print('category mirror:', chosen, 'items:', len(category['data']['list']))
+
+          def get_json(url):
+              raw=subprocess.check_output(['curl','-L','--fail','--silent','--show-error','--max-time','12',
+                  '-H','User-Agent: Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140.0 Mobile Safari/537.36',
+                  '-H','Authorization: Bearer null','-H',f'Origin: {chosen}','-H',f'Referer: {chosen}/cate/',url],text=True)
+              return json.loads(raw)
+
+          comments_time=get_json(f'{chosen}/api/comments?comic_id=94413&page=1&page_size=20&sort=time')
+          comments_hot=get_json(f'{chosen}/api/comments?comic_id=94413&page=1&page_size=20&sort=hot')
+          for label,data in [('comments-time',comments_time),('comments-hot',comments_hot)]:
+              if data.get('code')!=200 or not isinstance(data.get('data',{}).get('list'),list):
+                  raise SystemExit(f'{label} smoke failed: {data.get("code")} {data.get("msg")}')
+              print(label, 'items:', len(data['data']['list']), 'total:', data['data'].get('total'))
+
+          detail=get_json(f'{chosen}/api/comic/94413/')
+          chapters=get_json(f'{chosen}/api/comic/94413/chapters')
+          if detail.get('code')!=200:
+              raise SystemExit('detail smoke failed')
+          if chapters.get('code')!=200 or not chapters.get('data',{}).get('list'):
+              raise SystemExit('chapters smoke failed')
+          print('detail/chapter smoke passed; chapters:', len(chapters['data']['list']))
+          PY
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Validate and overlay MiHouTao
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'versionCode = 4' dev/src/zh/mihoutao/build.gradle.kts
+          for d in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            test -f "dev/src/zh/mihoutao/res/mipmap-${d}/ic_launcher.png"
+          done
+          python3 dev/scripts/validate_sources.py
+          git -C dev diff --check
+          rm -rf upstream/src/zh/mihoutao
+          cp -a dev/src/zh/mihoutao upstream/src/zh/mihoutao
+
+      - name: Format and static validation
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:mihoutao:spotlessApply
+          ./gradlew :src:zh:mihoutao:spotlessCheck
+
+      - name: Prepare signing key
+        env:
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64,json,os
+          from pathlib import Path
+          b=json.loads(os.environ['MANGA_SIGNING_BUNDLE'])
+          Path('upstream/signingkey.jks').write_bytes(base64.b64decode(b['signingKey']))
+          with Path(os.environ['GITHUB_ENV']).open('a',encoding='utf-8') as f:
+              for e,k in (('ALIAS','alias'),('KEY_STORE_PASSWORD','storePassword'),('KEY_PASSWORD','keyPassword')):
+                  v=str(b[k]); print(f'::add-mask::{v}'); f.write(f'{e}<<EOF_SIGN\n{v}\nEOF_SIGN\n')
+          PY
+
+      - name: Build debug, signed release and lint
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:mihoutao:assembleDebug :src:zh:mihoutao:assembleRelease :src:zh:mihoutao:lintRelease
+
+      - name: Verify signing identity
+        id: signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(keytool -exportcert -alias "$ALIAS" -keystore upstream/signingkey.jks -storepass "$KEY_STORE_PASSWORD" | sha256sum | awk '{print $1}' | tr '[:upper:]' '[:lower:]')"
+          designated='1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620'
+          [[ "$expected" == "$designated" ]]
+          apk="$(find upstream/src/zh/mihoutao -path '*/build/outputs/apk/release/*.apk' -type f | head -n1)"
+          test -n "$apk"
+          apksigner="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n1)"
+          "$apksigner" verify "$apk"
+          echo "fingerprint=$expected" >> "$GITHUB_OUTPUT"
+          echo "apk=$apk" >> "$GITHUB_OUTPUT"
+
+      - name: Sync formatted module and docs to development checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dev/src/zh/mihoutao
+          cp -a upstream/src/zh/mihoutao dev/src/zh/mihoutao
+          rm -rf dev/src/zh/mihoutao/build
+          python3 dev/scripts/validate_sources.py
+          git -C dev diff --check
+
+      - name: Checkout extension staging
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-build
+          ref: extension-staging
+          token: ${{ github.token }}
+          path: staging
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Generate isolated test store in staging
+        env:
+          SIGNING_FINGERPRINT: ${{ steps.signing.outputs.fingerprint }}
+          EXPECTED_VERSION: ${{ steps.version.outputs.version_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' 'zh/mihoutao' > targets.txt
+          python3 dev/scripts/publish_test_repo.py \
+            --targets targets.txt \
+            --upstream-root upstream \
+            --source-root dev \
+            --repo-dir staging/test \
+            --owner huoguotiankong \
+            --repository mx-repo \
+            --signing-key "$SIGNING_FINGERPRINT"
+          test -f staging/test/index.json
+          test -f staging/test/repo.json
+          test -f "staging/test/apk/tachiyomi-zh.mihoutao-v${EXPECTED_VERSION}.apk"
+          grep -q 'mihoutao' staging/test/index.json
+
+      - name: Commit staging snapshot
+        working-directory: staging
+        env:
+          EXPECTED_VERSION: ${{ steps.version.outputs.version_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add test
+          if git diff --cached --quiet; then
+            echo 'No staging changes'
+          else
+            git commit -m "Stage MiHouTao v${EXPECTED_VERSION} test store"
+            git push origin HEAD:extension-staging
+          fi
+
+      - name: Verify staging online
+        env:
+          EXPECTED_VERSION: ${{ steps.version.outputs.version_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://raw.githubusercontent.com/huoguotiankong/mx-build/extension-staging/test'
+          for f in index.json repo.json; do
+            ok=0
+            for n in 1 2 3 4 5 6; do
+              code="$(curl -L -sS -o "/tmp/$f" -w '%{http_code}' "$base/$f" || true)"
+              if [[ "$code" == 200 ]]; then ok=1; break; fi
+              sleep $((n*2))
+            done
+            [[ "$ok" -eq 1 ]]
+          done
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          data=json.loads(Path('/tmp/index.json').read_text('utf-8'))
+          package='eu.kanade.tachiyomi.extension.zh.mihoutao'
+          items=[x for x in data['extensionList']['extensions'] if x.get('packageName') == package]
+          if len(items) != 1:
+              raise SystemExit(f'Expected one staged {package}, got {len(items)}')
+          item=items[0]
+          expected=os.environ['EXPECTED_VERSION']
+          if item.get('versionName') != expected:
+              raise SystemExit(f"Unexpected version {item.get('versionName')}, expected {expected}")
+          print(f"Staged {package} versionName={item.get('versionName')} versionCode={item.get('versionCode')}")
+          PY
+
+      - name: Commit validated source and docs to private development repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C dev config user.name "github-actions[bot]"
+          git -C dev config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C dev add src/zh/mihoutao docs/sources/mihoutao.md
+          if git -C dev diff --cached --quiet; then
+            echo "MiHouTao source is already current"
+          else
+            git -C dev commit -m "feat(mihoutao): complete Manwa Plus transport and comments v4"
+            git -C dev pull --rebase origin main
+            git -C dev push origin HEAD:main
+          fi
+
+      - name: Upload signed APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: mihoutao-v4-signed-test-apk
+          path: upstream/src/zh/mihoutao/**/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload validated formatted source
+        uses: actions/upload-artifact@v4
+        with:
+          name: mihoutao-v4-formatted-source
+          path: dev/src/zh/mihoutao
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload isolated test store
+        uses: actions/upload-artifact@v4
+        with:
+          name: mihoutao-v4-test-store
+          path: staging/test
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Cleanup signing material
+        if: always()
+        run: rm -f upstream/signingkey.jks
