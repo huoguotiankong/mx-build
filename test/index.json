@@ -137,6 +137,31 @@
         ]
       },
       {
+        "name": "Komiic Plus",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.komiicplus",
+        "resources": {
+          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.komiicplus-v1.6.1.apk",
+          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.komiicplus-v106001.png"
+        },
+        "extensionLib": "1.6",
+        "versionCode": 106001,
+        "versionName": "1.6.1",
+        "contentWarning": "MIXED",
+        "sources": [
+          {
+            "id": 808428731330781962,
+            "name": "Komiic Plus",
+            "language": "zh",
+            "homeUrl": "https://komiic.com",
+            "mirrorUrls": [
+              "https://komiic.com",
+              "https://komiic.cc"
+            ],
+            "message": null
+          }
+        ]
+      },
+      {
         "name": "Kuaikan Manhua",
         "packageName": "eu.kanade.tachiyomi.extension.zh.kuaikanmanhua",
         "resources": {
