@@ -1,0 +1,56 @@
+name: Publish MX Library + Comments Preview APK
+
+on:
+  push:
+    branches: [integration/library-comment-publish-helper]
+    paths:
+      - ".github/workflows/publish-library-comment-preview-apk.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download verified APK artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          gh run download 33966726327 \
+            --repo huoguotiankong/mx-build \
+            --name MX-Manga-library-rich-comments-v1.14.5-arm64-v8a-preview \
+            --dir out
+          find out -maxdepth 2 -type f -name '*.apk' -print
+          test "$(find out -type f -name '*.apk' | wc -l)" -ge 1
+
+      - name: Normalize public APK filename
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="$(find out -type f -name '*.apk' | head -n 1)"
+          cp "$apk" "MX-Manga-v1.14.5-library-rich-comments-arm64-v8a-preview.apk"
+          ls -lh "MX-Manga-v1.14.5-library-rich-comments-arm64-v8a-preview.apk"
+
+      - name: Publish GitHub release asset
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="mx-library-comments-v1.14.5-preview"
+          asset="MX-Manga-v1.14.5-library-rich-comments-arm64-v8a-preview.apk"
+          if gh release view "$tag" --repo huoguotiankong/mx-build >/dev/null 2>&1; then
+            gh release upload "$tag" "$asset" --clobber --repo huoguotiankong/mx-build
+          else
+            gh release create "$tag" "$asset" \
+              --repo huoguotiankong/mx-build \
+              --target integration/library-comment-build-helper \
+              --title "MX漫画 v1.14.5 书架 + 评论优化 Preview" \
+              --notes "书架分类导航与评论富媒体优化合并测试版。mx-app source: 3d2061631f2cc7909465b35326848aa5b6e22a21; verified by workflow run 33966726327. 不包含尚未完成的 E-Hentai 增强分支。"
+          fi
