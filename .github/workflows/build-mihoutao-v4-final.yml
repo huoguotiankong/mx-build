@@ -1,0 +1,308 @@
+name: Build MiHouTao v4 Final
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/build-mihoutao-v4-final.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-mihoutao-v4-final
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - name: Check required secrets
+        env:
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "$MANGA_SIGNING_BUNDLE" ]]
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]]
+
+      - name: Checkout pinned Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          ref: 0ca8b46ec5229955a6a76b736de27642bca0808f
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout MX development source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: dev
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify v4 source shape
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='dev/src/zh/mihoutao'
+          KT="$BASE/src/eu/kanade/tachiyomi/extension/zh/mihoutao"
+          grep -q 'versionCode = 4' "$BASE/build.gradle.kts"
+          grep -q 'MiHouTaoV4Base()' "$KT/MiHouTaoManga.kt"
+          grep -q 'followRedirects(false)' "$KT/MiHouTaoV4Base.kt"
+          grep -q 'ExtraCookieInterceptor' "$KT/MiHouTaoV4Base.kt"
+          grep -q 'ApiRedirectInterceptor' "$KT/MiHouTaoV4Base.kt"
+          grep -q 'AesRefreshInterceptor' "$KT/MiHouTaoV4Base.kt"
+          grep -q 'CommentSource' "$KT/MiHouTaoEnhancedBase.kt"
+          grep -q 'COMMENT_SORT_HOT' "$KT/MiHouTaoEnhancedBase.kt"
+          for d in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            test -f "$BASE/res/mipmap-${d}/ic_launcher.png"
+          done
+          python3 dev/scripts/validate_sources.py
+          git -C dev diff --check
+
+      - name: Probe current Manwa APIs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, subprocess
+          hosts = [
+              'https://manwari.cc', 'https://manwaan.cc', 'https://manwaye.cc',
+              'https://manware.cc', 'https://manwaqi.cc', 'https://manwana.cc',
+              'https://manwali.cc',
+          ]
+          ua = 'Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140.0 Mobile Safari/537.36'
+          payload = {
+              'page': {'page': 1, 'pageSize': 4},
+              'sort': 0,
+              'comic': {'areaId': 0, 'day': 0, 'level': 0, 'status': -1, 'tag': '', 'typeId': 0},
+              'category': 'comic',
+          }
+          body = json.dumps(payload, separators=(',', ':'), ensure_ascii=False)
+          chosen = None
+          for host in hosts:
+              cmd = [
+                  'curl', '-L', '--fail', '--silent', '--show-error', '--max-time', '12',
+                  '-H', f'User-Agent: {ua}', '-H', 'Accept: */*',
+                  '-H', 'Authorization: Bearer null', '-H', 'Content-Type: application/json',
+                  '-H', 'Cookie: route_idx=0; typeId=0', '-H', f'Origin: {host}',
+                  '-H', f'Referer: {host}/cate?page=1', '-H', 'X-Requested-With: XMLHttpRequest',
+                  '--data-binary', body, f'{host}/api/cate',
+              ]
+              try:
+                  data = json.loads(subprocess.check_output(cmd, text=True, stderr=subprocess.STDOUT))
+                  if data.get('code') == 200 and isinstance(data.get('data', {}).get('list'), list):
+                      chosen = host
+                      print('category:', host, 'items=', len(data['data']['list']))
+                      break
+              except Exception:
+                  pass
+          if not chosen:
+              raise SystemExit('No category API mirror passed smoke test')
+
+          def get_json(path):
+              url = chosen + path
+              raw = subprocess.check_output([
+                  'curl', '-L', '--fail', '--silent', '--show-error', '--max-time', '12',
+                  '-H', f'User-Agent: {ua}', '-H', 'Accept: application/json',
+                  '-H', 'Authorization: Bearer null', '-H', f'Origin: {chosen}',
+                  '-H', f'Referer: {chosen}/', url,
+              ], text=True, stderr=subprocess.STDOUT)
+              return json.loads(raw)
+
+          for sort in ('time', 'hot'):
+              data = get_json(f'/api/comments?comic_id=94413&page=1&page_size=20&sort={sort}')
+              if data.get('code') != 200 or not isinstance(data.get('data', {}).get('list'), list):
+                  raise SystemExit(f'comments {sort} smoke failed')
+              print('comments', sort, 'items=', len(data['data']['list']), 'total=', data['data'].get('total'))
+
+          detail = get_json('/api/comic/94413/')
+          chapters = get_json('/api/comic/94413/chapters')
+          if detail.get('code') != 200:
+              raise SystemExit('detail API smoke failed')
+          if chapters.get('code') != 200 or not chapters.get('data', {}).get('list'):
+              raise SystemExit('chapter API smoke failed')
+          print('detail + chapters smoke passed; chapters=', len(chapters['data']['list']))
+          PY
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Overlay MiHouTao v4
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf upstream/src/zh/mihoutao
+          cp -a dev/src/zh/mihoutao upstream/src/zh/mihoutao
+
+      - name: Spotless check
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:mihoutao:spotlessCheck
+
+      - name: Prepare signing key
+        env:
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, json, os
+          from pathlib import Path
+          b = json.loads(os.environ['MANGA_SIGNING_BUNDLE'])
+          Path('upstream/signingkey.jks').write_bytes(base64.b64decode(b['signingKey']))
+          with Path(os.environ['GITHUB_ENV']).open('a', encoding='utf-8') as f:
+              for env_name, key in (('ALIAS','alias'),('KEY_STORE_PASSWORD','storePassword'),('KEY_PASSWORD','keyPassword')):
+                  value = str(b[key])
+                  print(f'::add-mask::{value}')
+                  f.write(f'{env_name}<<EOF_SIGN\n{value}\nEOF_SIGN\n')
+          PY
+
+      - name: Build debug, signed release and lint
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:mihoutao:assembleDebug :src:zh:mihoutao:assembleRelease :src:zh:mihoutao:lintRelease
+
+      - name: Verify signing identity
+        id: signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(keytool -exportcert -alias "$ALIAS" -keystore upstream/signingkey.jks -storepass "$KEY_STORE_PASSWORD" | sha256sum | awk '{print $1}' | tr '[:upper:]' '[:lower:]')"
+          designated='1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620'
+          [[ "$expected" == "$designated" ]]
+          apk="$(find upstream/src/zh/mihoutao -path '*/build/outputs/apk/release/*.apk' -type f | head -n1)"
+          test -n "$apk"
+          apksigner="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n1)"
+          "$apksigner" verify "$apk"
+          echo "fingerprint=$expected" >> "$GITHUB_OUTPUT"
+          echo "apk=$apk" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout extension staging
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-build
+          ref: extension-staging
+          token: ${{ github.token }}
+          path: staging
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Generate isolated test store
+        env:
+          SIGNING_FINGERPRINT: ${{ steps.signing.outputs.fingerprint }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' 'zh/mihoutao' > targets.txt
+          python3 dev/scripts/publish_test_repo.py \
+            --targets targets.txt \
+            --upstream-root upstream \
+            --source-root dev \
+            --repo-dir staging/test \
+            --owner huoguotiankong \
+            --repository mx-repo \
+            --signing-key "$SIGNING_FINGERPRINT"
+          test -f staging/test/index.json
+          test -f staging/test/repo.json
+          test -f staging/test/apk/tachiyomi-zh.mihoutao-v1.6.4.apk
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          data=json.loads(Path('staging/test/index.json').read_text('utf-8'))
+          package='eu.kanade.tachiyomi.extension.zh.mihoutao'
+          items=[x for x in data['extensionList']['extensions'] if x.get('packageName') == package]
+          if len(items) != 1:
+              raise SystemExit(f'Expected one {package}, got {len(items)}')
+          item=items[0]
+          actual=(item.get('versionName'), item.get('versionCode'))
+          expected=('1.6.4', 106004)
+          if actual != expected:
+              raise SystemExit(f'Expected {expected}, got {actual}')
+          print('staged index verified:', actual)
+          PY
+
+      - name: Commit staging snapshot
+        working-directory: staging
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add test
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo 'No staging changes'
+          else
+            git commit -m 'Stage MiHouTao v1.6.4 test store'
+            git push origin HEAD:extension-staging
+          fi
+
+      - name: Verify staging online
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://raw.githubusercontent.com/huoguotiankong/mx-build/extension-staging/test'
+          for f in index.json repo.json; do
+            ok=0
+            for n in 1 2 3 4 5 6; do
+              code="$(curl -L -sS -o "/tmp/$f" -w '%{http_code}' "$base/$f" || true)"
+              if [[ "$code" == 200 ]]; then ok=1; break; fi
+              sleep $((n*2))
+            done
+            [[ "$ok" -eq 1 ]]
+          done
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          data=json.loads(Path('/tmp/index.json').read_text('utf-8'))
+          package='eu.kanade.tachiyomi.extension.zh.mihoutao'
+          items=[x for x in data['extensionList']['extensions'] if x.get('packageName') == package]
+          assert len(items) == 1
+          item=items[0]
+          assert (item.get('versionName'), item.get('versionCode')) == ('1.6.4', 106004)
+          print('online staging verified:', item.get('versionName'), item.get('versionCode'))
+          PY
+
+      - name: Upload signed APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: mihoutao-v4-signed-test-apk
+          path: upstream/src/zh/mihoutao/**/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload source snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: mihoutao-v4-source
+          path: dev/src/zh/mihoutao
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload isolated test store
+        uses: actions/upload-artifact@v4
+        with:
+          name: mihoutao-v4-test-store
+          path: staging/test
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Cleanup signing material
+        if: always()
+        run: rm -f upstream/signingkey.jks
