@@ -1,0 +1,42 @@
+name: Encode Zaimanhua Plus v2 Icons
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/encode-zaimanhuaplus-v2-icons.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  encode:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Encode launcher icons
+        shell: bash
+        run: |
+          set -euo pipefail
+          root='.github/handoff/zaimanhuaplus-v2'
+          test -d "$root/module/res"
+          mkdir -p "$root/icons-base64"
+          for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            icon="$(find "$root/module/res/mipmap-$density" -maxdepth 1 -type f -name 'ic_launcher.*' | head -n1)"
+            test -n "$icon"
+            base64 -w0 "$icon" > "$root/icons-base64/$density.b64"
+          done
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$root/icons-base64"
+          if git diff --cached --quiet; then
+            echo 'Encoded icon handoff already current'
+          else
+            git commit -m 'handoff: encode Zaimanhua Plus v2 launcher icons'
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
