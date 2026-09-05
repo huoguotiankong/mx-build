@@ -1,3 +1,4 @@
+# Release pipeline retrigger: 2026-09-06 final MX 1.14.6 integration validation.
 from pathlib import Path
 import re
 import sys
