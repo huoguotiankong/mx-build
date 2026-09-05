@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: build-baozimanhuaplus-v1
@@ -144,29 +144,20 @@ jobs:
           rm -rf dev/src/zh/baozimanhuaplus
           cp -a upstream/src/zh/baozimanhuaplus dev/src/zh/baozimanhuaplus
           rm -rf dev/src/zh/baozimanhuaplus/build
-
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('dev/docs/sources/baozimanhuaplus.md')
-          s = p.read_text()
-          s = s.replace('| 上游横幅源码同步 | 执行中/待 CI 写回 |', '| 上游横幅源码同步 | 已完成 |')
-          s = s.replace('| Spotless | 待本次 CI |', '| Spotless | 已通过 |')
-          s = s.replace('| Debug APK 构建 | 待本次 CI |', '| Debug APK 构建 | 已通过 |')
-          if '完整上游筛选项与图标' not in s:
-              s = s.replace(
-                  '4. **搜索与元数据细节**',
-                  '4. **完整上游筛选项与图标**\n'
-                  '   - 完整同步上游标签/地区/进度/标题开头筛选，不使用精简列表。\n'
-                  '   - 保留上游 mdpi/hdpi/xhdpi/xxhdpi/xxxhdpi 五档 launcher icon，避免安装后回落默认图标。\n\n'
-                  '5. **搜索与元数据细节**',
-              )
-          p.write_text(s)
-          PY
-
           python3 dev/scripts/validate_sources.py
           git -C dev diff --check
 
-      - name: Generate isolated test store
+      - name: Checkout extension staging
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-build
+          ref: extension-staging
+          token: ${{ github.token }}
+          path: staging
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Generate isolated test store in staging
         env:
           SIGNING_FINGERPRINT: ${{ steps.signing.outputs.fingerprint }}
         shell: bash
@@ -177,13 +168,57 @@ jobs:
             --targets targets.txt \
             --upstream-root upstream \
             --source-root dev \
-            --repo-dir teststore \
+            --repo-dir staging/test \
             --owner huoguotiankong \
             --repository mx-repo \
             --signing-key "$SIGNING_FINGERPRINT"
-          test -f teststore/index.json
-          test -f teststore/repo.json
-          find teststore/apk -type f -name '*baozimanhuaplus*.apk' -print -quit | grep -q .
+          test -f staging/test/index.json
+          test -f staging/test/repo.json
+          test -f staging/test/apk/tachiyomi-zh.baozimanhuaplus-v1.6.1.apk
+          grep -q 'baozimanhuaplus' staging/test/index.json
+
+      - name: Commit staging snapshot
+        working-directory: staging
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add test
+          if git diff --cached --quiet; then
+            echo 'No staging changes'
+          else
+            git commit -m 'Stage Baozi Manhua Plus v1 test store'
+            git push origin HEAD:extension-staging
+          fi
+
+      - name: Verify staging online
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://raw.githubusercontent.com/huoguotiankong/mx-build/extension-staging/test'
+          for f in index.json repo.json; do
+            ok=0
+            for n in 1 2 3 4 5 6; do
+              code="$(curl -L -sS -o "/tmp/$f" -w '%{http_code}' "$base/$f" || true)"
+              if [[ "$code" == 200 ]]; then ok=1; break; fi
+              sleep $((n*2))
+            done
+            [[ "$ok" -eq 1 ]]
+          done
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          data=json.loads(Path('/tmp/index.json').read_text('utf-8'))
+          package='eu.kanade.tachiyomi.extension.zh.baozimanhuaplus'
+          items=[x for x in data['extensionList']['extensions'] if x.get('packageName') == package]
+          if len(items) != 1:
+              raise SystemExit(f'Expected one staged {package}, got {len(items)}')
+          item=items[0]
+          if item.get('versionName') != '1.6.1':
+              raise SystemExit(f"Unexpected version {item.get('versionName')}")
+          print(f"Staged {package} versionName={item.get('versionName')} versionCode={item.get('versionCode')}")
+          PY
 
       - name: Commit validated source to private development repository
         continue-on-error: true
@@ -192,7 +227,7 @@ jobs:
           set -euo pipefail
           git -C dev config user.name "github-actions[bot]"
           git -C dev config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git -C dev add src/zh/baozimanhuaplus docs/sources/baozimanhuaplus.md
+          git -C dev add src/zh/baozimanhuaplus
           if git -C dev diff --cached --quiet; then
             echo "Baozi Manhua Plus source is already current"
           else
@@ -221,12 +256,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: baozimanhuaplus-v1-test-store
-          path: teststore
+          path: staging/test
           if-no-files-found: error
           retention-days: 14
 
       - name: Cleanup signing material
         if: always()
         run: rm -f upstream/signingkey.jks
-
-# Export final v1 candidate after complete upstream sync.
