@@ -62,7 +62,7 @@ jobs:
           path.write_text(text, encoding='utf-8')
           PY
           git diff --check
-          grep -F 'categoryMenuExpanded' app/src/main/java/eu/kanade/presentation/library/components/LibraryContent.kt
+          grep -F 'categoryMenuExpanded' app/src/main/java/eu/kanade/presentation/library/components/LibraryToolbar.kt
           grep -F 'decodeCommentEntities' app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt
           grep -F 'onError = { imageLoadFailed = true }' app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt
           grep -F 'coil-svg' gradle/libs.versions.toml
