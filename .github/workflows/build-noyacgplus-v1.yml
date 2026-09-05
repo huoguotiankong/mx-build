@@ -45,8 +45,8 @@ jobs:
           ref: main
           token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
           path: dev
-          fetch-depth: 1
-          persist-credentials: false
+          fetch-depth: 0
+          persist-credentials: true
 
       - name: Resolve NoyAcg Plus version
         id: version
@@ -74,7 +74,7 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Overlay NoyAcg Plus
+      - name: Overlay and repair NoyAcg Plus
         shell: bash
         run: |
           set -euo pipefail
@@ -84,6 +84,19 @@ jobs:
           cp -a dev/src/zh/noyacgplus upstream/src/zh/noyacgplus
           python3 dev/scripts/validate_sources.py
           git -C dev diff --check
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('upstream/src/zh/noyacgplus/src/eu/kanade/tachiyomi/extension/zh/noyacgplus/NoyAcgPlus.kt')
+          text=p.read_text('utf-8')
+          text=text.replace('private fun simp(text: String?): String? = text?.let {', 'private fun simp(text: String?): String? = text?.let { sourceText ->', 1)
+          text=text.replace('runCatching { OpenCC.convert(it, "t2s").toString() }.getOrElse { it }', 'runCatching { OpenCC.convert(sourceText, "t2s").toString() }.getOrElse { sourceText }', 1)
+          old='        } else {\n            it\n        }\n    }\n\n    private fun parseObject'
+          new='        } else {\n            sourceText\n        }\n    }\n\n    private fun parseObject'
+          text=text.replace(old, new, 1)
+          if 'getOrElse { it }' in text or 'text?.let { sourceText ->' not in text:
+              raise SystemExit('OpenCC fallback repair did not apply cleanly')
+          p.write_text(text, 'utf-8')
+          PY
 
       - name: Format and static validation
         working-directory: upstream
@@ -132,6 +145,26 @@ jobs:
           apksigner="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n1)"
           "$apksigner" verify "$apk"
           echo "fingerprint=$expected" >> "$GITHUB_OUTPUT"
+
+      - name: Sync validated source to private development repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dev/src/zh/noyacgplus
+          cp -a upstream/src/zh/noyacgplus dev/src/zh/noyacgplus
+          rm -rf dev/src/zh/noyacgplus/build
+          python3 dev/scripts/validate_sources.py
+          git -C dev diff --check
+          git -C dev config user.name 'github-actions[bot]'
+          git -C dev config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C dev add src/zh/noyacgplus
+          if git -C dev diff --cached --quiet; then
+            echo 'NoyAcg Plus source is already current'
+          else
+            git -C dev commit -m 'fix(noyacgplus): validate compile and formatting v1'
+            git -C dev pull --rebase origin main
+            git -C dev push origin HEAD:main
+          fi
 
       - name: Checkout extension staging
         uses: actions/checkout@v5
