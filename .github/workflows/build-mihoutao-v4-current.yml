@@ -1,4 +1,4 @@
-name: Build MiHouTao v5 Comment ABI
+name: Build MiHouTao v6 Chapter Comments
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: build-mihoutao-v5-comment-abi
+  group: build-mihoutao-v6-chapter-comments
   cancel-in-progress: false
 
 jobs:
@@ -49,16 +49,45 @@ jobs:
       - name: Validate current source
         run: |
           set -euo pipefail
-          grep -q 'versionCode = 5' dev/src/zh/mihoutao/build.gradle.kts
+          grep -q 'versionCode = 6' dev/src/zh/mihoutao/build.gradle.kts
           grep -q 'proguardFiles("proguard-rules.pro")' dev/src/zh/mihoutao/build.gradle.kts
           grep -q 'eu.kanade.tachiyomi.source.mx.\*\*' dev/src/zh/mihoutao/proguard-rules.pro
-          grep -q 'MiHouTaoV4Base()' dev/src/zh/mihoutao/src/eu/kanade/tachiyomi/extension/zh/mihoutao/MiHouTaoManga.kt
+          grep -q 'MiHouTaoV6Base()' dev/src/zh/mihoutao/src/eu/kanade/tachiyomi/extension/zh/mihoutao/MiHouTaoManga.kt
+          grep -q 'supportsChapterComments = true' dev/src/zh/mihoutao/src/eu/kanade/tachiyomi/extension/zh/mihoutao/MiHouTaoV6Base.kt
+          grep -q 'chapter_id' dev/src/zh/mihoutao/src/eu/kanade/tachiyomi/extension/zh/mihoutao/MiHouTaoV6Base.kt
           grep -q 'CommentSource' dev/src/zh/mihoutao/src/eu/kanade/tachiyomi/extension/zh/mihoutao/MiHouTaoEnhancedBase.kt
           grep -q 'ExtraCookieInterceptor' dev/src/zh/mihoutao/src/eu/kanade/tachiyomi/extension/zh/mihoutao/MiHouTaoV4Base.kt
           grep -q 'ApiRedirectInterceptor' dev/src/zh/mihoutao/src/eu/kanade/tachiyomi/extension/zh/mihoutao/MiHouTaoV4Base.kt
           grep -q 'AesRefreshInterceptor' dev/src/zh/mihoutao/src/eu/kanade/tachiyomi/extension/zh/mihoutao/MiHouTaoV4Base.kt
           python3 dev/scripts/validate_sources.py
           git -C dev diff --check
+
+      - name: Verify live chapter comment contract
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, re, urllib.request, urllib.parse
+          base='https://manwari.cc'; comic='3638'
+          ua='Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36'
+          def get(url):
+              req=urllib.request.Request(url,headers={'User-Agent':ua,'Accept':'application/json,text/html,*/*'})
+              with urllib.request.urlopen(req,timeout=20) as r: return r.read()
+          chapters=json.loads(get(f'{base}/api/comic/{comic}/chapters'))['data']['list']
+          chapter=str(chapters[0]['id'])
+          html=get(f'{base}/comic/{comic}/{chapter}').decode('utf-8','ignore')
+          scripts=re.findall(r'<script[^>]+src=["\']([^"\']+)["\']',html,re.I)
+          matched=False
+          for src in scripts:
+              u=urllib.parse.urljoin(base+'/',src)
+              js=get(u).decode('utf-8','ignore')
+              if '/api/comments?comic_id=' in js and 'chapter_id=${window.COMIC_CID}' in js:
+                  matched=True; print('chapter comment JS contract verified:',u); break
+          assert matched, 'chapter comment JS contract not found'
+          q=urllib.parse.urlencode({'comic_id':comic,'chapter_id':chapter,'page':1,'page_size':20,'sort':'time'})
+          data=json.loads(get(base+'/api/comments?'+q))
+          assert data.get('code')==200, data
+          print('chapter comments endpoint verified; total=',(data.get('data') or {}).get('total'))
+          PY
 
       - name: Set up Java
         uses: actions/setup-java@v5
@@ -105,6 +134,7 @@ jobs:
           grep -a -F -q 'Leu/kanade/tachiyomi/source/mx/CommentSource;' /tmp/mihoutao-release.dex
           grep -a -F -q 'Leu/kanade/tachiyomi/source/mx/CommentCapabilities;' /tmp/mihoutao-release.dex
           grep -a -F -q 'Leu/kanade/tachiyomi/source/mx/SortableCommentSource;' /tmp/mihoutao-release.dex
+          grep -a -F -q 'supportsChapterComments' /tmp/mihoutao-release.dex || true
           echo 'MX comment ABI descriptors preserved in release dex'
 
       - name: Verify signing
@@ -153,7 +183,7 @@ jobs:
             --owner huoguotiankong \
             --repository mx-repo \
             --signing-key "$SIGNING_FINGERPRINT"
-          test -f staging/test/apk/tachiyomi-zh.mihoutao-v1.6.5.apk
+          test -f staging/test/apk/tachiyomi-zh.mihoutao-v1.6.6.apk
           python3 - <<'PY'
           import json
           from pathlib import Path
@@ -162,7 +192,7 @@ jobs:
           items=[x for x in data['extensionList']['extensions'] if x.get('packageName')==p]
           assert len(items)==1, items
           item=items[0]
-          assert (item.get('versionName'),item.get('versionCode'))==('1.6.5',106005), item
+          assert (item.get('versionName'),item.get('versionCode'))==('1.6.6',106006), item
           print('staged:',item.get('versionName'),item.get('versionCode'))
           PY
 
@@ -175,7 +205,7 @@ jobs:
           git add test
           git diff --cached --check
           if ! git diff --cached --quiet; then
-            git commit -m 'Stage MiHouTao v1.6.5 test store'
+            git commit -m 'Stage MiHouTao v1.6.6 test store'
             git push origin HEAD:extension-staging
           fi
 
@@ -188,14 +218,14 @@ jobs:
           data=json.load(open('/tmp/index.json',encoding='utf-8'))
           p='eu.kanade.tachiyomi.extension.zh.mihoutao'
           item=[x for x in data['extensionList']['extensions'] if x.get('packageName')==p][0]
-          assert (item.get('versionName'),item.get('versionCode'))==('1.6.5',106005), item
+          assert (item.get('versionName'),item.get('versionCode'))==('1.6.6',106006), item
           print('online staging verified')
           PY
 
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: mihoutao-v5-signed-test-apk
+          name: mihoutao-v6-signed-test-apk
           path: upstream/src/zh/mihoutao/**/build/outputs/apk/release/*.apk
           if-no-files-found: error
           retention-days: 14
@@ -203,7 +233,7 @@ jobs:
       - name: Upload formatted source
         uses: actions/upload-artifact@v4
         with:
-          name: mihoutao-v5-formatted-source
+          name: mihoutao-v6-formatted-source
           path: formatted-source
           if-no-files-found: error
           retention-days: 14
@@ -211,7 +241,7 @@ jobs:
       - name: Upload test store
         uses: actions/upload-artifact@v4
         with:
-          name: mihoutao-v5-test-store
+          name: mihoutao-v6-test-store
           path: staging/test
           if-no-files-found: error
           retention-days: 14
