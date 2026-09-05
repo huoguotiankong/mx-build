@@ -1,4 +1,4 @@
-# Trigger: signed detail preview for feat/detail-page-source-actions
+# Trigger: rebuild signed detail preview after unsigned artifact was rejected on-device
 name: MX Detail Page Current Preview
 
 on:
