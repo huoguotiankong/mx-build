@@ -71,110 +71,26 @@ jobs:
           reader_activity = Path("app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt")
           reader_text = reader_activity.read_text(encoding="utf-8")
 
-          replacements = [
-              (
-                  "chapter replacement dialog",
-                  """                is ReaderViewModel.Dialog.ChapterContentReplacement -> {
-                    ChapterContentReplacementDialog(
-                        originalSourceName = viewModel.getSource()?.name.orEmpty(),
-                        activeSourceId = state.activeChapterContentSourceId,
-                        activeSourceName = state.activeChapterContentSourceName,
-                        bindingSourceId = state.chapterContentBindingSourceId,
-                        bindingSourceName = state.chapterContentBindingSourceName,
-                        bindingOffset = state.chapterContentBindingOffset,
-                        sources = state.chapterContentSources,
-                        loadingSourceId = state.chapterContentLoadingSourceId,
-                        restoring = state.chapterContentRestoring,
-                        error = state.chapterContentError,
-                        onSelectSource = viewModel::replaceChapterContent,
-                        onRestoreOriginal = viewModel::restoreOriginalChapterContent,
-                        onDismissRequest = onDismissRequest,
-                    )
-                }
-""",
-                  """                is ReaderViewModel.Dialog.ChapterContentReplacement -> {
-                    TachiyomiTheme {
-                        ChapterContentReplacementDialog(
-                            originalSourceName = viewModel.getSource()?.name.orEmpty(),
-                            activeSourceId = state.activeChapterContentSourceId,
-                            activeSourceName = state.activeChapterContentSourceName,
-                            bindingSourceId = state.chapterContentBindingSourceId,
-                            bindingSourceName = state.chapterContentBindingSourceName,
-                            bindingOffset = state.chapterContentBindingOffset,
-                            sources = state.chapterContentSources,
-                            loadingSourceId = state.chapterContentLoadingSourceId,
-                            restoring = state.chapterContentRestoring,
-                            error = state.chapterContentError,
-                            onSelectSource = viewModel::replaceChapterContent,
-                            onRestoreOriginal = viewModel::restoreOriginalChapterContent,
-                            onDismissRequest = onDismissRequest,
-                        )
-                    }
-                }
-""",
-              ),
-              (
-                  "manga picker dialog",
-                  """                is ReaderViewModel.Dialog.ChapterContentMangaPicker -> {
-                    ChapterContentMangaPickerDialog(
-                        targetSourceName = state.chapterContentTargetSourceName.orEmpty(),
-                        mangas = state.chapterContentTargetMangas,
-                        loading = state.chapterContentLoadingSourceId != null,
-                        error = state.chapterContentError,
-                        onSelectManga = viewModel::selectReplacementManga,
-                        onDismissRequest = onDismissRequest,
-                    )
-                }
-""",
-                  """                is ReaderViewModel.Dialog.ChapterContentMangaPicker -> {
-                    TachiyomiTheme {
-                        ChapterContentMangaPickerDialog(
-                            targetSourceName = state.chapterContentTargetSourceName.orEmpty(),
-                            mangas = state.chapterContentTargetMangas,
-                            loading = state.chapterContentLoadingSourceId != null,
-                            error = state.chapterContentError,
-                            onSelectManga = viewModel::selectReplacementManga,
-                            onDismissRequest = onDismissRequest,
-                        )
-                    }
-                }
-""",
-              ),
-              (
-                  "chapter picker dialog",
-                  """                is ReaderViewModel.Dialog.ChapterContentChapterPicker -> {
-                    ChapterContentChapterPickerDialog(
-                        targetSourceName = state.chapterContentTargetSourceName.orEmpty(),
-                        targetMangaTitle = state.chapterContentTargetMangaTitle.orEmpty(),
-                        chapters = state.chapterContentTargetChapters,
-                        loading = state.chapterContentLoadingSourceId != null,
-                        error = state.chapterContentError,
-                        onSelectChapter = viewModel::selectReplacementChapter,
-                        onDismissRequest = onDismissRequest,
-                    )
-                }
-""",
-                  """                is ReaderViewModel.Dialog.ChapterContentChapterPicker -> {
-                    TachiyomiTheme {
-                        ChapterContentChapterPickerDialog(
-                            targetSourceName = state.chapterContentTargetSourceName.orEmpty(),
-                            targetMangaTitle = state.chapterContentTargetMangaTitle.orEmpty(),
-                            chapters = state.chapterContentTargetChapters,
-                            loading = state.chapterContentLoadingSourceId != null,
-                            error = state.chapterContentError,
-                            onSelectChapter = viewModel::selectReplacementChapter,
-                            onDismissRequest = onDismissRequest,
-                        )
-                    }
-                }
-""",
-              ),
-          ]
-          for label, old, new in replacements:
-              count = reader_text.count(old)
-              if count != 1:
-                  raise SystemExit(f"ReaderActivity {label} mismatch: {count}")
-              reader_text = reader_text.replace(old, new, 1)
+          def wrap_dialog(text: str, dialog_type: str, call_name: str) -> str:
+              pattern = re.compile(
+                  rf"(                is ReaderViewModel\.Dialog\.{re.escape(dialog_type)} -> \{{\n)"
+                  rf"(                    {re.escape(call_name)}\([\s\S]*?\n                    \)\n)"
+                  r"(                \}\n)"
+              )
+              match = pattern.search(text)
+              if match is None:
+                  raise SystemExit(f"ReaderActivity dialog block missing: {dialog_type}")
+              call = match.group(2)
+              call = "\n".join(("    " + line) if line else line for line in call.rstrip("\n").split("\n")) + "\n"
+              replacement = match.group(1) + "                    TachiyomiTheme {\n" + call + "                    }\n" + match.group(3)
+              return text[:match.start()] + replacement + text[match.end():]
+
+          for dialog_type, call_name in (
+              ("ChapterContentReplacement", "ChapterContentReplacementDialog"),
+              ("ChapterContentMangaPicker", "ChapterContentMangaPickerDialog"),
+              ("ChapterContentChapterPicker", "ChapterContentChapterPickerDialog"),
+          ):
+              reader_text = wrap_dialog(reader_text, dialog_type, call_name)
           reader_activity.write_text(reader_text, encoding="utf-8")
 
           build_gradle = Path("app/build.gradle.kts")
