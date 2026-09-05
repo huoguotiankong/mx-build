@@ -1,3 +1,4 @@
+# reference inspection trigger 2
 name: Inspect ManwaYu Plus Reference
 
 on:
@@ -50,17 +51,12 @@ jobs:
                 ;;
             esac
           done < report/all-files.txt
-
-          # Include useful decoded manifest/resources if present.
           find /tmp/manwayu-out -type f \( -name 'AndroidManifest.xml' -o -name 'strings.xml' -o -name '*preferences*' \) -print0 | while IFS= read -r -d '' f; do
             rel="${f#/tmp/manwayu-out/}"
             mkdir -p "report/reference/$(dirname "$rel")"
             cp "$f" "report/reference/$rel"
           done
-
-          grep -RniE 'api/|image_source|线路|線路|筛选|篩選|comment|评论|評論|cate|areaId|pageSize|level|status|day|tag|manwa|mwzu|mwtu|mwtuwu' \
-            report/reference > report/reference-grep.txt || true
-
+          grep -RniE 'api/|image_source|线路|線路|筛选|篩選|comment|评论|評論|cate|areaId|pageSize|level|status|day|tag|manwa|mwzu|mwtu|mwtuwu' report/reference > report/reference-grep.txt || true
           echo '=== package files ==='
           find report/reference -type f | sort
           echo '=== endpoint/settings excerpts ==='
