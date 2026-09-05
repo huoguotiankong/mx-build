@@ -1,0 +1,20 @@
+name: MX Actions Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/mx-actions-probe.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Probe runner startup
+        run: |
+          echo "MX_ACTIONS_PROBE_OK"
+          uname -a
