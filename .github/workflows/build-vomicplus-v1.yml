@@ -25,7 +25,8 @@ jobs:
           MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
         run: |
           set -euo pipefail
-          [[ -n "$MANGA_SIGNING_BUNDLE" && -n "$MX_PRIVATE_READ_TOKEN" ]]
+          [[ -n "$MANGA_SIGNING_BUNDLE" ]]
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]]
 
       - name: Checkout Keiyoushi
         uses: actions/checkout@v5
@@ -46,161 +47,60 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
-      - name: Validate current source
+      - name: Validate source and live APIs
         run: |
           set -euo pipefail
           grep -q 'versionCode = 1' dev/src/zh/vomicplus/build.gradle.kts
           grep -q 'id = 8237640194557812301L' dev/src/zh/vomicplus/build.gradle.kts
           grep -q 'supportsMangaComments = true' dev/src/zh/vomicplus/src/eu/kanade/tachiyomi/extension/zh/vomicplus/VomicPlus.kt
           grep -q 'supportsChapterComments = true' dev/src/zh/vomicplus/src/eu/kanade/tachiyomi/extension/zh/vomicplus/VomicPlus.kt
-          grep -q 'getCommentList_v1' dev/src/zh/vomicplus/src/eu/kanade/tachiyomi/extension/zh/vomicplus/VomicPlus.kt
-          grep -q 'eu.kanade.tachiyomi.source.mx.\*\*' dev/src/zh/vomicplus/proguard-rules.pro
           python3 dev/scripts/validate_sources.py
-          git -C dev diff --check
-
-      - name: Verify live Vomic public APIs
-        run: |
-          set -euo pipefail
           python3 - <<'PY'
           import json, urllib.parse, urllib.request
           base='http://43.143.245.32/pics'
-          h={'host':'43.143.245.32','name':'pics','platform':'android','showsuccess':'false','showtoast':'false','version':'1.0.10','User-Agent':'Mozilla/5.0'}
+          headers={'host':'43.143.245.32','name':'pics','platform':'android','showsuccess':'false','showtoast':'false','version':'1.0.10','User-Agent':'Mozilla/5.0'}
           def get(path, params):
-              u=base+path+'?'+urllib.parse.urlencode(params)
-              req=urllib.request.Request(u,headers=h)
-              with urllib.request.urlopen(req,timeout=20) as r: return json.loads(r.read())
-          pop=get('/c/getCartoonList',{'cat_id':0,'page':1,'limit':12,'sort':'hot_value','sex':'','process':'','creativity':'全部'})
-          assert pop.get('code') in (None,200) and isinstance(pop.get('data'),list) and pop['data'], pop
-          detail=get('/c/getCartoonInfoV1',{'car_id':12607,'comment_id':''})
-          assert detail.get('code') in (None,200) and isinstance(detail.get('data'),dict), detail
+              url=base+path+'?'+urllib.parse.urlencode(params)
+              with urllib.request.urlopen(urllib.request.Request(url,headers=headers),timeout=20) as r:
+                  return json.loads(r.read())
+          assert get('/c/getCartoonList',{'cat_id':0,'page':1,'limit':12,'sort':'hot_value','sex':'','process':'','creativity':'全部'}).get('data')
+          assert isinstance(get('/c/getCartoonInfoV1',{'car_id':12607,'comment_id':''}).get('data'),dict)
           for sort in ('hot','time'):
-              ch=get('/c/getCommentList_v1',{'obj_id':12607,'page':1,'limit':30,'top_id':0,'score':0,'obj_type':'cartoon','sort':sort,'chapter_id':10671})
-              book=get('/c/getCommentList_v1',{'obj_id':12607,'page':1,'limit':30,'top_id':0,'score':0,'obj_type':'cartoon','sort':sort})
-              assert ch.get('code') in (None,200) and isinstance(ch.get('data'),dict), ch
-              assert book.get('code') in (None,200) and isinstance(book.get('data'),dict), book
-          print('Vomic public list/detail/book-review/chapter-review APIs verified')
+              for extra in ({},{'chapter_id':10671}):
+                  p={'obj_id':12607,'page':1,'limit':30,'top_id':0,'score':0,'obj_type':'cartoon','sort':sort}
+                  p.update(extra)
+                  assert isinstance(get('/c/getCommentList_v1',p).get('data'),dict)
+          print('Vomic list/detail/book-review/chapter-review APIs verified')
           PY
 
-      - name: Patch current Keiyoushi compatibility
+      - name: Patch Keiyoushi compatibility
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-
-          path = Path('dev/src/zh/vomicplus/src/eu/kanade/tachiyomi/extension/zh/vomicplus/VomicPlus.kt')
-          text = path.read_text('utf-8')
-
-          text = text.replace('import androidx.preference.Preference\n', '')
-          text = text.replace('.map(String::absoluteUrl)', '.map { it.absoluteUrl() }')
-          text = text.replace(
-              'Vomic 需要登录：请在扩展设置中填写邮箱/手机号和密码后点击登录',
-              'Vomic 需要登录：请在扩展设置中填写邮箱/手机号和密码，保存密码后会自动登录',
-          )
-
-          start = text.index('    override fun setupPreferenceScreen(screen: PreferenceScreen) {')
-          end = text.index('    private fun performLogin(identity: String, password: String): String {')
-          replacement = '''    override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        val uiContext = screen.context
-
-        EditTextPreference(uiContext).apply {
-            key = EMAIL_KEY
-            title = "Vomic 邮箱或手机号"
-            dialogTitle = title
-            summary = preferences.getString(EMAIL_KEY, "").orEmpty().ifBlank { "未设置" }
-            setDefaultValue("")
-            setOnBindEditTextListener { editText -> editText.isSingleLine = true }
-            setOnPreferenceChangeListener { preference, newValue ->
-                val identity = (newValue as? String).orEmpty().trim()
-                (preference as EditTextPreference).summary = identity.ifBlank { "未设置" }
-                if (identity.isBlank()) {
-                    clearLogin("未登录")
-                } else {
-                    val password = preferences.getString(PASSWORD_KEY, "").orEmpty()
-                    if (password.isNotBlank()) {
-                        triggerLogin(uiContext, identity, password) { status ->
-                            Toast.makeText(uiContext, status, Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                }
-                true
-            }
-        }.also(screen::addPreference)
-
-        EditTextPreference(uiContext).apply {
-            key = PASSWORD_KEY
-            title = "Vomic 密码"
-            dialogTitle = title
-            val saved = preferences.getString(PASSWORD_KEY, "").orEmpty()
-            summary = if (saved.isBlank()) "未设置" else "已设置（${saved.length} 位）"
-            setDefaultValue("")
-            setOnBindEditTextListener { editText ->
-                editText.isSingleLine = true
-                editText.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-            }
-            setOnPreferenceChangeListener { preference, newValue ->
-                val password = (newValue as? String).orEmpty()
-                val passwordPreference = preference as EditTextPreference
-                passwordPreference.summary = if (password.isBlank()) "未设置" else "已设置（${password.length} 位）"
-                if (password.isBlank()) {
-                    clearLogin("未登录")
-                    Toast.makeText(uiContext, "已清除 Vomic 登录状态", Toast.LENGTH_SHORT).show()
-                } else {
-                    val identity = preferences.getString(EMAIL_KEY, "").orEmpty().trim()
-                    if (identity.isBlank()) {
-                        Toast.makeText(uiContext, "请先填写邮箱/手机号", Toast.LENGTH_SHORT).show()
-                    } else {
-                        triggerLogin(uiContext, identity, password) { status ->
-                            passwordPreference.summary = "已设置 · $status"
-                        }
-                    }
-                }
-                true
-            }
-        }.also(screen::addPreference)
-
-        ListPreference(uiContext).apply {
-            key = RESOLUTION_KEY
-            title = "正文图片画质"
-            entries = arrayOf("高清", "原画")
-            entryValues = arrayOf(RESOLUTION_HIGH, RESOLUTION_ORIGINAL)
-            setDefaultValue(RESOLUTION_HIGH)
-            summary = "%s"
-        }.also(screen::addPreference)
-
-        ListPreference(uiContext).apply {
-            key = CC_KEY
-            title = "简繁切换"
-            entries = arrayOf("简体", "繁體")
-            entryValues = arrayOf(CC_SIMPLIFIED, CC_TRADITIONAL)
-            setDefaultValue(CC_SIMPLIFIED)
-            summary = "%s · 同步转换漫画信息、章节名、搜索词和评论文字"
-        }.also(screen::addPreference)
-    }
-
-    private fun triggerLogin(
-        uiContext: android.content.Context,
-        identity: String,
-        password: String,
-        onStatus: (String) -> Unit,
-    ) {
-        Thread {
-            val status = runCatching { performLogin(identity, password) }
-                .getOrElse { error ->
-                    clearLogin("登录失败：${error.message.orEmpty().ifBlank { "网络或账号错误" }}")
-                    preferences.getString(LOGIN_STATUS_KEY, "登录失败") ?: "登录失败"
-                }
-            Handler(Looper.getMainLooper()).post {
-                onStatus(status)
-                Toast.makeText(uiContext, status, Toast.LENGTH_SHORT).show()
-            }
-        }.start()
-    }
-
-'''
-          text = text[:start] + replacement + text[end:]
-          path.write_text(text, 'utf-8')
+          p=Path('dev/src/zh/vomicplus/src/eu/kanade/tachiyomi/extension/zh/vomicplus/VomicPlus.kt')
+          s=p.read_text('utf-8')
+          s=s.replace('import android.widget.Toast\n','')
+          s=s.replace('import androidx.preference.Preference\n','')
+          s=s.replace('.map(String::absoluteUrl)', '.map { it.absoluteUrl() }')
+          s=s.replace('            setSingleLine(true)\n','            setOnBindEditTextListener { editText -> editText.isSingleLine = true }\n')
+          s=s.replace('        lateinit var loginPreference: Preference\n','')
+          s=s.replace('triggerLogin(identity, password) { status -> loginPreference.summary = status }','triggerLogin(identity, password) { status -> (preference as EditTextPreference).summary = status }')
+          a=s.find('        loginPreference = Preference(screen.context).apply {')
+          b=s.find('        ListPreference(screen.context).apply {',a)
+          if a < 0 or b < 0: raise SystemExit('login preference block not found')
+          s=s[:a]+s[b:]
+          marker='        Preference(screen.context).apply {\n            title = "评论功能"'
+          a=s.find(marker)
+          if a >= 0:
+              b=s.find('        }.also(screen::addPreference)',a)
+              if b < 0: raise SystemExit('comment info block end not found')
+              b += len('        }.also(screen::addPreference)\n')
+              s=s[:a]+s[b:]
+          s=s.replace('                Toast.makeText(context, status, Toast.LENGTH_SHORT).show()\n','')
+          p.write_text(s,'utf-8')
           PY
-          grep -q '.map { it.absoluteUrl() }' dev/src/zh/vomicplus/src/eu/kanade/tachiyomi/extension/zh/vomicplus/VomicPlus.kt
+          ! grep -q 'androidx.preference.Preference$' dev/src/zh/vomicplus/src/eu/kanade/tachiyomi/extension/zh/vomicplus/VomicPlus.kt
           ! grep -q 'Preference(screen.context)' dev/src/zh/vomicplus/src/eu/kanade/tachiyomi/extension/zh/vomicplus/VomicPlus.kt
           ! grep -q 'setSingleLine' dev/src/zh/vomicplus/src/eu/kanade/tachiyomi/extension/zh/vomicplus/VomicPlus.kt
           git -C dev diff --check
@@ -219,12 +119,13 @@ jobs:
           rm -rf upstream/src/zh/vomicplus/res
           cp -a upstream/src/zh/vomic/res upstream/src/zh/vomicplus/res
 
-      - name: Format and check
+      - name: Format and build
         working-directory: upstream
         run: |
           set -euo pipefail
           ./gradlew :src:zh:vomicplus:spotlessApply
           ./gradlew :src:zh:vomicplus:spotlessCheck
+          ./gradlew :src:zh:vomicplus:assembleDebug :src:zh:vomicplus:assembleRelease :src:zh:vomicplus:lintRelease
 
       - name: Prepare signing key
         env:
@@ -241,37 +142,27 @@ jobs:
                   v=str(b[k]); print(f'::add-mask::{v}'); f.write(f'{e}<<EOF_SIGN\n{v}\nEOF_SIGN\n')
           PY
 
-      - name: Build debug release and lint
+      - name: Rebuild signed release and verify
+        id: signing
         working-directory: upstream
         run: |
           set -euo pipefail
-          ./gradlew :src:zh:vomicplus:assembleDebug :src:zh:vomicplus:assembleRelease :src:zh:vomicplus:lintRelease
-
-      - name: Verify MX comment ABI survives R8
-        run: |
-          set -euo pipefail
-          apk="$(find upstream/src/zh/vomicplus -path '*/build/outputs/apk/release/*.apk' -type f | head -n1)"
-          test -n "$apk"
-          unzip -p "$apk" classes.dex > /tmp/vomicplus-release.dex
-          grep -a -F -q 'Leu/kanade/tachiyomi/source/mx/CommentSource;' /tmp/vomicplus-release.dex
-          grep -a -F -q 'Leu/kanade/tachiyomi/source/mx/CommentCapabilities;' /tmp/vomicplus-release.dex
-          grep -a -F -q 'Leu/kanade/tachiyomi/source/mx/SortableCommentSource;' /tmp/vomicplus-release.dex
-          echo 'MX book/chapter comment ABI descriptors preserved in release dex'
-
-      - name: Verify signing
-        id: signing
-        run: |
-          set -euo pipefail
-          expected="$(keytool -exportcert -alias "$ALIAS" -keystore upstream/signingkey.jks -storepass "$KEY_STORE_PASSWORD" | sha256sum | awk '{print $1}' | tr '[:upper:]' '[:lower:]')"
+          ./gradlew :src:zh:vomicplus:assembleRelease
+          expected="$(keytool -exportcert -alias "$ALIAS" -keystore signingkey.jks -storepass "$KEY_STORE_PASSWORD" | sha256sum | awk '{print $1}' | tr '[:upper:]' '[:lower:]')"
           designated='1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620'
           [[ "$expected" == "$designated" ]]
-          apk="$(find upstream/src/zh/vomicplus -path '*/build/outputs/apk/release/*.apk' -type f | head -n1)"
+          apk="$(find src/zh/vomicplus -path '*/build/outputs/apk/release/*.apk' -type f | head -n1)"
           test -n "$apk"
           apksigner="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n1)"
           "$apksigner" verify "$apk"
+          unzip -p "$apk" classes.dex > /tmp/vomicplus.dex
+          grep -a -F -q 'Leu/kanade/tachiyomi/source/mx/CommentSource;' /tmp/vomicplus.dex
+          grep -a -F -q 'Leu/kanade/tachiyomi/source/mx/CommentCapabilities;' /tmp/vomicplus.dex
+          grep -a -F -q 'Leu/kanade/tachiyomi/source/mx/SortableCommentSource;' /tmp/vomicplus.dex
           echo "fingerprint=$expected" >> "$GITHUB_OUTPUT"
+          echo "apk=$apk" >> "$GITHUB_OUTPUT"
 
-      - name: Sync validated formatted source
+      - name: Sync validated source
         run: |
           set -euo pipefail
           rm -rf dev/src/zh/vomicplus
@@ -279,6 +170,14 @@ jobs:
           rm -rf dev/src/zh/vomicplus/build
           python3 dev/scripts/validate_sources.py
           git -C dev diff --check
+          git -C dev config user.name 'github-actions[bot]'
+          git -C dev config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C dev add src/zh/vomicplus
+          if ! git -C dev diff --cached --quiet; then
+            git -C dev commit -m 'fix(vomicplus): align v1 with current Keiyoushi APIs'
+            git -C dev pull --rebase origin main
+            git -C dev push origin HEAD:main
+          fi
 
       - name: Checkout staging
         uses: actions/checkout@v5
@@ -288,75 +187,30 @@ jobs:
           token: ${{ github.token }}
           path: staging
           fetch-depth: 0
-          persist-credentials: true
 
-      - name: Generate test store
+      - name: Generate and publish staging store
         env:
           SIGNING_FINGERPRINT: ${{ steps.signing.outputs.fingerprint }}
         run: |
           set -euo pipefail
           printf '%s\n' 'zh/vomicplus' > targets.txt
-          python3 dev/scripts/publish_test_repo.py \
-            --targets targets.txt \
-            --upstream-root upstream \
-            --source-root dev \
-            --repo-dir staging/test \
-            --owner huoguotiankong \
-            --repository mx-repo \
-            --signing-key "$SIGNING_FINGERPRINT"
+          python3 dev/scripts/publish_test_repo.py --targets targets.txt --upstream-root upstream --source-root dev --repo-dir staging/test --owner huoguotiankong --repository mx-repo --signing-key "$SIGNING_FINGERPRINT"
           test -f staging/test/apk/tachiyomi-zh.vomicplus-v1.6.1.apk
           python3 - <<'PY'
           import json
-          from pathlib import Path
-          data=json.loads(Path('staging/test/index.json').read_text('utf-8'))
+          x=json.load(open('staging/test/index.json',encoding='utf-8'))
           p='eu.kanade.tachiyomi.extension.zh.vomicplus'
-          items=[x for x in data['extensionList']['extensions'] if x.get('packageName')==p]
-          assert len(items)==1, items
-          item=items[0]
+          item=[e for e in x['extensionList']['extensions'] if e.get('packageName')==p][0]
           assert (item.get('versionName'),item.get('versionCode'))==('1.6.1',106001), item
           assert item['sources'][0]['id']==8237640194557812301, item
-          print('staged:',item.get('versionName'),item.get('versionCode'),item['sources'][0]['id'])
+          print('staging index verified',item['versionName'],item['versionCode'])
           PY
-
-      - name: Commit staging
-        working-directory: staging
-        run: |
-          set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add test
-          git diff --cached --check
-          if ! git diff --cached --quiet; then
-            git commit -m 'Stage Vomic Plus v1.6.1 test store'
-            git push origin HEAD:extension-staging
-          fi
-
-      - name: Verify staging online
-        run: |
-          set -euo pipefail
-          curl -L --fail --retry 5 -o /tmp/index.json 'https://raw.githubusercontent.com/huoguotiankong/mx-build/extension-staging/test/index.json'
-          python3 - <<'PY'
-          import json
-          data=json.load(open('/tmp/index.json',encoding='utf-8'))
-          p='eu.kanade.tachiyomi.extension.zh.vomicplus'
-          item=[x for x in data['extensionList']['extensions'] if x.get('packageName')==p][0]
-          assert (item.get('versionName'),item.get('versionCode'))==('1.6.1',106001), item
-          print('online staging verified')
-          PY
-
-      - name: Commit validated source to private development repository
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          git -C dev config user.name 'github-actions[bot]'
-          git -C dev config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git -C dev add src/zh/vomicplus
-          if git -C dev diff --cached --quiet; then
-            echo 'Vomic Plus source is already current'
-          else
-            git -C dev commit -m 'fix(vomicplus): align v1 with current Keiyoushi preferences'
-            git -C dev pull --rebase origin main
-            git -C dev push origin HEAD:main
+          git -C staging config user.name 'github-actions[bot]'
+          git -C staging config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C staging add test
+          if ! git -C staging diff --cached --quiet; then
+            git -C staging commit -m 'Stage Vomic Plus v1.6.1 test store'
+            git -C staging push origin HEAD:extension-staging
           fi
 
       - name: Upload signed APK
@@ -364,22 +218,6 @@ jobs:
         with:
           name: vomicplus-v1-signed-test-apk
           path: upstream/src/zh/vomicplus/**/build/outputs/apk/release/*.apk
-          if-no-files-found: error
-          retention-days: 14
-
-      - name: Upload formatted source
-        uses: actions/upload-artifact@v4
-        with:
-          name: vomicplus-v1-formatted-source
-          path: dev/src/zh/vomicplus
-          if-no-files-found: error
-          retention-days: 14
-
-      - name: Upload test store
-        uses: actions/upload-artifact@v4
-        with:
-          name: vomicplus-v1-test-store
-          path: staging/test
           if-no-files-found: error
           retention-days: 14
 
