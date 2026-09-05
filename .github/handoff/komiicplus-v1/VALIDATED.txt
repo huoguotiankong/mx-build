@@ -1,0 +1,6 @@
+version: 1.6.1 / source versionCode 1 / Android versionCode 106001
+validated: current Keiyoushi Spotless + assembleDebug + assembleRelease + lintRelease
+signing: fixed extension signing identity verified
+icons: mdpi hdpi xhdpi xxhdpi xxxhdpi official Komiic assets restored
+mx-abi: CommentSource CommentTarget AccountSource retained in release DEX
+runtime: login comments quota and mirror failover still require real-device validation
