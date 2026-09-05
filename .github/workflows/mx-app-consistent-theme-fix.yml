@@ -1,166 +1,21 @@
-name: MX App Consistent Manga Theme Fix
+name: Dispatch MX Detail Page Enhancement
 
 on:
   push:
     branches: [main]
     paths:
       - ".github/workflows/mx-app-consistent-theme-fix.yml"
-      - ".github/mx-app-consistent-theme-fix-trigger"
   workflow_dispatch:
 
 permissions:
+  actions: write
   contents: read
 
 jobs:
-  patch-validate-and-push:
+  dispatch:
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
     steps:
-      - name: Checkout private MX App feature branch
-        uses: actions/checkout@v5
-        with:
-          repository: huoguotiankong/mx-app
-          ref: fix/consistent-manga-theme
-          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
-          path: source
-          fetch-depth: 0
-          persist-credentials: true
-
-      - name: Apply global theme consistency fix
-        working-directory: source
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-
-          def replace_once(path: Path, old: str, new: str, label: str) -> None:
-              text = path.read_text(encoding="utf-8")
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f"{label}: expected exactly one match, got {count}")
-              path.write_text(text.replace(old, new, 1), encoding="utf-8")
-
-          manga_screen = Path("app/src/main/java/eu/kanade/tachiyomi/ui/manga/MangaScreen.kt")
-          manga_text = manga_screen.read_text(encoding="utf-8")
-          theme_import = "import eu.kanade.presentation.theme.TachiyomiTheme\n"
-          if manga_text.count(theme_import) != 1:
-              raise SystemExit(f"MangaScreen TachiyomiTheme import mismatch: {manga_text.count(theme_import)}")
-          manga_text = manga_text.replace(theme_import, "", 1)
-          manga_pattern = re.compile(
-              r"        val seedColor = successState\.seedColor\n"
-              r"        TachiyomiTheme\(\n"
-              r"            seedColor = seedColor\.takeIf \{ screenModel\.themeCoverBased \},\n"
-              r"        \) \{\n"
-              r"            content\(\)\n"
-              r"        \}\n"
-          )
-          manga_replacement = (
-              "        // MX -->\n"
-              "        // Keep manga details on the app-wide Material theme. Cover artwork may still decorate\n"
-              "        // the header, but must not replace the color scheme for the whole page.\n"
-              "        content()\n"
-              "        // MX <--\n"
-          )
-          manga_text, manga_count = manga_pattern.subn(manga_replacement, manga_text, count=1)
-          if manga_count != 1:
-              raise SystemExit(f"MangaScreen cover theme block mismatch: {manga_count}")
-          manga_screen.write_text(manga_text, encoding="utf-8")
-
-          reader_activity = Path("app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt")
-          reader_text = reader_activity.read_text(encoding="utf-8")
-
-          def wrap_dialog(text: str, dialog_type: str, call_name: str) -> str:
-              pattern = re.compile(
-                  rf"(                is ReaderViewModel\.Dialog\.{re.escape(dialog_type)} -> \{{\n)"
-                  rf"(                    {re.escape(call_name)}\([\s\S]*?\n                    \)\n)"
-                  r"(                \}\n)"
-              )
-              match = pattern.search(text)
-              if match is None:
-                  raise SystemExit(f"ReaderActivity dialog block missing: {dialog_type}")
-              call = match.group(2)
-              call = "\n".join(("    " + line) if line else line for line in call.rstrip("\n").split("\n")) + "\n"
-              replacement = match.group(1) + "                    TachiyomiTheme {\n" + call + "                    }\n" + match.group(3)
-              return text[:match.start()] + replacement + text[match.end():]
-
-          for dialog_type, call_name in (
-              ("ChapterContentReplacement", "ChapterContentReplacementDialog"),
-              ("ChapterContentMangaPicker", "ChapterContentMangaPickerDialog"),
-              ("ChapterContentChapterPicker", "ChapterContentChapterPickerDialog"),
-          ):
-              reader_text = wrap_dialog(reader_text, dialog_type, call_name)
-          reader_activity.write_text(reader_text, encoding="utf-8")
-
-          build_gradle = Path("app/build.gradle.kts")
-          replace_once(
-              build_gradle,
-              '        versionCode = 82\n        versionName = "1.14.2"\n',
-              '        versionCode = 83\n        versionName = "1.14.3"\n',
-              "MX app version bump",
-          )
-
-          details_doc = Path("docs/MANGA_DETAILS.md")
-          details_text = details_doc.read_text(encoding="utf-8")
-          details_heading = "## 2026-09-05 app-wide theme consistency"
-          if details_heading in details_text:
-              raise SystemExit("Manga detail theme documentation already exists")
-          details_doc.write_text(
-              details_text.rstrip()
-              + "\n\n## 2026-09-05 app-wide theme consistency\n\n"
-              + "Manga detail pages now keep the app-wide Material color scheme instead of replacing the whole screen theme with a palette derived from the current cover. Cover artwork and header blur/atmosphere may still be rendered visually, but content surfaces, controls, chapter lists, recommendations, and dialogs use the user's global app theme consistently.\n",
-              encoding="utf-8",
-          )
-
-          chapter_doc = Path("docs/CHAPTER_CONTENT.md")
-          chapter_text = chapter_doc.read_text(encoding="utf-8")
-          chapter_heading = "## 2026-09-05 replacement dialog theme isolation"
-          if chapter_heading in chapter_text:
-              raise SystemExit("Chapter replacement theme documentation already exists")
-          chapter_doc.write_text(
-              chapter_text.rstrip()
-              + "\n\n## 2026-09-05 replacement dialog theme isolation\n\n"
-              + "The chapter-content replacement dialog and its manga/chapter pickers explicitly re-enter the app-wide theme when opened from the reader. They no longer inherit the reader's optional cover-derived palette, preventing strong cover colors from tinting the replacement workflow.\n",
-              encoding="utf-8",
-          )
-          PY
-
-      - name: Set up Java
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          build-root-directory: source
-
-      - name: Apply Spotless
-        working-directory: source
-        run: ./gradlew spotlessApply
-
-      - name: Spotless check
-        working-directory: source
-        run: ./gradlew spotlessCheck
-
-      - name: Build Preview APK
-        working-directory: source
-        run: ./gradlew assemblePreview -Pdisable-code-shrink --no-configuration-cache
-
-      - name: Unit tests
-        working-directory: source
-        run: ./gradlew testReleaseUnitTest
-
-      - name: Commit validated feature branch
-        working-directory: source
-        shell: bash
-        run: |
-          set -euo pipefail
-          git diff --check
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "fix: keep manga and replacement UI on app theme"
-          git push origin HEAD:fix/consistent-manga-theme
+      - name: Dispatch detail page validation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run mx-app-detail-page-source-actions.yml --repo huoguotiankong/mx-build --ref main
