@@ -1,0 +1,1 @@
+validated: v5 source/build; normal HTTP caching restored + viewer image-url cache + host WebView login bridge + automatic cookie import/validation + visible login state; Spotless + public reader smoke + forum endpoint diagnostic + Release + lint + stable signing
