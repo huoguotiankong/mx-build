@@ -1,0 +1,133 @@
+name: Validate Current Zaimanhua Plus
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/validate-zaimanhuaplus-current.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-zaimanhuaplus-current
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check required secrets
+        shell: bash
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]]
+          [[ -n "$MANGA_SIGNING_BUNDLE" ]]
+
+      - name: Checkout current Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          ref: main
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout MX private source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: dev
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Overlay current Zaimanhua Plus
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f dev/src/zh/zaimanhuaplus/build.gradle.kts
+          test -d dev/src/zh/zaimanhuaplus/src
+          rm -rf upstream/src/zh/zaimanhuaplus
+          cp -a dev/src/zh/zaimanhuaplus upstream/src/zh/zaimanhuaplus
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Check formatting
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:zaimanhuaplus:spotlessCheck
+
+      - name: Prepare stable signing key
+        shell: bash
+        env:
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, json, os
+          from pathlib import Path
+          bundle = json.loads(os.environ['MANGA_SIGNING_BUNDLE'])
+          required = ('signingKey', 'alias', 'storePassword', 'keyPassword')
+          missing = [key for key in required if not bundle.get(key)]
+          if missing:
+              raise SystemExit('Signing bundle missing: ' + ', '.join(missing))
+          Path('upstream/signingkey.jks').write_bytes(base64.b64decode(bundle['signingKey']))
+          with Path(os.environ['GITHUB_ENV']).open('a', encoding='utf-8') as f:
+              for env_name, key in (('ALIAS','alias'),('KEY_STORE_PASSWORD','storePassword'),('KEY_PASSWORD','keyPassword')):
+                  value = str(bundle[key])
+                  print(f'::add-mask::{value}')
+                  f.write(f'{env_name}<<EOF_SIGN\n{value}\nEOF_SIGN\n')
+          PY
+
+      - name: Build debug release and lint
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:zaimanhuaplus:assembleDebug :src:zh:zaimanhuaplus:assembleRelease :src:zh:zaimanhuaplus:lintRelease
+
+      - name: Verify signing and MX ABI
+        shell: bash
+        run: |
+          set -euo pipefail
+          designated='1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620'
+          actual="$(keytool -exportcert -alias "$ALIAS" -keystore upstream/signingkey.jks -storepass "$KEY_STORE_PASSWORD" | sha256sum | awk '{print $1}' | tr '[:upper:]' '[:lower:]')"
+          [[ "$actual" == "$designated" ]]
+          apk="$(find upstream/src/zh/zaimanhuaplus -path '*/build/outputs/apk/release/*.apk' -type f | head -n1)"
+          test -n "$apk"
+          apksigner="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n1)"
+          "$apksigner" verify "$apk"
+          rm -rf /tmp/zmhplus-dex
+          mkdir -p /tmp/zmhplus-dex
+          unzip -qq "$apk" 'classes*.dex' -d /tmp/zmhplus-dex
+          strings /tmp/zmhplus-dex/classes*.dex > /tmp/zmhplus-strings.txt
+          grep -Fq 'eu/kanade/tachiyomi/source/mx/CommentSource' /tmp/zmhplus-strings.txt
+          grep -Fq 'eu/kanade/tachiyomi/source/mx/CommentTarget' /tmp/zmhplus-strings.txt
+
+      - name: Upload signed APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: zaimanhuaplus-current-release
+          path: upstream/src/zh/zaimanhuaplus/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Cleanup signing material
+        if: always()
+        run: rm -f upstream/signingkey.jks
