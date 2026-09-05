@@ -15,54 +15,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - name: Probe Vomic comment scopes and chapter API
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import json, urllib.request, urllib.parse
-          BASE='http://43.143.245.32/pics'
-          H={'host':'43.143.245.32','name':'pics','platform':'android','showsuccess':'false','showtoast':'false','version':'1.0.10','User-Agent':'Mozilla/5.0'}
-          def get(path):
-              u=BASE+path
-              req=urllib.request.Request(u,headers=H)
-              with urllib.request.urlopen(req,timeout=20) as r:
-                  raw=r.read().decode('utf-8','ignore')
-                  print('HTTP',r.status,path,'len',len(raw))
-                  return json.loads(raw)
-          pop=get('/c/getCartoonList?cat_id=0&page=1&limit=12&sort=hot_value&sex=&process=&creativity=%E5%85%A8%E9%83%A8')
-          item=pop['data'][0]; car=str(item['id'])
-          print('COMIC',car,item.get('name'),'comment_num',item.get('comment_num'),'book_only',item.get('comment_num_without_chapter'),'can_comment',item.get('can_comment'))
-          dd=get('/c/getCartoonInfoV1?car_id='+car+'&comment_id')['data']
-          groups=dd.get('chapter_list') or []
-          print('GROUPS',[(g.get('name'),len(g.get('values') or [])) for g in groups])
-          vals=[]
-          for g in groups: vals.extend(g.get('values') or [])
-          print('CHAPTERS',len(vals),'FIRST',vals[0] if vals else None)
-          if not vals: raise SystemExit('no chapters')
-          ch=vals[-1] if vals[-1].get('id') else vals[0]
-          cid=str(ch.get('id') or ch.get('c_id') or ch.get('cid'))
-          print('CHAPTER',cid,ch.get('name') or ch.get('title'))
-          try:
-              cont=get('/c/getChapterInfo?c_id='+cid+'&clarity=gq')['data']
-              print('CONTENT_KEYS',list(cont.keys()) if isinstance(cont,dict) else type(cont).__name__)
-          except Exception as e: print('CONTENT_ERROR',repr(e))
-          def check(label, **kwargs):
-              p={'obj_id':car,'page':1,'limit':30,'top_id':0,'score':0,'obj_type':'cartoon','sort':'hot'}; p.update(kwargs)
-              try:
-                  x=get('/c/getCommentList_v1?'+urllib.parse.urlencode(p)); d=x.get('data')
-                  if isinstance(d,dict):
-                      arr=d.get('data') or d.get('list') or []; total=d.get('comment_num',d.get('total'))
-                      print(label,'keys',list(d.keys()),'items',len(arr) if isinstance(arr,list) else type(arr).__name__,'total',total,'first',str(arr[0])[:350] if isinstance(arr,list) and arr else None)
-                  else: print(label,'data',str(d)[:500])
-              except Exception as e: print(label,'ERROR',repr(e))
-          check('CHAPTER_HOT',chapter_id=cid)
-          check('CHAPTER_TIME',chapter_id=cid,sort='time')
-          check('BOOK_OMIT')
-          check('BOOK_ZERO',chapter_id='0')
-          check('BOOK_EMPTY',chapter_id='')
-          PY
-
-      - name: Extract login and preference contract from reference APK
+      - name: Extract exact VomicMHPlus login contract
         run: |
           set -euo pipefail
           curl -L --fail --retry 4 -o /tmp/vomic.apk 'https://raw.githubusercontent.com/LittleSurvival/copymanga-copy20/main/apk/tachiyomi-zh.vomicmh-v1.4.4.apk'
@@ -71,7 +24,9 @@ jobs:
           unzip -q /tmp/jadx.zip -d /tmp/jadx
           /tmp/jadx/bin/jadx --no-res -d /tmp/vomic-src /tmp/vomic.apk >/dev/null 2>&1
           root=/tmp/vomic-src/sources/eu/kanade/tachiyomi/extension/zh/vomicmh
-          for f in PreferencesKt.java special/TokenProvider.java api/dto/LoginResult.java Translate.java; do
-            echo "===== $f ====="
-            grep -nE -C 4 'login|LOGIN|email|password|token|Preference|resolution|chapter_comment|cc|translate|toSimplified|toTraditional|POST|FormBody|RequestBody|access' "$root/$f" | head -n 260 || true
-          done
+          echo '===== TOKEN PROVIDER LOGIN IMPLEMENTATION ====='
+          sed -n '312,620p' "$root/special/TokenProvider.java"
+          echo '===== MAIN INIT/PREFERENCES ====='
+          grep -nE -C 5 'TokenProvider|setupPreference|preferences|initPreferences|configureClient|client' "$root/VomicMHPlus.java" | head -n 260 || true
+          echo '===== TRANSLATION FILES ====='
+          find "$root" -maxdepth 2 -type f | grep -Ei 'trans|chinese|convert|cc' || true
