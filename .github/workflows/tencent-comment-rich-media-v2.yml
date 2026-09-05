@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/tencent-comment-rich-media-v2.yml"
+      - "scripts/patch_tencent_comment_rich_media_v25.py"
+      - "scripts/patch_mx_tencent_comment_rich_media_v2.py"
   workflow_dispatch:
 
 permissions:
@@ -31,6 +33,15 @@ jobs:
           [[ -n "$MX_APP_PUBLISH_TOKEN" ]] || { echo "::error::Missing MX_APP_PUBLISH_TOKEN"; exit 1; }
           [[ -n "$MX_APP_SIGNING_BUNDLE" ]] || { echo "::error::Missing MX_APP_SIGNING_BUNDLE"; exit 1; }
 
+      - name: Checkout build helper
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-build
+          ref: main
+          path: helper
+          fetch-depth: 1
+          persist-credentials: false
+
       - name: Checkout Tencent extension feature branch
         uses: actions/checkout@v5
         with:
@@ -52,293 +63,25 @@ jobs:
           persist-credentials: true
 
       - name: Patch Tencent extension v25
-        working-directory: extension
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
+          python3 helper/scripts/patch_tencent_comment_rich_media_v25.py extension
+          python3 extension/scripts/validate_sources.py
+          git -C extension diff --check
+          grep -F 'versionCode = 25' extension/src/zh/tencentcomics/build.gradle.kts
+          grep -F 'TENCENT_EMOJI_TOKEN' extension/src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+          grep -F 'topicImageUrls(info)' extension/src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
 
-          src = Path('src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt')
-          text = src.read_text(encoding='utf-8')
-
-          old = '''    private fun commentInfoToComment(info: JsonObject, parentTopicId: String): Comment? {
-        val content = info.string("content")
-            ?.let(::decodeCommentText)
-            ?.takeIf(String::isNotBlank)
-            ?: return null
-'''
-          new = '''    private fun commentInfoToComment(info: JsonObject, parentTopicId: String): Comment? {
-        val textContent = info.string("content")
-            ?.let(::decodeCommentText)
-            ?.takeIf(String::isNotBlank)
-        val content = commentContentWithImages(
-            textParts = listOfNotNull(textContent),
-            imageUrls = topicImageUrls(info),
-        ) ?: return null
-'''
-          if old not in text:
-              raise SystemExit('commentInfoToComment baseline not found')
-          text = text.replace(old, new, 1)
-
-          old = '''    private fun topicImageUrls(topic: JsonObject): List<String> = (topic["attach"] as? JsonArray)
-        ?.mapNotNull { it as? JsonObject }
-        .orEmpty()
-        .mapNotNull { attachment ->
-            normalizeUrl(attachment.string("picUrl") ?: attachment.string("pic_url"))
-        }
-        .distinct()
-'''
-          new = '''    private fun topicImageUrls(topic: JsonObject): List<String> {
-        val urls = linkedSetOf<String>()
-
-        fun addCandidate(value: String?) {
-            normalizeUrl(value)
-                ?.takeIf { it.startsWith("https://", ignoreCase = true) || it.startsWith("http://", ignoreCase = true) }
-                ?.let(urls::add)
-        }
-
-        fun collect(node: kotlinx.serialization.json.JsonElement?) {
-            when (node) {
-                is JsonPrimitive -> addCandidate(node.contentOrNull)
-                is JsonArray -> node.forEach { collect(it) }
-                is JsonObject -> listOf(
-                    "picUrl",
-                    "pic_url",
-                    "imageUrl",
-                    "image_url",
-                    "url",
-                    "src",
-                ).forEach { key -> collect(node[key]) }
-                else -> Unit
-            }
-        }
-
-        listOf("attach", "attachments", "pics", "images").forEach { key -> collect(topic[key]) }
-        listOf("picUrl", "pic_url", "imageUrl", "image_url").forEach { key -> collect(topic[key]) }
-        return urls.toList()
-    }
-'''
-          if old not in text:
-              raise SystemExit('topicImageUrls baseline not found')
-          text = text.replace(old, new, 1)
-
-          old = '''    private fun decodeCommentText(value: String): String {
-        val text = Jsoup.parse(value).text().trim()
-        return TENCENT_EMOJI_CODE.replace(text) { match ->
-            val code = match.groupValues[1].toIntOrNull()
-            if (code == null) match.value else TENCENT_EMOJI_TEXT[code] ?: match.value
-        }
-    }
-'''
-          new = '''    private fun decodeCommentText(value: String): String {
-        val text = Jsoup.parse(value).text().trim()
-        return TENCENT_EMOJI_TOKEN.replace(text) { match ->
-            val raw = match.groupValues[1].trim()
-            val numericCode = raw.toIntOrNull()
-            if (numericCode != null) {
-                TENCENT_EMOJI_TEXT[numericCode] ?: "【表情：${raw.padStart(3, '0')}】"
-            } else {
-                val name = raw.removePrefix("b").removePrefix("B").trim().ifBlank { raw }
-                TENCENT_EMOJI_NAME_TEXT[name] ?: "【表情：$name】"
-            }
-        }
-    }
-'''
-          if old not in text:
-              raise SystemExit('decodeCommentText baseline not found')
-          text = text.replace(old, new, 1)
-
-          old = '        val TENCENT_EMOJI_CODE = Regex("\\\\[:(\\\\d{1,3}):]")\n'
-          new = '        val TENCENT_EMOJI_TOKEN = Regex("\\\\[:([^:\\\\]\\\\r\\\\n]{1,24}):]")\n'
-          if old not in text:
-              raise SystemExit('emoji regex baseline not found')
-          text = text.replace(old, new, 1)
-
-          marker = '''            61 to "👍",
-        )
-'''
-          replacement = '''            61 to "👍",
-        )
-        val TENCENT_EMOJI_NAME_TEXT = mapOf(
-            "鼓掌" to "👏",
-            "赞" to "👍",
-            "点赞" to "👍",
-            "爱心" to "❤️",
-            "开心" to "😄",
-            "微笑" to "🙂",
-            "笑哭" to "😂",
-            "大哭" to "😭",
-            "哭" to "😭",
-            "害羞" to "😊",
-            "生气" to "😠",
-            "惊讶" to "😮",
-            "疑问" to "🤔",
-            "666" to "🔥666",
-        )
-'''
-          if marker not in text:
-              raise SystemExit('emoji map marker not found')
-          text = text.replace(marker, replacement, 1)
-          src.write_text(text, encoding='utf-8')
-
-          gradle = Path('src/zh/tencentcomics/build.gradle.kts')
-          g = gradle.read_text(encoding='utf-8')
-          if 'versionCode = 24' not in g:
-              raise SystemExit('Tencent versionCode 24 baseline not found')
-          gradle.write_text(g.replace('versionCode = 24', 'versionCode = 25', 1), encoding='utf-8')
-
-          doc = Path('docs/sources/tencentcomics.md')
-          d = doc.read_text(encoding='utf-8')
-          d = d.replace('当前开发版本：`versionCode = 24`', '当前开发版本：`versionCode = 25`', 1)
-          section = '''
-
-## v25：评论附件、CDN 图片与扩展表情兼容
-
-### 2026-09-05 用户实机反馈
-
-- 腾讯评论回复中存在 `manhua.acimg.cn/...jpg/0?tp=sharp` 这类带图片处理尾段的 URL，旧 MX 客户端未识别为图片。
-- 评论中仍会出现 `[:b鼓掌:]`、`[:068:]` 等旧式/扩展表情标记。
-
-### 扩展侧处理
-
-- 回复 `commentInfo` 现在和主题评论一样读取官方附件字段，允许纯图片回复。
-- 图片字段兼容 `attach / attachments / pics / images`，以及 `picUrl / pic_url / imageUrl / image_url / url / src` 等常见键。
-- 腾讯表情解析从仅数字 `[:NNN:]` 扩展为通用 `[:token:]`：已知数字继续映射 Unicode；已知命名表情（例如 `b鼓掌`）映射为对应 emoji；未知数字/命名标记转为可读的 `【表情：...】`，不再原样泄漏协议标签。
-- 不猜测未知编号的真实语义；例如 `[:068:]` 在未确认官方资源含义前显示为 `【表情：068】`。
-
-### 验证边界
-
-- 本轮只读评论增强不改变腾讯 APP 评论签名、3DES 解密、排序和回复 API。
-- 源码构建/格式/lint 由专用 CI 验证；实际图片与表情最终显示仍以 Android 实机为准。
-'''
-          if '## v25：评论附件、CDN 图片与扩展表情兼容' not in d:
-              d += section
-          doc.write_text(d, encoding='utf-8')
-          PY
-          python3 scripts/validate_sources.py
-          git diff --check
-          grep -F 'versionCode = 25' src/zh/tencentcomics/build.gradle.kts
-          grep -F 'TENCENT_EMOJI_TOKEN' src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
-          grep -F 'topicImageUrls(info)' src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
-
-      - name: Patch MX app 1.14.6 rich-comment fallback
-        working-directory: appsrc
+      - name: Patch MX app 1.14.6
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-
-          screen = Path('app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt')
-          text = screen.read_text(encoding='utf-8')
-
-          old = '''        .replace(COMMENT_BBCODE_FORMATTING_REGEX, "")
-        .replace(COMMENT_CUSTOM_EMOJI_TOKEN_REGEX) { match ->
-'''
-          new = '''        .replace(COMMENT_BBCODE_FORMATTING_REGEX, "")
-        .replace(COMMENT_COLON_EMOJI_TOKEN_REGEX) { match ->
-            val raw = match.groupValues.getOrNull(1)?.trim().orEmpty()
-            val name = raw.removePrefix("b").removePrefix("B").trim().ifBlank { raw }
-            if (name.isBlank()) match.value else "【表情：$name】"
-        }
-        .replace(COMMENT_CUSTOM_EMOJI_TOKEN_REGEX) { match ->
-'''
-          if old not in text:
-              raise SystemExit('comment markup baseline not found')
-          text = text.replace(old, new, 1)
-
-          old = '''private val COMMENT_ALWAYS_IMAGE_HOST_SUFFIXES = setOf(
-    "biliimg.com",
-'''
-          new = '''private val COMMENT_ALWAYS_IMAGE_HOST_SUFFIXES = setOf(
-    "acimg.cn",
-    "biliimg.com",
-'''
-          if old not in text:
-              raise SystemExit('image host set baseline not found')
-          text = text.replace(old, new, 1)
-
-          old = '''private val COMMENT_IMAGE_FILE_REGEX = Regex(
-    "\\\\.(?:jpe?g|jfif|pjpeg|pjp|png|apng|webp|gif|avif|bmp|dib|heic|heif|svg|svgz|wbmp)(?:[?#].*)?$",
-    RegexOption.IGNORE_CASE,
-)
-'''
-          new = '''private val COMMENT_IMAGE_FILE_REGEX = Regex(
-    "\\\\.(?:jpe?g|jfif|pjpeg|pjp|png|apng|webp|gif|avif|bmp|dib|heic|heif|svg|svgz|wbmp)(?:(?:[/@!~])[^\\\\s<>\\\"'?#]*)*(?:[?#].*)?$",
-    RegexOption.IGNORE_CASE,
-)
-'''
-          if old not in text:
-              raise SystemExit('image extension regex baseline not found')
-          text = text.replace(old, new, 1)
-
-          marker = '''private val COMMENT_CUSTOM_EMOJI_TOKEN_REGEX = Regex(
-'''
-          insertion = '''private val COMMENT_COLON_EMOJI_TOKEN_REGEX = Regex(
-    "\\\\[:([^:\\\\]\\\\r\\\\n]{1,40}):]",
-)
-private val COMMENT_CUSTOM_EMOJI_TOKEN_REGEX = Regex(
-'''
-          if marker not in text:
-              raise SystemExit('custom emoji regex marker not found')
-          text = text.replace(marker, insertion, 1)
-          screen.write_text(text, encoding='utf-8')
-
-          tests = Path('app/src/test/java/eu/kanade/presentation/manga/comments/CommentRichContentTest.kt')
-          t = tests.read_text(encoding='utf-8')
-          marker = '''    @Test
-    fun `normal links stay as comment text`() {
-'''
-          cases = '''    @Test
-    fun `tencent transformed jpg urls become rich images`() {
-        val url = "https://manhua.acimg.cn/manhua/0/15_09_39_13170f3f334f7e005496d9311df42127.jpg/0?tp=sharp"
-        val result = parseCommentRichContent("画了一张图\\n$url")
-        assertEquals("画了一张图", result.text)
-        assertEquals(listOf(url), result.imageUrls)
-    }
-
-    @Test
-    fun `tencent legacy colon emoji tokens get readable fallback`() {
-        val result = parseCommentRichContent("重刷觉有没有[:b鼓掌:][:b鼓掌:] [:068:]")
-        assertEquals("重刷觉有没有【表情：鼓掌】【表情：鼓掌】 【表情：068】", result.text)
-        assertEquals(emptyList<String>(), result.imageUrls)
-    }
-
-'''
-          if marker not in t:
-              raise SystemExit('test insertion marker not found')
-          if 'tencent transformed jpg urls become rich images' not in t:
-              t = t.replace(marker, cases + marker, 1)
-          tests.write_text(t, encoding='utf-8')
-
-          gradle = Path('app/build.gradle.kts')
-          g = gradle.read_text(encoding='utf-8')
-          if 'versionCode = 85' not in g or 'versionName = "1.14.5"' not in g:
-              raise SystemExit('MX 1.14.5 baseline not found')
-          g = g.replace('versionCode = 85', 'versionCode = 86', 1)
-          g = g.replace('versionName = "1.14.5"', 'versionName = "1.14.6"', 1)
-          gradle.write_text(g, encoding='utf-8')
-
-          docs = Path('docs/COMMENTS.md')
-          d = docs.read_text(encoding='utf-8')
-          section = '''
-
-## Tencent rich-media compatibility (1.14.6)
-
-- Treat Tencent `manhua.acimg.cn` assets as image CDN content.
-- Recognize image URLs whose extension is followed by CDN transform path segments, e.g. `.jpg/0?tp=sharp`.
-- Convert unresolved legacy `[:token:]` comment emoji markup to readable fallback text instead of exposing raw protocol syntax.
-- Tencent-specific exact emoji semantics remain the responsibility of the Tencent extension; the app fallback is intentionally generic.
-'''
-          if '## Tencent rich-media compatibility (1.14.6)' not in d:
-              d += section
-          docs.write_text(d, encoding='utf-8')
-          PY
-          git diff --check
-          grep -F 'versionCode = 86' app/build.gradle.kts
-          grep -F 'acimg.cn' app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt
-          grep -F 'COMMENT_COLON_EMOJI_TOKEN_REGEX' app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt
+          python3 helper/scripts/patch_mx_tencent_comment_rich_media_v2.py appsrc
+          git -C appsrc diff --check
+          grep -F 'versionCode = 86' appsrc/app/build.gradle.kts
+          grep -F 'acimg.cn' appsrc/app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt
+          grep -F 'COMMENT_COLON_EMOJI_TOKEN_REGEX' appsrc/app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt
 
       - name: Set up Java
         uses: actions/setup-java@v5
@@ -367,16 +110,14 @@ private val COMMENT_CUSTOM_EMOJI_TOKEN_REGEX = Regex(
           cd upstream
           ./gradlew :src:zh:tencentcomics:spotlessApply
           cd ..
-          cp -a upstream/src/zh/tencentcomics/. extension/src/zh/tencentcomics/
+          rm -rf extension/src/zh/tencentcomics
+          cp -a upstream/src/zh/tencentcomics extension/src/zh/tencentcomics
           git -C extension diff --check
 
       - name: Build and lint Tencent v25
         working-directory: upstream
         run: |
-          ./gradlew \
-            :src:zh:tencentcomics:assembleDebug \
-            :src:zh:tencentcomics:assembleRelease \
-            :src:zh:tencentcomics:lintRelease
+          ./gradlew :src:zh:tencentcomics:assembleDebug :src:zh:tencentcomics:assembleRelease :src:zh:tencentcomics:lintRelease
 
       - name: Prepare stable MX signing key
         shell: bash
@@ -384,27 +125,7 @@ private val COMMENT_CUSTOM_EMOJI_TOKEN_REGEX = Regex(
           MX_APP_SIGNING_BUNDLE: ${{ secrets.MX_APP_SIGNING_BUNDLE }}
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          import base64, json, os
-          from pathlib import Path
-          bundle = json.loads(os.environ['MX_APP_SIGNING_BUNDLE'])
-          required = ('signingKey', 'alias', 'storePassword')
-          missing = [k for k in required if not bundle.get(k)]
-          if missing:
-              raise SystemExit('Signing bundle missing: ' + ', '.join(missing))
-          path = Path(os.environ['RUNNER_TEMP']) / 'mx-app.jks'
-          path.write_bytes(base64.b64decode(bundle['signingKey']))
-          values = {
-              'MX_KEYSTORE_PATH': str(path),
-              'MX_KEY_ALIAS': str(bundle['alias']),
-              'MX_KEYSTORE_PASSWORD': str(bundle['storePassword']),
-              'MX_KEY_PASSWORD': str(bundle['storePassword']),
-          }
-          with Path(os.environ['GITHUB_ENV']).open('a', encoding='utf-8') as f:
-              for name, value in values.items():
-                  print(f'::add-mask::{value}')
-                  f.write(f'{name}<<__MX_EOF__\n{value}\n__MX_EOF__\n')
-          PY
+          python3 -c 'import base64,json,os,pathlib; b=json.loads(os.environ["MX_APP_SIGNING_BUNDLE"]); p=pathlib.Path(os.environ["RUNNER_TEMP"])/"mx-app.jks"; p.write_bytes(base64.b64decode(b["signingKey"])); e=pathlib.Path(os.environ["GITHUB_ENV"]); vals={"MX_KEYSTORE_PATH":str(p),"MX_KEY_ALIAS":str(b["alias"]),"MX_KEYSTORE_PASSWORD":str(b["storePassword"]),"MX_KEY_PASSWORD":str(b.get("keyPassword") or b["storePassword"])}; f=e.open("a",encoding="utf-8"); [f.write(k+"<<__MX_EOF__\n"+v+"\n__MX_EOF__\n") for k,v in vals.items()]; f.close()'
 
       - name: Verify stable MX signing identity
         shell: bash
@@ -426,9 +147,7 @@ private val COMMENT_CUSTOM_EMOJI_TOKEN_REGEX = Regex(
         shell: bash
         run: |
           set -euo pipefail
-          ./gradlew assemblePreview \
-            -Pdisable-code-shrink \
-            --no-configuration-cache \
+          ./gradlew assemblePreview -Pdisable-code-shrink --no-configuration-cache \
             -Pandroid.injected.signing.store.file="$MX_KEYSTORE_PATH" \
             -Pandroid.injected.signing.store.password="$MX_KEYSTORE_PASSWORD" \
             -Pandroid.injected.signing.key.alias="$MX_KEY_ALIAS" \
