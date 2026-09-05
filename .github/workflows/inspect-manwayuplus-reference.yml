@@ -1,11 +1,11 @@
-# reference inspection trigger 2
+# ManwaYu reference inspection helper
 name: Inspect ManwaYu Plus Reference
 
 on:
   push:
     branches: [main]
     paths:
-      - ".github/workflows/inspect-manwayuplus-reference.yml"
+      - ".github/manwayu-reference-inspect-trigger"
   workflow_dispatch:
 
 permissions:
