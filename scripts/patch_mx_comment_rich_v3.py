@@ -198,7 +198,7 @@ tests = test_path.read_text("utf-8")
 anchor = '''    @Test
     fun `normal links stay as comment text`() {
 '''
-extra_tests = '''    @Test
+extra_tests = r'''    @Test
     fun `escaped html image markup is decoded before media extraction`() {
         val url = "https://assets.example.org/object?id=escaped&token=2"
         val result = parseCommentRichContent(
