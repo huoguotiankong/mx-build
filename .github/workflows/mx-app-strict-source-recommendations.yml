@@ -1,0 +1,112 @@
+name: MX App Strict Source Recommendations
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/mx-app-strict-source-recommendations.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  patch-validate-and-push:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout private MX App feature branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-app
+          ref: feat/detail-page-source-actions
+          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Enforce strict recommendation capability
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          screen = Path("app/src/main/java/eu/kanade/presentation/manga/MangaScreen.kt")
+          text = screen.read_text(encoding="utf-8")
+          old = """private fun Source.hasMxSourceRecommendations(): Boolean =
+              this is MangaRecommendationSource || supportsRelatedMangas
+          """
+          new = """private fun Source.hasMxSourceRecommendations(): Boolean =
+              this is MangaRecommendationSource
+          """
+          if text.count(old) != 1:
+              raise SystemExit(f"recommendation visibility block mismatch: {text.count(old)}")
+          screen.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          model = Path("app/src/main/java/eu/kanade/tachiyomi/ui/manga/MangaScreenModel.kt")
+          text = model.read_text(encoding="utf-8")
+          old = """            val sourceRecommendations = when {
+              source is MangaRecommendationSource -> source.getMangaRecommendations(smanga)
+              source.supportsRelatedMangas -> source.fetchRelatedMangaList(smanga)
+              else -> emptyList()
+          }
+          """
+          new = """            val sourceRecommendations = if (source is MangaRecommendationSource) {
+              source.getMangaRecommendations(smanga)
+          } else {
+              emptyList()
+          }
+          """
+          if text.count(old) != 1:
+              raise SystemExit(f"recommendation fetch block mismatch: {text.count(old)}")
+          model.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          docs = Path("docs/MANGA_DETAILS.md")
+          text = docs.read_text(encoding="utf-8")
+          old = "- `MangaRecommendationSource` lets an enhanced source return recommendations from its own website/API. The detail-page **查看推荐** entry now opens only source-owned recommendations. It no longer routes to the AniList/MangaUpdates/MyAnimeList community recommendation screen. Existing Komikku sources that explicitly expose `supportsRelatedMangas` are also accepted, but only their `fetchRelatedMangaList` result is used; title-search fallback is not mixed into this action."
+          new = "- `MangaRecommendationSource` lets an enhanced source return recommendations from its own website/API. The detail-page **查看推荐** entry is strictly opt-in: it is shown only when the current source implements this interface. It no longer routes to AniList/MangaUpdates/MyAnimeList community recommendations, and generic `supportsRelatedMangas` is not treated as consent to expose this MX action."
+          if text.count(old) != 1:
+              raise SystemExit(f"recommendation docs block mismatch: {text.count(old)}")
+          docs.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Apply Spotless
+        working-directory: source
+        run: ./gradlew spotlessApply
+
+      - name: Spotless check
+        working-directory: source
+        run: ./gradlew spotlessCheck
+
+      - name: Build Preview APK
+        working-directory: source
+        run: ./gradlew assemblePreview -Pdisable-code-shrink --no-configuration-cache
+
+      - name: Unit tests
+        working-directory: source
+        run: ./gradlew testReleaseUnitTest
+
+      - name: Commit validated strict opt-in
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/eu/kanade/presentation/manga/MangaScreen.kt \
+                  app/src/main/java/eu/kanade/tachiyomi/ui/manga/MangaScreenModel.kt \
+                  docs/MANGA_DETAILS.md
+          git commit -m "fix: require explicit source recommendation capability"
+          git push origin HEAD:feat/detail-page-source-actions
