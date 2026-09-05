@@ -514,6 +514,32 @@
         ]
       },
       {
+        "name": "NoyAcg Plus",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.noyacgplus",
+        "resources": {
+          "apkUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.noyacgplus-v1.6.1.apk",
+          "iconUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/icon/eu.kanade.tachiyomi.extension.zh.noyacgplus-v106001.png",
+          "jarUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.noyacgplus-v1.6.1.jar"
+        },
+        "extensionLib": "1.6",
+        "versionCode": "106001",
+        "versionName": "1.6.1",
+        "contentWarning": "CONTENT_WARNING_MIXED",
+        "sources": [
+          {
+            "id": "1836735811427640023",
+            "name": "NoyAcg Plus",
+            "language": "zh",
+            "homeUrl": "https://api.noyteam.online",
+            "mirrorUrls": [
+              "https://api.noyteam.online",
+              "https://api.noymanga.com",
+              "https://api.noy.asia"
+            ]
+          }
+        ]
+      },
+      {
         "name": "Picacomic",
         "packageName": "eu.kanade.tachiyomi.extension.zh.picacomic",
         "resources": {
