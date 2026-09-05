@@ -82,3 +82,5 @@ jobs:
           path: dev/src/zh/baozimanhuaplus
           if-no-files-found: error
           retention-days: 14
+
+# Triggered after initial workflow registration.
