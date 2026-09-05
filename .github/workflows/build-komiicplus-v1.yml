@@ -1,0 +1,249 @@
+name: Build Komiic Plus v1
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/build-komiicplus-v1.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-komiicplus-v1
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check required secrets
+        shell: bash
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]]
+          [[ -n "$MANGA_SIGNING_BUNDLE" ]]
+
+      - name: Checkout build helper
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-build
+          ref: main
+          path: helper
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Checkout MX development source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: dev
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout current Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          ref: main
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Restore complete official Komiic launcher icons
+        shell: bash
+        run: |
+          set -euo pipefail
+          target='dev/src/zh/komiicplus/res'
+          rm -rf "$target"/mipmap-mdpi "$target"/mipmap-hdpi "$target"/mipmap-xhdpi "$target"/mipmap-xxhdpi "$target"/mipmap-xxxhdpi
+          for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            src="upstream/src/zh/komiic/res/mipmap-$density"
+            dst="$target/mipmap-$density"
+            test -d "$src"
+            mkdir -p "$dst"
+            icon="$(find "$src" -maxdepth 1 -type f -name 'ic_launcher.*' | head -n1)"
+            test -n "$icon"
+            cp "$icon" "$dst/$(basename "$icon")"
+          done
+          for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            find "$target/mipmap-$density" -maxdepth 1 -type f -name 'ic_launcher.*' | grep -q .
+          done
+          python3 dev/scripts/validate_sources.py
+          git -C dev diff --check
+
+      - name: Overlay Komiic Plus into current framework
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F 'versionCode = 1' dev/src/zh/komiicplus/build.gradle.kts
+          grep -F 'Komiic Plus' dev/src/zh/komiicplus/build.gradle.kts
+          grep -F 'getImageLimit' dev/src/zh/komiicplus/src/eu/kanade/tachiyomi/extension/zh/komiicplus/Queries.kt
+          grep -F 'getMessagesByComicId' dev/src/zh/komiicplus/src/eu/kanade/tachiyomi/extension/zh/komiicplus/Queries.kt
+          grep -F '/api/login' dev/src/zh/komiicplus/src/eu/kanade/tachiyomi/extension/zh/komiicplus/KomiicPlus.kt
+          rm -rf upstream/src/zh/komiicplus
+          cp -a dev/src/zh/komiicplus upstream/src/zh/komiicplus
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Format and validate source
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:komiicplus:spotlessApply
+          ./gradlew :src:zh:komiicplus:spotlessCheck
+
+      - name: Prepare stable extension signing key
+        shell: bash
+        env:
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, json, os
+          from pathlib import Path
+          bundle = json.loads(os.environ['MANGA_SIGNING_BUNDLE'])
+          required = ('signingKey', 'alias', 'storePassword', 'keyPassword')
+          missing = [key for key in required if not bundle.get(key)]
+          if missing:
+              raise SystemExit('Signing bundle missing: ' + ', '.join(missing))
+          Path('upstream/signingkey.jks').write_bytes(base64.b64decode(bundle['signingKey']))
+          with Path(os.environ['GITHUB_ENV']).open('a', encoding='utf-8') as f:
+              for env_name, key in (('ALIAS','alias'),('KEY_STORE_PASSWORD','storePassword'),('KEY_PASSWORD','keyPassword')):
+                  value = str(bundle[key])
+                  print(f'::add-mask::{value}')
+                  f.write(f'{env_name}<<EOF_SIGN\n{value}\nEOF_SIGN\n')
+          PY
+
+      - name: Build Debug Release and lint
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:komiicplus:assembleDebug :src:zh:komiicplus:assembleRelease :src:zh:komiicplus:lintRelease
+
+      - name: Verify signing icons and MX ABI
+        id: verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620'
+          actual="$(keytool -exportcert -alias "$ALIAS" -keystore upstream/signingkey.jks -storepass "$KEY_STORE_PASSWORD" | sha256sum | awk '{print $1}' | tr '[:upper:]' '[:lower:]')"
+          [[ "$actual" == "$expected" ]]
+          echo "fingerprint=$actual" >> "$GITHUB_OUTPUT"
+          apk="$(find upstream/src/zh/komiicplus -path '*/build/outputs/apk/release/*.apk' -type f | head -n1)"
+          test -n "$apk"
+          apksigner="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n1)"
+          "$apksigner" verify "$apk"
+          for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            find "upstream/src/zh/komiicplus/res/mipmap-$density" -maxdepth 1 -type f -name 'ic_launcher.*' | grep -q .
+          done
+          rm -rf /tmp/komiicplus-dex && mkdir -p /tmp/komiicplus-dex
+          unzip -qq "$apk" 'classes*.dex' -d /tmp/komiicplus-dex
+          strings /tmp/komiicplus-dex/classes*.dex > /tmp/komiicplus-strings.txt
+          grep -Fq 'eu/kanade/tachiyomi/source/mx/CommentSource' /tmp/komiicplus-strings.txt
+          grep -Fq 'eu/kanade/tachiyomi/source/mx/CommentTarget' /tmp/komiicplus-strings.txt
+          grep -Fq 'eu/kanade/tachiyomi/source/mx/AccountSource' /tmp/komiicplus-strings.txt
+
+      - name: Prepare validated handoff
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dev/src/zh/komiicplus
+          mkdir -p dev/src/zh/komiicplus
+          rsync -a --exclude build/ upstream/src/zh/komiicplus/ dev/src/zh/komiicplus/
+          python3 dev/scripts/validate_sources.py
+          git -C dev diff --check
+
+          handoff='helper/.github/handoff/komiicplus-v1'
+          rm -rf "$handoff"
+          mkdir -p "$handoff"
+          cp -a dev/src/zh/komiicplus "$handoff/module"
+          cp dev/docs/sources/komiicplus.md "$handoff/komiicplus.md"
+          printf '%s\n' \
+            'version: 1.6.1 / source versionCode 1 / Android versionCode 106001' \
+            'validated: current Keiyoushi Spotless + assembleDebug + assembleRelease + lintRelease' \
+            'signing: fixed extension signing identity verified' \
+            'icons: mdpi hdpi xhdpi xxhdpi xxxhdpi official Komiic assets restored' \
+            'mx-abi: CommentSource CommentTarget AccountSource retained in release DEX' \
+            'runtime: login comments quota and mirror failover still require real-device validation' \
+            > "$handoff/VALIDATED.txt"
+          git -C helper config user.name 'github-actions[bot]'
+          git -C helper config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C helper add .github/handoff/komiicplus-v1
+          git -C helper diff --cached --check
+          if ! git -C helper diff --cached --quiet; then
+            git -C helper commit -m 'handoff: validated Komiic Plus v1 source'
+            git -C helper pull --rebase origin main
+            git -C helper push origin HEAD:main
+          fi
+
+      - name: Checkout extension staging
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-build
+          ref: extension-staging
+          token: ${{ github.token }}
+          path: staging
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Generate isolated Komiic Plus test store snapshot
+        shell: bash
+        env:
+          SIGNING_FINGERPRINT: ${{ steps.verify.outputs.fingerprint }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' 'zh/komiicplus' > targets.txt
+          python3 dev/scripts/publish_test_repo.py \
+            --targets targets.txt \
+            --upstream-root upstream \
+            --source-root dev \
+            --repo-dir staging/test \
+            --owner huoguotiankong \
+            --repository mx-repo \
+            --signing-key "$SIGNING_FINGERPRINT"
+          test -f staging/test/index.json
+          test -f staging/test/repo.json
+          test -f staging/test/apk/tachiyomi-zh.komiicplus-v1.6.1.apk
+          grep -q 'eu.kanade.tachiyomi.extension.zh.komiicplus' staging/test/index.json
+
+      - name: Commit staged test store
+        working-directory: staging
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add test
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git commit -m 'Stage Komiic Plus v1.6.1 test store'
+            git push origin HEAD:extension-staging
+          fi
+
+      - name: Upload signed APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: komiicplus-v1-signed-apk
+          path: upstream/src/zh/komiicplus/**/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Cleanup signing material
+        if: always()
+        run: rm -f upstream/signingkey.jks
