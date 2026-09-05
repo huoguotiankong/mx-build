@@ -194,6 +194,32 @@
         ]
       },
       {
+        "name": "NoyAcg Plus",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.noyacgplus",
+        "resources": {
+          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.noyacgplus-v1.6.1.apk",
+          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.noyacgplus-v106001.png"
+        },
+        "extensionLib": "1.6",
+        "versionCode": 106001,
+        "versionName": "1.6.1",
+        "contentWarning": "MIXED",
+        "sources": [
+          {
+            "id": 1836735811427640023,
+            "name": "NoyAcg Plus",
+            "language": "zh",
+            "homeUrl": "https://api.noyteam.online",
+            "mirrorUrls": [
+              "https://api.noyteam.online",
+              "https://api.noymanga.com",
+              "https://api.noy.asia"
+            ],
+            "message": null
+          }
+        ]
+      },
+      {
         "name": "Picacomic",
         "packageName": "eu.kanade.tachiyomi.extension.zh.picacomic",
         "resources": {
