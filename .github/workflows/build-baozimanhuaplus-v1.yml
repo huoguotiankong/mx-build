@@ -189,6 +189,7 @@ jobs:
           find teststore/apk -type f -name '*baozimanhuaplus*.apk' -print -quit | grep -q .
 
       - name: Commit validated source to private development repository
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
