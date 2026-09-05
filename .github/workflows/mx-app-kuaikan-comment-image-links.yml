@@ -1,0 +1,224 @@
+name: MX App Kuaikan Comment Image Links
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/mx-app-kuaikan-comment-image-links.yml"
+      - "scripts/patch_mx_kuaikan_comment_image_links.py"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check required secrets
+        shell: bash
+        env:
+          MX_APP_PUBLISH_TOKEN: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          MX_APP_SIGNING_BUNDLE: ${{ secrets.MX_APP_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_APP_PUBLISH_TOKEN" ]] || { echo "::error::Missing MX_APP_PUBLISH_TOKEN"; exit 1; }
+          [[ -n "$MX_APP_SIGNING_BUNDLE" ]] || { echo "::error::Missing MX_APP_SIGNING_BUNDLE"; exit 1; }
+
+      - name: Checkout build helper
+        uses: actions/checkout@v5
+        with:
+          path: infra
+          persist-credentials: false
+
+      - name: Checkout MX feature branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-app
+          ref: fix/kuaikan-comment-image-links
+          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply Kuaikan comment image-link fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 infra/scripts/patch_mx_kuaikan_comment_image_links.py source
+          git -C source diff --check
+          grep -F 'COMMENT_V3MH_TNCACHE_IMAGE_REGEX' source/app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt
+          grep -F 'versionCode = 84' source/app/build.gradle.kts
+          grep -F 'versionName = "1.14.4"' source/app/build.gradle.kts
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          build-root-directory: source
+
+      - name: Spotless apply
+        working-directory: source
+        run: ./gradlew spotlessApply
+
+      - name: Spotless gate
+        working-directory: source
+        run: ./gradlew spotlessCheck
+
+      - name: Comment parser unit tests
+        working-directory: source
+        run: ./gradlew :app:testReleaseUnitTest --tests 'eu.kanade.presentation.manga.comments.CommentRichContentTest'
+
+      - name: Assemble debug
+        working-directory: source
+        run: ./gradlew assembleDebug
+
+      - name: Prepare stable signing key
+        shell: bash
+        env:
+          MX_APP_SIGNING_BUNDLE: ${{ secrets.MX_APP_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, json, os
+          from pathlib import Path
+          bundle = json.loads(os.environ['MX_APP_SIGNING_BUNDLE'])
+          required = ('signingKey', 'alias', 'storePassword')
+          missing = [k for k in required if not bundle.get(k)]
+          if missing:
+              raise SystemExit('Signing bundle missing required fields')
+          path = Path(os.environ['RUNNER_TEMP']) / 'mx-app.jks'
+          path.write_bytes(base64.b64decode(bundle['signingKey']))
+          values = {
+              'MX_KEYSTORE_PATH': str(path),
+              'MX_KEY_ALIAS': str(bundle['alias']),
+              'MX_KEYSTORE_PASSWORD': str(bundle['storePassword']),
+              'MX_KEY_PASSWORD': str(bundle['storePassword']),
+          }
+          with Path(os.environ['GITHUB_ENV']).open('a', encoding='utf-8') as f:
+              for name, value in values.items():
+                  print(f'::add-mask::{value}')
+                  f.write(f'{name}<<__MX_SIGNING_EOF__\n{value}\n__MX_SIGNING_EOF__\n')
+          PY
+
+      - name: Verify stable signing identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="c230be9c78bf5d28a101c2cb785923b899aa569ead15961309dea8bbcb34ec33"
+          actual="$(keytool -exportcert -alias "$MX_KEY_ALIAS" -keystore "$MX_KEYSTORE_PATH" -storepass "$MX_KEYSTORE_PASSWORD" | sha256sum | awk '{print $1}')"
+          [[ "$actual" == "$expected" ]]
+
+      - name: Build signed release
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew assembleRelease \
+            -Pdisable-code-shrink \
+            --no-configuration-cache \
+            -Pandroid.injected.signing.store.file="$MX_KEYSTORE_PATH" \
+            -Pandroid.injected.signing.store.password="$MX_KEYSTORE_PASSWORD" \
+            -Pandroid.injected.signing.key.alias="$MX_KEY_ALIAS" \
+            -Pandroid.injected.signing.key.password="$MX_KEY_PASSWORD"
+
+      - name: Normalize release APK signing certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          found=0
+          while IFS= read -r apk; do
+            found=1
+            signed="${apk%.apk}.mx-signed.apk"
+            "$apksigner" sign \
+              --ks "$MX_KEYSTORE_PATH" \
+              --ks-key-alias "$MX_KEY_ALIAS" \
+              --ks-pass env:MX_KEYSTORE_PASSWORD \
+              --key-pass env:MX_KEY_PASSWORD \
+              --out "$signed" "$apk"
+            mv "$signed" "$apk"
+          done < <(find source/app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' | sort)
+          [[ "$found" -eq 1 ]]
+
+      - name: Verify release identity version and certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_cert="c230be9c78bf5d28a101c2cb785923b899aa569ead15961309dea8bbcb34ec33"
+          aapt_bin="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          found=0
+          while IFS= read -r apk; do
+            found=1
+            badging="$("$aapt_bin" dump badging "$apk")"
+            package_name="$(printf '%s\n' "$badging" | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n 1)"
+            version_code="$(printf '%s\n' "$badging" | sed -n "s/^package: .*versionCode='\([^']*\)'.*/\1/p" | head -n 1)"
+            version_name="$(printf '%s\n' "$badging" | sed -n "s/^package: .*versionName='\([^']*\)'.*/\1/p" | head -n 1)"
+            [[ "$package_name" == "com.huoguotiankong.mx" ]]
+            [[ "$version_code" == "84" ]]
+            [[ "$version_name" == "1.14.4" ]]
+            cert_output="$("$apksigner" verify --print-certs "$apk" 2>&1)"
+            normalized="$(printf '%s' "$cert_output" | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')"
+            [[ "$normalized" == *"$expected_cert"* ]]
+          done < <(find source/app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' | sort)
+          [[ "$found" -eq 1 ]]
+
+      - name: Commit verified feature branch
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/build.gradle.kts \
+            app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt \
+            app/src/test/java/eu/kanade/presentation/manga/comments/CommentRichContentTest.kt
+          git diff --cached --check
+          git commit -m "fix: render Kuaikan legacy comment image links"
+          git push origin HEAD:fix/kuaikan-comment-image-links
+          echo "SOURCE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Upload signed ARM64 test APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: mx-manga-v1.14.4-kuaikan-comment-images-arm64
+          path: source/app/build/outputs/apk/release/*arm64-v8a*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Checkout private downloads branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-app
+          ref: downloads
+          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          path: publisher
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Publish ARM64 test APK to downloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="$(find source/app/build/outputs/apk/release -maxdepth 1 -type f -name '*arm64-v8a*.apk' | sort | head -n 1)"
+          [[ -n "$apk" && -f "$apk" ]]
+          mkdir -p publisher/apks
+          cp "$apk" publisher/apks/MX-Manga-arm64-v8a-v1.14.4-kuaikan-comment-images.apk
+          cd publisher
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apks/MX-Manga-arm64-v8a-v1.14.4-kuaikan-comment-images.apk
+          git commit -m "Publish MX漫画 v1.14.4 Kuaikan comment image test ${SOURCE_SHA:0:7}"
+          git push origin HEAD:downloads
+
+      - name: Cleanup signing material
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/mx-app.jks"
