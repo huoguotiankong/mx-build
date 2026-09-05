@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: bootstrap-zaimanhuaplus-v1
@@ -24,7 +24,8 @@ jobs:
         uses: actions/checkout@v5
         with:
           path: helper
-          persist-credentials: false
+          fetch-depth: 0
+          persist-credentials: true
 
       - name: Check required secrets
         shell: bash
@@ -52,8 +53,8 @@ jobs:
           ref: main
           token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
           path: dev
-          fetch-depth: 0
-          persist-credentials: true
+          fetch-depth: 1
+          persist-credentials: false
 
       - name: Generate Zaimanhua Plus from current upstream
         shell: bash
@@ -80,8 +81,6 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-        with:
-          build-root-directory: upstream
 
       - name: Format source
         working-directory: upstream
@@ -138,24 +137,31 @@ jobs:
           grep -Fq 'eu/kanade/tachiyomi/source/mx/CommentSource' /tmp/zmhplus-strings.txt
           grep -Fq 'eu/kanade/tachiyomi/source/mx/CommentTarget' /tmp/zmhplus-strings.txt
 
-      - name: Sync validated module to private source
+      - name: Commit validated source handoff
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf dev/src/zh/zaimanhuaplus
-          cp -a upstream/src/zh/zaimanhuaplus dev/src/zh/zaimanhuaplus
-          rm -rf dev/src/zh/zaimanhuaplus/build
-          python3 dev/scripts/validate_sources.py
-          git -C dev diff --check
-          git -C dev config user.name 'github-actions[bot]'
-          git -C dev config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git -C dev add src/zh/zaimanhuaplus docs/sources/zaimanhuaplus.md
-          if git -C dev diff --cached --quiet; then
-            echo 'Zaimanhua Plus v1 already current'
+          handoff="helper/.github/handoff/zaimanhuaplus-v1"
+          rm -rf "$handoff"
+          mkdir -p "$handoff"
+          cp -a upstream/src/zh/zaimanhuaplus "$handoff/module"
+          rm -rf "$handoff/module/build"
+          cp dev/docs/sources/zaimanhuaplus.md "$handoff/zaimanhuaplus.md"
+          printf '%s\n' \
+            'validated: current Keiyoushi Spotless + assembleDebug + assembleRelease + lintRelease' \
+            'signing: fixed extension identity verified' \
+            'mx-abi: CommentSource and CommentTarget retained in release dex' \
+            'upstream: keiyoushi/extensions-source@19c8e5f463d7b626eb8f92948d5e3c0290394616' \
+            > "$handoff/VALIDATED.txt"
+          git -C helper config user.name 'github-actions[bot]'
+          git -C helper config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C helper add .github/handoff/zaimanhuaplus-v1
+          if git -C helper diff --cached --quiet; then
+            echo 'Validated handoff already current'
           else
-            git -C dev commit -m 'feat(zaimanhuaplus): add login comments and auto sign v1'
-            git -C dev pull --rebase origin main
-            git -C dev push origin HEAD:main
+            git -C helper commit -m 'handoff: validated Zaimanhua Plus v1 source'
+            git -C helper pull --rebase origin main
+            git -C helper push origin HEAD:main
           fi
 
       - name: Upload signed APK
@@ -163,6 +169,14 @@ jobs:
         with:
           name: zaimanhuaplus-v1-signed-apk
           path: upstream/src/zh/zaimanhuaplus/**/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload formatted source
+        uses: actions/upload-artifact@v4
+        with:
+          name: zaimanhuaplus-v1-formatted-source
+          path: upstream/src/zh/zaimanhuaplus
           if-no-files-found: error
           retention-days: 14
 
