@@ -49,6 +49,26 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('buildrepo/.github/scripts/fix_ehentaiplus_v4.py')
+          s = p.read_text('utf-8')
+          old = '''s = replace_once(
+              s,
+              "        syncWebViewCookies(save = true)\\n        val id = memberId()\\n",
+              "        syncWebViewCookies(save = true, onlyMissing = true)\\n        val id = memberId()\\n",
+              "account source cookie merge",
+          )'''
+          new = '''s = replace_once(
+              s,
+              "    override suspend fun getSourceAccount(): SourceAccount? {\\n        syncWebViewCookies(save = true)\\n        val id = memberId()\\n",
+              "    override suspend fun getSourceAccount(): SourceAccount? {\\n        syncWebViewCookies(save = true, onlyMissing = true)\\n        val id = memberId()\\n",
+              "account source cookie merge",
+          )'''
+          if old not in s:
+              raise SystemExit('v4 patch targeting preflight did not find expected block')
+          p.write_text(s.replace(old, new, 1), 'utf-8')
+          PY
           python3 buildrepo/.github/scripts/fix_ehentaiplus_v4.py
           python3 source/scripts/validate_sources.py
           grep -q 'versionCode = 4' source/src/zh/ehentaiplus/build.gradle.kts
