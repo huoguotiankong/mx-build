@@ -86,7 +86,8 @@ jobs:
           ./gradlew :src:zh:tencentcomics:spotlessCheck :src:zh:tencentcomics:assembleDebug :src:zh:tencentcomics:lintRelease
           cd ..
           rm -rf source/src/zh/tencentcomics
-          cp -a upstream/src/zh/tencentcomics source/src/zh/tencentcomics
+          mkdir -p source/src/zh/tencentcomics
+          rsync -a --exclude build/ upstream/src/zh/tencentcomics/ source/src/zh/tencentcomics/
           python3 source/scripts/validate_sources.py
           git -C source diff --check
 
@@ -143,12 +144,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          git switch -C handoff/tencent-comment-rich-media-v26 origin/main
           target="source-handoff/tencent-v26"
           rm -rf "$target"
-          mkdir -p "$target/src/zh" "$target/docs/sources"
-          cp -a ../source/src/zh/tencentcomics "$target/src/zh/tencentcomics"
+          mkdir -p "$target/src/zh/tencentcomics" "$target/docs/sources"
+          rsync -a --exclude build/ ../source/src/zh/tencentcomics/ "$target/src/zh/tencentcomics/"
           cp ../source/docs/sources/tencentcomics.md "$target/docs/sources/tencentcomics.md"
-          git switch -C handoff/tencent-comment-rich-media-v26 origin/main
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "$target"
