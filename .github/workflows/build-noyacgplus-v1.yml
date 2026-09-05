@@ -1,5 +1,4 @@
 name: Build And Stage NoyAcg Plus v1
-# Retry 3 after fixing suspend calls and OpenCC return typing.
 
 on:
   push:
@@ -46,8 +45,8 @@ jobs:
           ref: main
           token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
           path: dev
-          fetch-depth: 1
-          persist-credentials: false
+          fetch-depth: 0
+          persist-credentials: true
 
       - name: Resolve NoyAcg Plus version
         id: version
@@ -86,13 +85,36 @@ jobs:
           python3 dev/scripts/validate_sources.py
           git -C dev diff --check
 
-      - name: Format and static validation
-        working-directory: upstream
+      - name: Fix OpenCC fallback and format
         shell: bash
         run: |
           set -euo pipefail
-          ./gradlew :src:zh:noyacgplus:spotlessApply
-          ./gradlew :src:zh:noyacgplus:spotlessCheck
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('upstream/src/zh/noyacgplus/src/eu/kanade/tachiyomi/extension/zh/noyacgplus/NoyAcgPlus.kt')
+          text=p.read_text('utf-8')
+          old='''    private fun simp(text: String?): String? = text?.let {
+        if (prefs.getBoolean(SIMPLIFY_PREF, true)) {
+            runCatching { OpenCC.convert(it, "t2s").toString() }.getOrElse { it }
+        } else {
+            it
+        }
+    }'''
+          new='''    private fun simp(text: String?): String? = text?.let { sourceText ->
+        if (prefs.getBoolean(SIMPLIFY_PREF, true)) {
+            runCatching { OpenCC.convert(sourceText, "t2s").toString() }.getOrElse { sourceText }
+        } else {
+            sourceText
+        }
+    }'''
+          if old in text:
+              text=text.replace(old,new,1)
+          elif 'sourceText' not in text:
+              raise SystemExit('Expected OpenCC fallback block not found')
+          p.write_text(text,'utf-8')
+          PY
+          (cd upstream && ./gradlew :src:zh:noyacgplus:spotlessApply)
+          (cd upstream && ./gradlew :src:zh:noyacgplus:spotlessCheck)
 
       - name: Prepare stable signing key
         env:
@@ -133,6 +155,26 @@ jobs:
           apksigner="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n1)"
           "$apksigner" verify "$apk"
           echo "fingerprint=$expected" >> "$GITHUB_OUTPUT"
+
+      - name: Sync validated fixed source to private development repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dev/src/zh/noyacgplus
+          cp -a upstream/src/zh/noyacgplus dev/src/zh/noyacgplus
+          rm -rf dev/src/zh/noyacgplus/build
+          python3 dev/scripts/validate_sources.py
+          git -C dev diff --check
+          git -C dev config user.name 'github-actions[bot]'
+          git -C dev config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C dev add src/zh/noyacgplus
+          if git -C dev diff --cached --quiet; then
+            echo 'NoyAcg Plus source already current'
+          else
+            git -C dev commit -m 'fix(noyacgplus): compile OpenCC fallback and format v1'
+            git -C dev pull --rebase origin main
+            git -C dev push origin HEAD:main
+          fi
 
       - name: Checkout extension staging
         uses: actions/checkout@v5
