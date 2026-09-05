@@ -1,0 +1,162 @@
+name: Publish MX App 1.14.6
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/mx-app-publish-v1146.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mx-app-publish-v1146
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check required secret
+        shell: bash
+        env:
+          MX_APP_PUBLISH_TOKEN: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_APP_PUBLISH_TOKEN" ]] || { echo "::error::Missing MX_APP_PUBLISH_TOKEN"; exit 1; }
+
+      - name: Checkout build helper
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-build
+          ref: main
+          path: helper
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout verified library/comment base
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-app
+          ref: integration/library-comment-20260905
+          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Recreate exact validated final source
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin \
+            integration/mx-final-ehentai-comment-rich-20260905-v2:refs/remotes/origin/mx-eh-final
+          git merge --no-edit --no-ff -X theirs origin/mx-eh-final
+          git checkout origin/mx-eh-final -- \
+            app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt \
+            app/src/main/java/eu/kanade/presentation/manga/components/MangaDetailInfoSection.kt \
+            app/src/main/java/eu/kanade/tachiyomi/ui/manga/comments/CommentScreen.kt \
+            app/src/test/java/eu/kanade/presentation/manga/comments/CommentRichContentTest.kt \
+            docs/COMMENTS.md \
+            docs/MANGA_DETAILS.md \
+            source-api/src/commonMain/kotlin/eu/kanade/tachiyomi/source/mx/MangaRatingSource.kt
+
+          python3 ../helper/scripts/prepare_mx_final_integration_v1146.py .
+          python3 ../helper/scripts/patch_mx_app_tencent_rich_media_ehentai.py .
+          git diff --check
+          grep -F 'versionCode = 86' app/build.gradle.kts
+          grep -F 'versionName = "1.14.6"' app/build.gradle.kts
+          grep -F 'CommentVoteState' app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt
+          grep -F 'COMMENT_TENCENT_IMAGE_HOST_REGEX' app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt
+
+      - name: Persist verified release source branch
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -A
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git commit -m "release: MX漫画 1.14.6 final"
+          fi
+          release_sha="$(git rev-parse HEAD)"
+          git push --force origin HEAD:release/mx-1.14.6-final
+          echo "MX_RELEASE_SOURCE_SHA=$release_sha" >> "$GITHUB_ENV"
+
+      - name: Download already validated final APK
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p final-apk
+          gh run download 33983853903 \
+            --repo huoguotiankong/mx-build \
+            --name MX-manga-v1.14.6-final \
+            --dir final-apk
+          apk="final-apk/MX-manga-v1.14.6-final.apk"
+          [[ -f "$apk" ]] || { echo "::error::Validated final APK not found"; exit 1; }
+          expected="114d3a5dba3512f29294a982a8514bee9caaa64e3283f5d70cee63678eea65fd"
+          actual="$(sha256sum "$apk" | awk '{print $1}')"
+          [[ "$actual" == "$expected" ]] || {
+            echo "::error::Final APK SHA-256 mismatch"
+            exit 1
+          }
+          echo "Validated final APK SHA-256: $actual"
+
+      - name: Checkout private publication target
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-app
+          ref: main
+          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          path: publisher
+          fetch-depth: 1
+
+      - name: Publish final ARM64 APK to private downloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd publisher
+          git switch --orphan mx-final-downloads
+          git rm -rf . || true
+          git clean -fdx
+          mkdir -p apks
+          cp ../final-apk/MX-manga-v1.14.6-final.apk apks/MX-Manga-arm64-v8a-preview.apk
+          cat > README.md <<EOF
+          # MX漫画 1.14.6 Final
+
+          此分支保存已经通过 MX 公共构建基础设施完整验证并使用长期稳定签名签署的最终 ARM64 APK。
+
+          - 版本：1.14.6
+          - versionCode：86
+          - ARM64：\`apks/MX-Manga-arm64-v8a-preview.apk\`
+          - 最终源码：\`release/mx-1.14.6-final\`
+          - 源码提交：\`$MX_RELEASE_SOURCE_SHA\`
+          - APK SHA-256：\`114d3a5dba3512f29294a982a8514bee9caaa64e3283f5d70cee63678eea65fd\`
+          - 签名证书 SHA-256：\`c230be9c78bf5d28a101c2cb785923b899aa569ead15961309dea8bbcb34ec33\`
+
+          该 APK 对应最终整合：书架导航/性能优化、详情页增强、评论富媒体增强、内置 E-Hentai / ExHentai 评论/中文标签/评分与标签交互。
+          EOF
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md apks/MX-Manga-arm64-v8a-preview.apk
+          git commit -m "Publish MX漫画 1.14.6 final ARM64"
+          git push --force origin HEAD:downloads
+
+      - name: Publication summary
+        shell: bash
+        run: |
+          {
+            echo "### MX漫画 1.14.6 publication"
+            echo
+            echo "- Source branch: \`release/mx-1.14.6-final\`"
+            echo "- Source SHA: \`$MX_RELEASE_SOURCE_SHA\`"
+            echo "- Private APK branch: \`downloads\`"
+            echo "- APK SHA-256: \`114d3a5dba3512f29294a982a8514bee9caaa64e3283f5d70cee63678eea65fd\`"
+            echo "- Validated final build run: \`33983853903\`"
+          } >> "$GITHUB_STEP_SUMMARY"
