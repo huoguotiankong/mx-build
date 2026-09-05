@@ -99,11 +99,13 @@ jobs:
           from pathlib import Path
           p = Path('upstream/src/zh/dongmanmanhuaplus/src/eu/kanade/tachiyomi/extension/zh/dongmanmanhuaplus/DongmanManhuaPlus.kt')
           s = p.read_text(encoding='utf-8')
+          s = s.replace('EditTextPreference(screen.context).apply {', 'EditTextPreference(screen.context, null).apply {')
           s = s.replace('Preference(screen.context).apply {', 'Preference().apply {')
           s = s.replace('            isSelectable = false\n', '')
           p.write_text(s, encoding='utf-8')
           PY
           file='upstream/src/zh/dongmanmanhuaplus/src/eu/kanade/tachiyomi/extension/zh/dongmanmanhuaplus/DongmanManhuaPlus.kt'
+          test "$(grep -Fc 'EditTextPreference(screen.context, null).apply {' "$file")" -ge 2
           test "$(grep -Fc 'Preference().apply {' "$file")" -ge 2
           ! grep -Fq 'isSelectable = false' "$file"
 
