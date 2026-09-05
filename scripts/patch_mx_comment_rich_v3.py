@@ -74,16 +74,35 @@ else:
 old_parser_start = '''internal fun parseCommentRichContent(content: String): CommentRichContent {
     val explicitImageUrls = linkedSetOf<String>()
     val normalizedContent = normalizeExplicitCommentMedia(content, explicitImageUrls)
+    val imageUrls = mutableListOf<String>()
 '''
 new_parser_start = '''internal fun parseCommentRichContent(content: String): CommentRichContent {
     val explicitImageUrls = linkedSetOf<String>()
     val decodedContent = decodeCommentEntities(content)
     val normalizedContent = normalizeExplicitCommentMedia(decodedContent, explicitImageUrls)
+    val imageUrls = explicitImageUrls.toMutableList()
 '''
 if old_parser_start in src:
     src = src.replace(old_parser_start, new_parser_start, 1)
 else:
     assert new_parser_start in src, "rich comment parser start anchor mismatch"
+
+# Explicit HTML/Markdown/BBCode media is already recorded in explicitImageUrls. Remove the
+# markup from the text stream instead of injecting the raw URL back into it. Re-injection can
+# glue a URL to adjacent prose (for example `前文<img ...>后文`) and make the URL regex swallow
+# the trailing text. Seeding imageUrls from explicitImageUrls preserves the media without that
+# ambiguity.
+old_explicit_return = '''            explicitImageUrls += url
+            url
+'''
+new_explicit_return = '''            explicitImageUrls += url
+            ""
+'''
+if old_explicit_return in src:
+    assert src.count(old_explicit_return) == 2, "explicit media return anchor count mismatch"
+    src = src.replace(old_explicit_return, new_explicit_return)
+else:
+    assert src.count(new_explicit_return) == 2, "explicit media removal anchor mismatch"
 
 old_normalize_url = '''private fun normalizeCommentUrl(value: String): String {
     val unescaped = org.jsoup.parser.Parser.unescapeEntities(value.trim(), false)
@@ -165,8 +184,10 @@ fall back to readable `【表情：附议】` text instead of leaking raw markup
 new_docs = '''Provider-specific emoji/sticker images can be supplied as explicit image markup even when the asset URL
 has no extension or comes from an unknown CDN. HTML media tags are decoded before extraction, including
 entity-escaped and double-escaped payloads such as `&lt;img ...&gt;`, so provider serialization does not
-silently turn images or stickers into raw text. Unresolved Kuaikan-style tokens such as `[热词_附议]`
-fall back to readable `【表情：附议】` text instead of leaking raw markup.
+silently turn images or stickers into raw text. Explicit media markup is removed from the text stream
+after its URL is captured, preventing adjacent prose from being accidentally consumed as part of a URL.
+Unresolved Kuaikan-style tokens such as `[热词_附议]` fall back to readable `【表情：附议】` text instead
+of leaking raw markup.
 
 Comment-card media uses the ordinary Coil `AsyncImage` path instead of per-item subcomposition. Failed
 loads fall back to the original media URL as readable text, while successful image-heavy threads avoid
