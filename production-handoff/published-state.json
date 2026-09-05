@@ -220,15 +220,15 @@
     "versionName": "1.6.2"
   },
   "eu.kanade.tachiyomi.extension.zh.noyacgplus": {
-    "androidVersionCode": 212001,
-    "apk": "tachiyomi-zh.noyacgplus-v1.6.1.apk",
-    "apkSha256": "478293a1a9bf735e782476b02b20d345072ef2133af4efb0382945b26a664e59",
-    "jar": "tachiyomi-zh.noyacgplus-v1.6.1.jar",
-    "jarSha256": "3c3a6e1d13ad4501a0cf1f5b3cae3bd92c20b617af7b4c268080441970b9ce97",
+    "androidVersionCode": 212002,
+    "apk": "tachiyomi-zh.noyacgplus-v1.6.2.apk",
+    "apkSha256": "bd35448fa439727e67ac30df93624ddfd49a58b84e3afceadd7b98379bef7a3c",
+    "jar": "tachiyomi-zh.noyacgplus-v1.6.2.jar",
+    "jarSha256": "899dc470e64b3fbed037ce29ef0ba5be11b21a2f6735336d7663f92c3e54a81a",
     "module": "zh.noyacgplus",
-    "sourceHash": "bf9aa57ee95a0fad759fa2df41128fb659ad5db79afb928765ff2a906ec4e1b3",
-    "versionCode": 106001,
-    "versionName": "1.6.1"
+    "sourceHash": "1bfc4ec726a98af4d30651f9102696ad45ac14b322019acf39e7c8fd2dfe3ce9",
+    "versionCode": 106002,
+    "versionName": "1.6.2"
   },
   "eu.kanade.tachiyomi.extension.zh.picacomic": {
     "androidVersionCode": 212013,
