@@ -73,7 +73,7 @@ private val COMMENT_EMPTY_MARKDOWN_IMAGE_REGEX = Regex("!\\\\[[^\\\\]]*]\\\\(")
 '''
 if old in text:
     text = text.replace(old, new, 1)
-elif "COMMENT_TENCENT_IMAGE_HOST_REGEX" in text and "COMMENT_EMPTY_MARKDOWN_IMAGE_REGEX" not in text:
+elif "COMMENT_TENCENT_IMAGE_HOST_REGEX" in text and "private val COMMENT_EMPTY_MARKDOWN_IMAGE_REGEX" not in text:
     marker = '''private val COMMENT_TRAILING_SPACE_BEFORE_NEWLINE_REGEX = Regex("[ \\t]+\\n")
 '''
     addition = '''private val COMMENT_EMPTY_MARKDOWN_IMAGE_REGEX = Regex("!\\\\[[^\\\\]]*]\\\\(")
