@@ -6,6 +6,7 @@ on:
     paths:
       - ".github/workflows/tencent-v26-handoff-publish.yml"
       - "scripts/patch_tencent_comment_rich_media_v26.py"
+      - "scripts/patch_tencent_emoji_assets_v26.py"
   workflow_dispatch:
 
 permissions:
@@ -56,10 +57,13 @@ jobs:
         run: |
           set -euo pipefail
           python3 helper/scripts/patch_tencent_comment_rich_media_v26.py source
+          python3 helper/scripts/patch_tencent_emoji_assets_v26.py source
           python3 source/scripts/validate_sources.py
           git -C source diff --check
           grep -F 'versionCode = 26' source/src/zh/tencentcomics/build.gradle.kts
           grep -F 'TENCENT_EMOJI_PACK_PREFIXES' source/src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+          grep -F '55 to "🀅"' source/src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+          grep -F '56 to "服"' source/src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
 
       - name: Set up Java
         uses: actions/setup-java@v5
