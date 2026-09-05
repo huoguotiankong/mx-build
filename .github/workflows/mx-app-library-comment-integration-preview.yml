@@ -1,0 +1,227 @@
+name: MX Library + Rich Comments Integration Preview
+
+on:
+  push:
+    branches: [integration/library-comment-build-helper]
+    paths:
+      - ".github/workflows/mx-app-library-comment-integration-preview.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mx-library-comment-integration-preview
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+
+    steps:
+      - name: Check required secrets
+        shell: bash
+        env:
+          MX_APP_PUBLISH_TOKEN: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          MX_APP_SIGNING_BUNDLE: ${{ secrets.MX_APP_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_APP_PUBLISH_TOKEN" ]] || { echo "::error::Missing MX_APP_PUBLISH_TOKEN"; exit 1; }
+          [[ -n "$MX_APP_SIGNING_BUNDLE" ]] || { echo "::error::Missing MX_APP_SIGNING_BUNDLE"; exit 1; }
+
+      - name: Checkout MX integration branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-app
+          ref: integration/library-comment-20260905
+          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Merge rich-comment branch and bump preview baseline
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin feat/comment-rich-content-v2:refs/remotes/origin/feat/comment-rich-content-v2
+          git merge --no-ff --no-edit origin/feat/comment-rich-content-v2
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('app/build.gradle.kts')
+          text = path.read_text(encoding='utf-8')
+          text, n1 = re.subn(r'versionCode = 84\b', 'versionCode = 85', text, count=1)
+          text, n2 = re.subn(r'versionName = "1\.14\.4"', 'versionName = "1.14.5"', text, count=1)
+          if n1 != 1 or n2 != 1:
+              raise SystemExit(f'Version bump failed: versionCode matches={n1}, versionName matches={n2}')
+          path.write_text(text, encoding='utf-8')
+          PY
+          git diff --check
+          grep -F 'categoryMenuExpanded' app/src/main/java/eu/kanade/presentation/library/components/LibraryContent.kt
+          grep -F 'decodeCommentEntities' app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt
+          grep -F 'onError = { imageLoadFailed = true }' app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt
+          grep -F 'coil-svg' gradle/libs.versions.toml
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Prepare stable signing key
+        shell: bash
+        env:
+          MX_APP_SIGNING_BUNDLE: ${{ secrets.MX_APP_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64
+          import json
+          import os
+          from pathlib import Path
+
+          bundle = json.loads(os.environ["MX_APP_SIGNING_BUNDLE"])
+          required = ("signingKey", "alias", "storePassword")
+          missing = [key for key in required if not bundle.get(key)]
+          if missing:
+              raise SystemExit(f"Signing bundle missing fields: {', '.join(missing)}")
+
+          path = Path(os.environ["RUNNER_TEMP"]) / "mx-app.jks"
+          path.write_bytes(base64.b64decode(bundle["signingKey"]))
+          values = {
+              "MX_KEYSTORE_PATH": str(path),
+              "MX_KEY_ALIAS": str(bundle["alias"]),
+              "MX_KEYSTORE_PASSWORD": str(bundle["storePassword"]),
+              "MX_KEY_PASSWORD": str(bundle["storePassword"]),
+          }
+          env_path = Path(os.environ["GITHUB_ENV"])
+          with env_path.open("a", encoding="utf-8") as f:
+              for name, value in values.items():
+                  print(f"::add-mask::{value}")
+                  f.write(f"{name}<<__MX_SIGNING_EOF__\n{value}\n__MX_SIGNING_EOF__\n")
+          PY
+
+      - name: Verify stable signing identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="c230be9c78bf5d28a101c2cb785923b899aa569ead15961309dea8bbcb34ec33"
+          actual="$(keytool -exportcert -alias "$MX_KEY_ALIAS" -keystore "$MX_KEYSTORE_PATH" -storepass "$MX_KEYSTORE_PASSWORD" | sha256sum | awk '{print $1}')"
+          [[ "$actual" == "$expected" ]] || { echo "::error::MX signing certificate mismatch"; exit 1; }
+
+      - name: Spotless apply
+        working-directory: source
+        run: ./gradlew spotlessApply
+
+      - name: Spotless check
+        working-directory: source
+        run: ./gradlew spotlessCheck
+
+      - name: Rich comment unit tests
+        working-directory: source
+        shell: bash
+        run: |
+          set -o pipefail
+          ./gradlew :app:testReleaseUnitTest --tests 'eu.kanade.presentation.manga.comments.CommentRichContentTest' || {
+            find app/build/test-results/testReleaseUnitTest -type f -name '*.xml' -print -exec cat {} \;
+            exit 1
+          }
+
+      - name: Release unit tests
+        working-directory: source
+        run: ./gradlew testReleaseUnitTest
+
+      - name: Build signed Preview APK
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew assemblePreview \
+            -Pdisable-code-shrink \
+            --no-configuration-cache \
+            -Pandroid.injected.signing.store.file="$MX_KEYSTORE_PATH" \
+            -Pandroid.injected.signing.store.password="$MX_KEYSTORE_PASSWORD" \
+            -Pandroid.injected.signing.key.alias="$MX_KEY_ALIAS" \
+            -Pandroid.injected.signing.key.password="$MX_KEY_PASSWORD"
+
+      - name: Commit verified integration branch
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -A
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git commit -m "build: merge library and rich comments as 1.14.5"
+          fi
+          git push origin HEAD:integration/library-comment-20260905
+          echo "SOURCE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          echo "Verified integration SHA: $(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Normalize Preview APK signing certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          [[ -n "$apksigner" ]] || { echo "::error::apksigner not found"; exit 1; }
+          found=0
+          while IFS= read -r apk; do
+            found=1
+            signed="${apk%.apk}.mx-signed.apk"
+            rm -f "$signed"
+            "$apksigner" sign \
+              --ks "$MX_KEYSTORE_PATH" \
+              --ks-key-alias "$MX_KEY_ALIAS" \
+              --ks-pass env:MX_KEYSTORE_PASSWORD \
+              --key-pass env:MX_KEY_PASSWORD \
+              --out "$signed" \
+              "$apk"
+            mv "$signed" "$apk"
+          done < <(find source/app/build/outputs/apk/preview -type f -name '*.apk' | sort)
+          [[ "$found" -eq 1 ]] || { echo "::error::No Preview APK found"; exit 1; }
+
+      - name: Verify APK identity version and signing certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_cert="c230be9c78bf5d28a101c2cb785923b899aa569ead15961309dea8bbcb34ec33"
+          aapt_bin="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          found=0
+          while IFS= read -r apk; do
+            found=1
+            badging="$("$aapt_bin" dump badging "$apk")"
+            package_name="$(printf '%s\n' "$badging" | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n 1)"
+            version_code="$(printf '%s\n' "$badging" | sed -n "s/^package: .*versionCode='\([^']*\)'.*/\1/p" | head -n 1)"
+            version_name="$(printf '%s\n' "$badging" | sed -n "s/^package: .*versionName='\([^']*\)'.*/\1/p" | head -n 1)"
+            app_label="$(printf '%s\n' "$badging" | sed -n "s/^application-label:'\([^']*\)'.*/\1/p" | head -n 1)"
+            [[ "$package_name" == "com.huoguotiankong.mx.beta" ]] || { echo "::error::Unexpected package name: $package_name"; exit 1; }
+            [[ "$version_code" == "85" ]] || { echo "::error::Unexpected versionCode: $version_code"; exit 1; }
+            [[ "$version_name" == 1.14.5-* ]] || { echo "::error::Unexpected versionName: $version_name"; exit 1; }
+            [[ "$app_label" == "MX漫画" ]] || { echo "::error::Unexpected app label: $app_label"; exit 1; }
+            cert_output="$("$apksigner" verify --print-certs "$apk" 2>&1)"
+            normalized="$(printf '%s' "$cert_output" | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')"
+            [[ "$normalized" == *"$expected_cert"* ]] || { echo "::error::APK signing certificate mismatch for $(basename "$apk")"; exit 1; }
+          done < <(find source/app/build/outputs/apk/preview -type f -name '*.apk' | sort)
+          [[ "$found" -eq 1 ]] || { echo "::error::No Preview APK found"; exit 1; }
+
+      - name: Upload stable-signed ARM64 Preview APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: MX-Manga-library-rich-comments-v1.14.5-arm64-v8a-preview
+          path: source/app/build/outputs/apk/preview/*arm64-v8a*.apk
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Cleanup signing material
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/mx-app.jks"
