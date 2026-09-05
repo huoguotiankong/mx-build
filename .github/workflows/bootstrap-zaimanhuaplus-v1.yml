@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/bootstrap-zaimanhuaplus-v1.yml"
+      - ".github/scripts/bootstrap_zaimanhuaplus_v1.py"
   workflow_dispatch:
 
 permissions:
@@ -19,6 +20,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
+      - name: Checkout build infrastructure
+        uses: actions/checkout@v5
+        with:
+          path: helper
+          persist-credentials: false
+
       - name: Check required secrets
         shell: bash
         env:
@@ -48,7 +55,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
-      - name: Create Zaimanhua Plus from current upstream
+      - name: Generate Zaimanhua Plus from current upstream
         shell: bash
         run: |
           set -euo pipefail
@@ -58,433 +65,8 @@ jobs:
           newdir="upstream/src/zh/zaimanhuaplus/src/eu/kanade/tachiyomi/extension/zh/zaimanhuaplus"
           mv "$olddir" "$newdir"
           mv "$newdir/Zaimanhua.kt" "$newdir/ZaimanhuaPlus.kt"
-
-          python3 - <<'PY'
-          from pathlib import Path
-
-          module = Path('upstream/src/zh/zaimanhuaplus')
-          pkg = module / 'src/eu/kanade/tachiyomi/extension/zh/zaimanhuaplus'
-
-          for path in pkg.glob('*.kt'):
-              text = path.read_text('utf-8')
-              text = text.replace('eu.kanade.tachiyomi.extension.zh.zaimanhua', 'eu.kanade.tachiyomi.extension.zh.zaimanhuaplus')
-              text = text.replace('Zaimanhua.Companion', 'ZaimanhuaPlus.Companion')
-              path.write_text(text, 'utf-8')
-
-          main = pkg / 'ZaimanhuaPlus.kt'
-          text = main.read_text('utf-8')
-          text = text.replace('abstract class Zaimanhua :', 'abstract class ZaimanhuaPlus :', 1)
-          text = text.replace(
-              'import eu.kanade.tachiyomi.source.online.HttpSource\n',
-              'import eu.kanade.tachiyomi.source.online.HttpSource\n'
-              'import eu.kanade.tachiyomi.source.mx.Comment\n'
-              'import eu.kanade.tachiyomi.source.mx.CommentPage\n'
-              'import eu.kanade.tachiyomi.source.mx.CommentSource\n'
-              'import eu.kanade.tachiyomi.source.mx.CommentTarget\n',
-              1,
-          )
-          text = text.replace(
-              '    HttpSource(),\n    ConfigurableSource {',
-              '    HttpSource(),\n    ConfigurableSource,\n    CommentSource {',
-              1,
-          )
-          client_block = '''    override val client: OkHttpClient = network.client.newBuilder()\n        .addInterceptor(::authIntercept)\n        .addInterceptor(::imageRetryInterceptor)\n        .addInterceptor(CommentsInterceptor)\n        .rateLimit(5)\n        .build()\n'''
-          client_new = client_block + '''\n    private val mxComments by lazy {\n        ZaimanhuaMxComments(\n            client = client,\n            headersProvider = { apiHeaders },\n            apiUrl = apiUrl,\n            mobileBaseUrl = mobileBaseUrl,\n        )\n    }\n\n    private val autoSign by lazy {\n        ZaimanhuaAutoSign(\n            client = network.client,\n            preferences = preferences,\n            baseHeaders = headers,\n            accountApiUrl = accountApiUrl,\n        )\n    }\n'''
-          if client_block not in text:
-              raise SystemExit('client block not found')
-          text = text.replace(client_block, client_new, 1)
-
-          marker = '        val response = chain.proceed(request)\n'
-          if marker not in text:
-              raise SystemExit('auth response marker not found')
-          text = text.replace(
-              marker,
-              '        if (url.contains(tryLoginRegex) && token.isNotBlank()) {\n'
-              '            autoSign.runIfNeeded(token)\n'
-              '        }\n'
-              + marker,
-              1,
-          )
-
-          comment_methods = '''\n    override val commentCapabilities\n        get() = mxComments.capabilities\n\n    override suspend fun getMangaCommentTarget(manga: SManga) = mxComments.getMangaTarget(manga)\n\n    override suspend fun getChapterCommentTarget(manga: SManga, chapter: SChapter) =\n        mxComments.getChapterTarget(manga, chapter)\n\n    override suspend fun getComments(target: CommentTarget, page: Int): CommentPage =\n        mxComments.getComments(target, page)\n\n    override suspend fun getCommentReplies(\n        target: CommentTarget,\n        comment: Comment,\n        page: Int,\n    ): CommentPage = mxComments.getReplies(comment, page)\n\n'''
-          companion = '    companion object {\n'
-          if companion not in text:
-              raise SystemExit('companion marker not found')
-          text = text.replace(companion, comment_methods + companion, 1)
-
-          pref_marker = '''            SwitchPreferenceCompat(screen.context).apply {\n                key = COMMENTS_PREF\n                title = "章末吐槽页"\n                summary = "修改后，已加载的章节需要清除章节缓存才能生效。"\n                setDefaultValue(false)\n            }.let(screen::addPreference)\n'''
-          pref_new = pref_marker + '''\n            SwitchPreferenceCompat(screen.context).apply {\n                key = AUTO_SIGN_PREF\n                title = "自动签到"\n                summary = "登录后每天首次使用再漫画 Plus 时自动检查并签到"\n                setDefaultValue(true)\n            }.let(screen::addPreference)\n\n            EditTextPreference(screen.context).apply {\n                title = "签到状态"\n                summary = preferences.getString(LAST_SIGN_STATUS_PREF, "尚未检查")\n                setEnabled(false)\n            }.let(screen::addPreference)\n'''
-          if pref_marker not in text:
-              raise SystemExit('preference marker not found')
-          text = text.replace(pref_marker, pref_new, 1)
-          main.write_text(text, 'utf-8')
-
-          gradle = module / 'build.gradle.kts'
-          g = gradle.read_text('utf-8')
-          g = g.replace('name = "Zaimanhua"', 'name = "Zaimanhua Plus"', 1)
-          g = g.replace('versionCode = 19', 'versionCode = 1', 1)
-          g = g.replace('name = "再漫画"', 'name = "再漫画 Plus"', 1)
-          g += '''\nandroid {\n    buildTypes {\n        named("release") {\n            proguardFiles("proguard-rules.pro")\n        }\n    }\n}\n'''
-          gradle.write_text(g, 'utf-8')
-
-          (module / 'proguard-rules.pro').write_text(
-              '-keep class eu.kanade.tachiyomi.source.mx.** { *; }\n'
-              '-keep interface eu.kanade.tachiyomi.source.mx.** { *; }\n',
-              'utf-8',
-          )
-
-          mxdir = pkg / 'source/mx'
-          mxdir.mkdir(parents=True, exist_ok=True)
-          noy = Path('dev/src/zh/noyacgplus/src/eu/kanade/tachiyomi/extension/zh/noyacgplus/source/mx')
-          for name in ('Comment.kt', 'CommentSource.kt'):
-              source = noy / name
-              if not source.exists():
-                  raise SystemExit(f'Missing MX ABI stub: {source}')
-              (mxdir / name).write_text(source.read_text('utf-8'), 'utf-8')
-
-          features = r'''package eu.kanade.tachiyomi.extension.zh.zaimanhuaplus
-
-import android.content.SharedPreferences
-import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.POST
-import eu.kanade.tachiyomi.source.model.SChapter
-import eu.kanade.tachiyomi.source.model.SManga
-import eu.kanade.tachiyomi.source.mx.Comment
-import eu.kanade.tachiyomi.source.mx.CommentAuthor
-import eu.kanade.tachiyomi.source.mx.CommentCapabilities
-import eu.kanade.tachiyomi.source.mx.CommentPage
-import eu.kanade.tachiyomi.source.mx.CommentTarget
-import eu.kanade.tachiyomi.source.mx.CommentTargetKind
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.longOrNull
-import okhttp3.FormBody
-import okhttp3.Headers
-import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.OkHttpClient
-import java.io.IOException
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicBoolean
-
-const val AUTO_SIGN_PREF = "AUTO_SIGN"
-const val LAST_SIGN_DAY_PREF = "LAST_SIGN_DAY"
-const val LAST_SIGN_ATTEMPT_PREF = "LAST_SIGN_ATTEMPT"
-const val LAST_SIGN_STATUS_PREF = "LAST_SIGN_STATUS"
-
-private const val COMMENT_PAGE_SIZE = 10
-private const val APP_VERSION = "2.3.7"
-private const val APP_CHANNEL = "101_01_01_000"
-private const val AUTO_SIGN_RETRY_MS = 10 * 60 * 1000L
-
-private val mxJson = Json {
-    ignoreUnknownKeys = true
-    isLenient = true
-}
-
-class ZaimanhuaMxComments(
-    private val client: OkHttpClient,
-    private val headersProvider: () -> Headers,
-    private val apiUrl: String,
-    private val mobileBaseUrl: String,
-) {
-    val capabilities = CommentCapabilities(
-        supportsMangaComments = true,
-        supportsChapterComments = true,
-        canPost = false,
-        canReply = false,
-        canLike = false,
-        requiresLoginToPost = true,
-    )
-
-    private val replies = ConcurrentHashMap<String, List<Comment>>()
-
-    fun getMangaTarget(manga: SManga) = CommentTarget(
-        id = manga.url,
-        url = "$mobileBaseUrl/pages/comic/detail?id=${manga.url}",
-        kind = CommentTargetKind.MANGA,
-    )
-
-    fun getChapterTarget(manga: SManga, chapter: SChapter) = CommentTarget(
-        id = chapter.url,
-        url = chapter.url.split("/", limit = 2).takeIf { it.size == 2 }?.let { (comicId, chapterId) ->
-            "$mobileBaseUrl/pages/comic/page?comic_id=$comicId&chapter_id=$chapterId"
-        },
-        kind = CommentTargetKind.CHAPTER,
-    )
-
-    fun getComments(target: CommentTarget, page: Int): CommentPage = when (target.kind) {
-        CommentTargetKind.MANGA -> getBookComments(target.id, page)
-        CommentTargetKind.CHAPTER -> getChapterComments(target.id, page)
-    }
-
-    fun getReplies(comment: Comment, page: Int): CommentPage {
-        val all = replies[comment.id].orEmpty()
-        val safePage = page.coerceAtLeast(1)
-        val from = (safePage - 1) * COMMENT_PAGE_SIZE
-        if (from >= all.size) {
-            return CommentPage(emptyList(), false, all.size.toLong())
-        }
-        val to = minOf(from + COMMENT_PAGE_SIZE, all.size)
-        return CommentPage(all.subList(from, to), to < all.size, all.size.toLong())
-    }
-
-    private fun getBookComments(comicId: String, page: Int): CommentPage {
-        val safePage = page.coerceAtLeast(1)
-        val url = "$apiUrl/comment/list".toHttpUrl().newBuilder()
-            .addQueryParameter("page", safePage.toString())
-            .addQueryParameter("size", COMMENT_PAGE_SIZE.toString())
-            .addQueryParameter("type", "4")
-            .addQueryParameter("objId", comicId)
-            .addQueryParameter("sortBy", "1")
-            .addAppParams()
-            .build()
-        val root = client.newCall(GET(url, headersProvider())).execute().use { response ->
-            if (!response.isSuccessful) throw IOException("书评请求失败：HTTP ${response.code}")
-            response.body.string().toJsonObject()
-        }
-        root.throwIfApiError("加载书评")
-        val data = root.obj("data") ?: JsonObject(emptyMap())
-        val items = data.commentItems()
-        val comments = items.mapIndexedNotNull { index, item ->
-            item.toMxComment(comicId, "comment-$safePage-${index + 1}")
-        }
-        val total = data.longAny("total", "count", "totalNum")
-        val hasNext = total?.let { safePage * COMMENT_PAGE_SIZE < it }
-            ?: (comments.size >= COMMENT_PAGE_SIZE)
-        return CommentPage(comments, hasNext, total)
-    }
-
-    private fun getChapterComments(chapterKey: String, page: Int): CommentPage {
-        if (page > 1) return CommentPage(emptyList(), false, null)
-        val parts = chapterKey.split("/", limit = 2)
-        if (parts.size != 2) throw IOException("章评目标无效")
-        val comicId = parts[0]
-        val chapterId = parts[1]
-        val url = "$apiUrl/viewpoint/list".toHttpUrl().newBuilder()
-            .addQueryParameter("type", "0")
-            .addQueryParameter("comicId", comicId)
-            .addQueryParameter("chapterId", chapterId)
-            .addAppParams()
-            .build()
-        val root = client.newCall(GET(url, headersProvider())).execute().use { response ->
-            if (!response.isSuccessful) throw IOException("章评请求失败：HTTP ${response.code}")
-            response.body.string().toJsonObject()
-        }
-        root.throwIfApiError("加载章评")
-        val list = root.obj("data")?.arr("list") ?: JsonArray(emptyList())
-        val comments = list.mapIndexedNotNull { index, element ->
-            val row = element as? JsonArray ?: return@mapIndexedNotNull null
-            val text = row.getOrNull(7).asString()
-                ?: row.lastOrNull().asString()
-                ?: return@mapIndexedNotNull null
-            Comment(
-                id = "vp-$chapterId-${index + 1}",
-                author = CommentAuthor(name = "吐槽用户"),
-                content = text,
-                createdAt = 0L,
-            )
-        }
-        return CommentPage(comments, false, comments.size.toLong())
-    }
-
-    private fun JsonObject.toMxComment(comicId: String, fallbackId: String, parentId: String? = null): Comment? {
-        val authorObject = obj("author")
-        val stats = obj("stats")
-        val id = stringAny("id", "comment_id", "commentId") ?: fallbackId
-        val uid = stringAny("sender_uid", "uid", "user_id")
-            ?: authorObject?.stringAny("uid", "id")
-        val nickname = stringAny("nickname", "username", "user_name")
-            ?: authorObject?.stringAny("nickname", "username", "name")
-            ?: "匿名用户"
-        val photo = stringAny("photo", "avatar", "avatar_url")
-            ?: authorObject?.stringAny("photo", "avatar", "avatar_url")
-        val nested = (arr("replyList") ?: arr("replies"))
-            ?.mapIndexedNotNull { index, element ->
-                (element as? JsonObject)?.toMxComment(comicId, "$id-reply-${index + 1}", id)
-            }
-            .orEmpty()
-        replies[id] = nested
-        val replyCount = longAny("reply_amount", "reply_count", "replyCount")
-            ?: stats?.longAny("reply_amount", "reply_count", "replyCount")
-            ?: nested.size.toLong()
-        val likeCount = longAny("like_amount", "like_count", "likeCount", "support_amount")
-            ?: stats?.longAny("like_amount", "like_count", "likeCount", "support_amount")
-            ?: 0L
-        val rawTime = stringAny("create_time", "created_at", "time")
-        val timeNumber = longAny("create_time", "created_at", "time")
-        return Comment(
-            id = id,
-            author = CommentAuthor(
-                id = uid,
-                name = nickname,
-                avatarUrl = photo.toAbsoluteAvatarOrNull(),
-            ),
-            content = stringAny("content", "comment", "text").orEmpty(),
-            createdAt = timeNumber?.normalizeEpoch() ?: 0L,
-            displayTime = rawTime?.takeIf { timeNumber == null },
-            likeCount = likeCount,
-            replyCount = replyCount,
-            parentId = parentId,
-        )
-    }
-
-    private fun String?.toAbsoluteAvatarOrNull(): String? {
-        val value = this?.trim().orEmpty()
-        if (value.isEmpty()) return null
-        return when {
-            value.startsWith("https://") || value.startsWith("http://") -> value
-            value.startsWith("//") -> "https:$value"
-            else -> null
-        }
-    }
-}
-
-class ZaimanhuaAutoSign(
-    private val client: OkHttpClient,
-    private val preferences: SharedPreferences,
-    private val baseHeaders: Headers,
-    private val accountApiUrl: String,
-) {
-    private val running = AtomicBoolean(false)
-
-    fun runIfNeeded(token: String) {
-        if (!preferences.getBoolean(AUTO_SIGN_PREF, true) || token.isBlank()) return
-        val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
-        if (preferences.getString(LAST_SIGN_DAY_PREF, "") == today) return
-        val now = System.currentTimeMillis()
-        val lastAttempt = preferences.getLong(LAST_SIGN_ATTEMPT_PREF, 0L)
-        if (now - lastAttempt < AUTO_SIGN_RETRY_MS) return
-        if (!running.compareAndSet(false, true)) return
-        preferences.edit().putLong(LAST_SIGN_ATTEMPT_PREF, now).apply()
-        try {
-            if (isSigned(token)) {
-                markSigned(today, "今日已签到")
-                return
-            }
-            val signRoot = requestAccount("/task/sign_in", token, post = true)
-            signRoot.throwIfApiError("自动签到")
-            if (!isSigned(token)) {
-                throw IOException("签到请求完成，但服务端未确认签到状态")
-            }
-            markSigned(today, "自动签到成功")
-        } catch (e: Exception) {
-            preferences.edit()
-                .putString(LAST_SIGN_STATUS_PREF, "自动签到失败：${e.message ?: e.javaClass.simpleName}")
-                .apply()
-        } finally {
-            running.set(false)
-        }
-    }
-
-    private fun isSigned(token: String): Boolean {
-        val root = requestAccount("/task/list", token, post = false)
-        root.throwIfApiError("检查签到状态")
-        val data = root.obj("data") ?: return false
-        val task = data.obj("task")
-        val signInfo = task?.obj("signInfo") ?: data.obj("signInfo") ?: return false
-        return signInfo["current_sign"].asBoolean()
-            ?: signInfo["currentSign"].asBoolean()
-            ?: false
-    }
-
-    private fun requestAccount(path: String, token: String, post: Boolean): JsonObject {
-        val url = "$accountApiUrl$path".toHttpUrl().newBuilder().addAppParams().build()
-        val requestHeaders = baseHeaders.newBuilder()
-            .set("Authorization", "Bearer $token")
-            .set("Platform", "android")
-            .set("Referer", "https://i.zaimanhua.com/")
-            .set("Accept", "application/json, text/plain, */*")
-            .build()
-        val request = if (post) {
-            POST(url.toString(), requestHeaders, FormBody.Builder().build())
-        } else {
-            GET(url, requestHeaders)
-        }
-        return client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw IOException("账号接口失败：HTTP ${response.code}")
-            response.body.string().toJsonObject()
-        }
-    }
-
-    private fun markSigned(day: String, status: String) {
-        preferences.edit()
-            .putString(LAST_SIGN_DAY_PREF, day)
-            .putString(LAST_SIGN_STATUS_PREF, status)
-            .apply()
-    }
-}
-
-private fun okhttp3.HttpUrl.Builder.addAppParams() = apply {
-    addQueryParameter("platform", "android")
-    addQueryParameter("timestamp", (System.currentTimeMillis() / 1000).toString())
-    addQueryParameter("_v", APP_VERSION)
-    addQueryParameter("_c", APP_CHANNEL)
-}
-
-private fun String.toJsonObject(): JsonObject =
-    mxJson.parseToJsonElement(this) as? JsonObject ?: JsonObject(emptyMap())
-
-private fun JsonObject.throwIfApiError(action: String) {
-    val errno = longAny("errno", "code") ?: 0L
-    if (errno != 0L) {
-        throw IOException(stringAny("errmsg", "message", "msg") ?: "$action 失败($errno)")
-    }
-}
-
-private fun JsonObject.commentItems(): List<JsonObject> {
-    val raw = get("commentList")
-    return when (raw) {
-        is JsonArray -> raw.mapNotNull { it as? JsonObject }
-        is JsonObject -> {
-            val ids = arr("commentIdList")?.mapNotNull { it.asString() }.orEmpty()
-            if (ids.isNotEmpty()) {
-                ids.mapNotNull { raw[it] as? JsonObject }
-            } else {
-                raw.values.mapNotNull { it as? JsonObject }
-            }
-        }
-        else -> emptyList()
-    }
-}
-
-private fun JsonObject.obj(key: String) = get(key) as? JsonObject
-private fun JsonObject.arr(key: String) = get(key) as? JsonArray
-private fun JsonObject.stringAny(vararg keys: String) = keys.firstNotNullOfOrNull { key -> get(key).asString() }
-private fun JsonObject.longAny(vararg keys: String) = keys.firstNotNullOfOrNull { key ->
-    val primitive = get(key) as? JsonPrimitive ?: return@firstNotNullOfOrNull null
-    primitive.longOrNull ?: primitive.contentOrNull?.toLongOrNull()
-}
-private fun JsonElement?.asString(): String? = (this as? JsonPrimitive)?.contentOrNull
-private fun JsonElement?.asBoolean(): Boolean? {
-    val primitive = this as? JsonPrimitive ?: return null
-    primitive.booleanOrNull?.let { return it }
-    primitive.intOrNull?.let { return it != 0 }
-    return when (primitive.contentOrNull?.trim()?.lowercase(Locale.ROOT)) {
-        "true", "yes", "signed", "1" -> true
-        "false", "no", "0" -> false
-        else -> null
-    }
-}
-private fun Long.normalizeEpoch() = if (this > 1_000_000_000_000L) this else this * 1000L
-'''
-          (pkg / 'MxFeatures.kt').write_text(features, 'utf-8')
-
-          doc = Path('dev/docs/sources/zaimanhuaplus.md')
-          doc.parent.mkdir(parents=True, exist_ok=True)
-          doc.write_text('''# 再漫画 Plus\n\n## 上游基线\n\n- 2026-09-05 新建。\n- 直接以当前 Keiyoushi `src/zh/zaimanhua` 为功能基线，保留其登录、账号等级校验、排行榜、筛选、详情、章节、正文、图片重试和章末吐槽图片。\n- 当前上游再漫画仍使用 `HttpSource` + `libVersion = "1.4"`，并依赖 legacy `fetchPageList`/Observable、自定义鉴权和图片重试拦截器。为避免首版 Plus 在迁移到 `KeiSource` 时破坏已经验证的登录/阅读链路，v1 暂时保持上游架构；这是项目对旧模板的明确兼容例外。后续若上游迁移到 KeiSource，再同步升级。\n\n## Plus 增强\n\n- MX 书评：`GET /app/v1/comment/list`，参数 `type=4`、`objId=comicId`，分页读取。\n- 书评嵌套回复：从 `replyList/replies` 读取，并提供 MX 回复列表。\n- MX 章评/吐槽：`GET /app/v1/viewpoint/list?type=0&comicId=...&chapterId=...`。\n- 自动签到：账号 API `GET /v1/task/list` 检查 `signInfo.current_sign`，未签到时 `POST /v1/task/sign_in`，随后再次检查确认。\n- 自动签到默认开启；成功后当天不重复，失败 10 分钟内不重复尝试。\n- 保留上游设置中的“章末吐槽页”，它是阅读器末尾生成图片的兼容功能；MX 章评页面与其互不冲突。\n\n## 登录\n\n保留上游现行登录：\n\n- `POST https://account-api.zaimanhua.com/v1/login/passwd`\n- 用户名 + 密码 MD5\n- JWT Token 本地持久化\n- Token 失效后按上游逻辑重新登录\n\n账号、密码、Token、Cookie 均只保存在客户端运行时/本地偏好，不写入仓库。\n\n## 评论写操作\n\n首版只开放读取书评、书评回复和章评。虽然已找到章评发送接口 `/viewpoint/add`，但书评写入接口和宿主统一写操作尚未完成同等级验证，因此 v1 不声明发布评论、回复或点赞能力。\n\n## 验证状态\n\n- 源码由当前 Keiyoushi 再漫画模块生成并增加 Plus 能力。\n- Bootstrap workflow 会在当前 Keiyoushi 框架下执行 Spotless、Debug、Release 与 lint，并验证 Release APK 中保留 MX `CommentSource` ABI。\n- CI 通过只代表构建/ABI验证；登录、自动签到、书评、章评和正文仍需用户实机确认。\n''', 'utf-8')
-          PY
-
-          cp dev/src/zh/noyacgplus/proguard-rules.pro upstream/src/zh/zaimanhuaplus/proguard-rules.pro
-          python3 dev/scripts/validate_sources.py
+          python3 helper/.github/scripts/bootstrap_zaimanhuaplus_v1.py
+          git -C upstream diff --check -- src/zh/zaimanhuaplus
 
       - name: Set up Java
         uses: actions/setup-java@v5
@@ -527,7 +109,7 @@ private fun Long.normalizeEpoch() = if (this > 1_000_000_000_000L) this else thi
                   f.write(f'{env_name}<<EOF_SIGN\n{value}\nEOF_SIGN\n')
           PY
 
-      - name: Build and lint
+      - name: Build debug release and lint
         working-directory: upstream
         shell: bash
         run: |
@@ -545,8 +127,12 @@ private fun Long.normalizeEpoch() = if (this > 1_000_000_000_000L) this else thi
           test -n "$apk"
           apksigner="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n1)"
           "$apksigner" verify "$apk"
-          unzip -p "$apk" 'classes*.dex' | strings | grep -Fq 'eu/kanade/tachiyomi/source/mx/CommentSource'
-          unzip -p "$apk" 'classes*.dex' | strings | grep -Fq 'eu/kanade/tachiyomi/source/mx/CommentTarget'
+          rm -rf /tmp/zmhplus-dex
+          mkdir -p /tmp/zmhplus-dex
+          unzip -qq "$apk" 'classes*.dex' -d /tmp/zmhplus-dex
+          strings /tmp/zmhplus-dex/classes*.dex > /tmp/zmhplus-strings.txt
+          grep -Fq 'eu/kanade/tachiyomi/source/mx/CommentSource' /tmp/zmhplus-strings.txt
+          grep -Fq 'eu/kanade/tachiyomi/source/mx/CommentTarget' /tmp/zmhplus-strings.txt
 
       - name: Sync validated module to private source
         shell: bash
