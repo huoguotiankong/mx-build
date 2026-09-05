@@ -1,0 +1,337 @@
+name: Apply MiHouTao v4 Source
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/apply-mihoutao-v4-source.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check private source token
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]]
+
+      - name: Checkout MX development source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: dev
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Patch source to v4
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          root = Path('dev')
+          build = root / 'src/zh/mihoutao/build.gradle.kts'
+          text = build.read_text('utf-8')
+          if 'versionCode = 3' not in text:
+              raise SystemExit('Expected versionCode 3 before v4 source patch')
+          build.write_text(text.replace('versionCode = 3', 'versionCode = 4', 1), 'utf-8')
+
+          source = root / 'src/zh/mihoutao/src/eu/kanade/tachiyomi/extension/zh/mihoutao/MiHouTaoEnhancedBase.kt'
+          text = source.read_text('utf-8')
+
+          pattern = re.compile(
+              r'    override fun OkHttpClient\.Builder\.configureClient\(\) = apply \{\n'
+              r'        addInterceptor\(::imageInterceptor\)\n'
+              r'        dispatcher\(imageDispatcher\)\n'
+              r'        connectTimeout\(10\.seconds\)\n'
+              r'        readTimeout\(40\.seconds\)\n'
+              r'    \}',
+          )
+          replacement = '''    override fun OkHttpClient.Builder.configureClient() = apply {
+              followRedirects(false)
+              addInterceptor(::imageInterceptor)
+              addInterceptor(ApiRedirectInterceptor(API_HOST_NAMES))
+              addNetworkInterceptor(ExtraCookieInterceptor())
+              dispatcher(imageDispatcher)
+              connectTimeout(10.seconds)
+              readTimeout(40.seconds)
+          }'''
+          text, count = pattern.subn(replacement, text, count=1)
+          if count != 1:
+              raise SystemExit(f'configureClient patch count={count}')
+
+          old_call = '                val decoded = decodeImage(bytes)\n'
+          new_call = '                val decoded = decodeImageWithRefresh(chain, bytes)\n'
+          if old_call not in text:
+              raise SystemExit('decode call not found')
+          text = text.replace(old_call, new_call, 1)
+
+          start_token = '    private fun decodeImage(bytes: ByteArray): ByteArray? {'
+          end_token = '    private fun looksLikeImage(bytes: ByteArray): Boolean'
+          start = text.find(start_token)
+          end = text.find(end_token, start)
+          if start < 0 or end < 0:
+              raise SystemExit('decode function range not found')
+          decode_impl = '''    private fun decodeImageWithRefresh(chain: Interceptor.Chain, bytes: ByteArray): ByteArray? {
+              if (looksLikeImage(bytes)) return bytes
+              val current = decryptImage(bytes, currentAesKey())
+              if (current != null) return current
+              val refreshed = refreshAesKey(chain) ?: return null
+              return decryptImage(bytes, refreshed)
+          }
+
+          private fun currentAesKey(): String = preferences
+              .getString(AES_KEY_KEY, DEFAULT_AES_KEY)
+              .orEmpty()
+              .ifBlank { DEFAULT_AES_KEY }
+
+          private fun decryptImage(bytes: ByteArray, key: String): ByteArray? {
+              if (bytes.size <= AES_IV_SIZE) return null
+              return runCatching {
+                  val iv = bytes.copyOfRange(0, AES_IV_SIZE)
+                  val encrypted = bytes.copyOfRange(AES_IV_SIZE, bytes.size)
+                  val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
+                  cipher.init(
+                      Cipher.DECRYPT_MODE,
+                      SecretKeySpec(key.toByteArray(Charsets.UTF_8).copyOf(32), "AES"),
+                      IvParameterSpec(iv),
+                  )
+                  cipher.doFinal(encrypted)
+              }.getOrNull()?.takeIf(::looksLikeImage)
+          }
+
+          private fun refreshAesKey(chain: Interceptor.Chain): String? = try {
+              synchronized(AES_KEY_LOCK) {
+                  val candidates = buildList {
+                      add(activeBaseUrl())
+                      addAll(API_HOST_VALUES)
+                  }.distinct()
+                  for (candidate in candidates) {
+                      val request = Request.Builder()
+                          .url("${candidate.trimEnd('/')}/static/assets/js/base.js")
+                          .header("Accept", "*/*")
+                          .header("Referer", "${candidate.trimEnd('/')}/")
+                          .build()
+                      val key = chain.proceed(request).use { response ->
+                          if (!response.isSuccessful) {
+                              null
+                          } else {
+                              AES_KEY_REGEX.find(response.body.string())
+                                  ?.groupValues
+                                  ?.getOrNull(1)
+                                  ?.trim()
+                                  ?.takeIf(String::isNotBlank)
+                          }
+                      }
+                      if (key != null) {
+                          preferences.edit().putString(AES_KEY_KEY, key).apply()
+                          return@synchronized key
+                      }
+                  }
+                  null
+              }
+          } catch (_: Exception) {
+              null
+          }
+
+          '''
+          text = text[:start] + decode_impl + text[end:]
+
+          if 'const val COVER_CACHE_REVISION = "mihoutao-cover-v3"' not in text:
+              raise SystemExit('v3 cover revision not found')
+          text = text.replace(
+              'const val COVER_CACHE_REVISION = "mihoutao-cover-v3"',
+              'const val COVER_CACHE_REVISION = "mihoutao-cover-v4"',
+              1,
+          )
+
+          constants_anchor = '        const val COVER_CACHE_REVISION = "mihoutao-cover-v4"\n'
+          text = text.replace(
+              constants_anchor,
+              constants_anchor +
+              '        val AES_KEY_REGEX = Regex("""AES_KEY\\s*:\\s*[\'\"]([^\'\"]+)[\'\"]""")\n' +
+              '        val AES_KEY_LOCK = Any()\n',
+              1,
+          )
+
+          image_anchor = '        val IMAGE_HOST_LABELS = arrayOf(\n'
+          image_pos = text.find(image_anchor)
+          if image_pos < 0:
+              raise SystemExit('image host anchor not found')
+          text = text[:image_pos] + '''        val API_HOST_NAMES = KNOWN_MIRRORS
+              .mapNotNull { it.toHttpUrlOrNull()?.host }
+              .toSet()
+
+          ''' + text[image_pos:]
+          source.write_text(text, 'utf-8')
+
+          docs = root / 'docs/sources/mihoutao.md'
+          d = docs.read_text('utf-8')
+          d = re.sub(r'当前源码 versionCode：\d+', '当前源码 versionCode：4', d, count=1)
+          d = re.sub(r'当前 versionName：\d+\.\d+\.\d+', '当前 versionName：1.6.4', d, count=1)
+          if '## 2026-09-05 v1.6.4' not in d:
+              d += '''
+
+          ## 2026-09-05 v1.6.4：对齐漫蛙2Plus并增强评论
+
+          - 参考 `LittleSurvival/copymanga-copy20` 的 `漫蛙2Plus 1.4.7` 实际 APK 反编译结果，不只参考仓库索引。
+          - 完整加入参考源六条 AP 线路、完整筛选、简繁切换、图源切换和 AES Key 设置；保留猕猴桃原有动态域名发现与多图床回退。
+          - 补齐 `ExtraCookieInterceptor`，把分类请求中的 `X-Extra-Cookie` 合并为真实 `Cookie`，使 `route_idx` / `typeId` 真正传到站点。
+          - 补齐 `ApiRedirectInterceptor`，关闭 OkHttp 默认跳转；同一漫蛙 API 域名族重定向时保持正确 HTTP 方法并同步 Origin/Referer，最多 5 次。
+          - 图片解密失败时自动读取站点 `/static/assets/js/base.js` 的 `AES_KEY`、持久化并重试；同时保留手动 AES Key 设置。
+          - 新增 MX 漫画评论：公开 `/api/comments`，支持“最新 / 最热”、头像、昵称、点赞数、章节名和内嵌回复。当前仅开放读取，发表/回复/点赞等登录写操作等待账号态实机验证。
+          - v1.6.3 已通过 Debug、Release、Lint 与固定签名构建；公开测试仓库 promotion 改用 `mx-repo` 自仓库工作流，避免 `mx-build` 跨仓库 push 403。
+          '''
+          docs.write_text(d, 'utf-8')
+          PY
+
+          KT='dev/src/zh/mihoutao/src/eu/kanade/tachiyomi/extension/zh/mihoutao'
+          cat > "$KT/ExtraCookieInterceptor.kt" <<'EOF'
+          package eu.kanade.tachiyomi.extension.zh.mihoutao
+
+          import okhttp3.Interceptor
+          import okhttp3.Response
+
+          internal class ExtraCookieInterceptor : Interceptor {
+              override fun intercept(chain: Interceptor.Chain): Response {
+                  val request = chain.request()
+                  val extraCookie = request.header(EXTRA_COOKIE_HEADER) ?: return chain.proceed(request)
+                  val existing = request.header("Cookie")
+                  val cookie = if (existing.isNullOrBlank()) extraCookie else "$existing; $extraCookie"
+                  return chain.proceed(
+                      request.newBuilder()
+                          .header("Cookie", cookie)
+                          .removeHeader(EXTRA_COOKIE_HEADER)
+                          .build(),
+                  )
+              }
+
+              private companion object {
+                  const val EXTRA_COOKIE_HEADER = "X-Extra-Cookie"
+              }
+          }
+          EOF
+
+          cat > "$KT/ApiRedirectInterceptor.kt" <<'EOF'
+          package eu.kanade.tachiyomi.extension.zh.mihoutao
+
+          import okhttp3.HttpUrl
+          import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+          import okhttp3.Interceptor
+          import okhttp3.Request
+          import okhttp3.Response
+          import java.io.IOException
+
+          internal class ApiRedirectInterceptor(
+              private val apiHosts: Set<String>,
+          ) : Interceptor {
+              override fun intercept(chain: Interceptor.Chain): Response {
+                  var request = chain.request()
+                  var response = chain.proceed(request)
+                  repeat(MAX_REDIRECTS) {
+                      val redirectUrl = response.redirectUrl() ?: return response
+                      val redirected = redirectTo(request, redirectUrl, response.code) ?: return response
+                      response.close()
+                      request = redirected
+                      response = chain.proceed(request)
+                  }
+                  if (response.redirectUrl() == null) return response
+                  response.close()
+                  throw IOException("Too many Manwa API redirects")
+              }
+
+              private fun Response.redirectUrl(): HttpUrl? {
+                  if (code !in REDIRECT_CODES) return null
+                  return header("Location")?.let(request.url::resolve)
+              }
+
+              private fun redirectTo(request: Request, url: HttpUrl, statusCode: Int): Request? {
+                  if (!url.isHttps) return null
+                  val apiRedirect = url.isApiUrl() &&
+                      url.host in apiHosts &&
+                      request.url.host in apiHosts
+                  if (
+                      request.method != "GET" &&
+                      request.method != "HEAD" &&
+                      statusCode !in CONVERT_TO_GET_CODES &&
+                      !apiRedirect
+                  ) return null
+
+                  val origin = request.header("Origin")
+                  val referer = request.header("Referer")
+                  val builder = request.newBuilder().url(url)
+                  if (request.method == "POST" && statusCode in CONVERT_TO_GET_CODES) {
+                      builder.method("GET", null)
+                      builder.removeHeader("Content-Length")
+                      builder.removeHeader("Content-Type")
+                  }
+                  if (request.url.host != url.host && !apiRedirect) {
+                      builder.removeHeader("Authorization")
+                      builder.removeHeader("Cookie")
+                  }
+                  if (apiRedirect) {
+                      val targetOrigin = url.newBuilder()
+                          .encodedPath("/")
+                          .query(null)
+                          .fragment(null)
+                          .build()
+                          .toString()
+                          .trimEnd('/')
+                      if (origin != null) builder.header("Origin", targetOrigin)
+                      referer?.toHttpUrlOrNull()?.let { oldReferer ->
+                          builder.header(
+                              "Referer",
+                              oldReferer.newBuilder()
+                                  .scheme(url.scheme)
+                                  .host(url.host)
+                                  .port(url.port)
+                                  .build()
+                                  .toString(),
+                          )
+                      }
+                  }
+                  return builder.build()
+              }
+
+              private fun HttpUrl.isApiUrl(): Boolean =
+                  encodedPath == "/api" || encodedPath.startsWith("/api/")
+
+              private companion object {
+                  const val MAX_REDIRECTS = 5
+                  val REDIRECT_CODES = setOf(301, 302, 303, 307, 308)
+                  val CONVERT_TO_GET_CODES = setOf(302, 303)
+              }
+          }
+          EOF
+
+          python3 dev/scripts/validate_sources.py
+          git -C dev diff --check
+          grep -q 'versionCode = 4' dev/src/zh/mihoutao/build.gradle.kts
+          grep -q 'addNetworkInterceptor(ExtraCookieInterceptor())' "$KT/MiHouTaoEnhancedBase.kt"
+          grep -q 'ApiRedirectInterceptor(API_HOST_NAMES)' "$KT/MiHouTaoEnhancedBase.kt"
+          grep -q 'refreshAesKey' "$KT/MiHouTaoEnhancedBase.kt"
+
+      - name: Commit v4 source and docs
+        working-directory: dev
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/zh/mihoutao docs/sources/mihoutao.md
+          git diff --cached --check
+          git commit -m "feat(mihoutao): align Manwa Plus transport and comments v4"
+          git pull --rebase origin main
+          git push origin HEAD:main
