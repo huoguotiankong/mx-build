@@ -70,3 +70,5 @@ jobs:
           name: qingman-v1-debug-apk
           path: upstream/src/zh/qingman/**/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+
+# Re-run source verification after syncing upstream formatting.
