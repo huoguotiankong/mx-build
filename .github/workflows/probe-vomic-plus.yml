@@ -15,66 +15,63 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - name: Probe live Vomic APIs and comments
+      - name: Probe Vomic comment scopes and chapter API
         run: |
           set -euo pipefail
           python3 - <<'PY'
           import json, urllib.request, urllib.parse
-          OLD='http://43.143.245.32/pics'
-          NEW='https://api.vomicmh.com'
-          old_headers={
-              'host':'43.143.245.32','name':'pics','platform':'android',
-              'showsuccess':'false','showtoast':'false','version':'1.0.10',
-              'User-Agent':'Mozilla/5.0'
-          }
-          new_headers={'User-Agent':'Mozilla/5.0'}
-          def get(url, headers):
-              req=urllib.request.Request(url,headers=headers)
+          BASE='http://43.143.245.32/pics'
+          H={'host':'43.143.245.32','name':'pics','platform':'android','showsuccess':'false','showtoast':'false','version':'1.0.10','User-Agent':'Mozilla/5.0'}
+          def get(path):
+              u=BASE+path
+              req=urllib.request.Request(u,headers=H)
               with urllib.request.urlopen(req,timeout=20) as r:
-                  body=r.read().decode('utf-8','ignore')
-                  print('HTTP',r.status,url,'len',len(body),'preview',body[:400].replace('\n',' '))
-                  return json.loads(body)
-          print('=== OLD popular ===')
-          old=get(OLD+'/c/getCartoonList?cat_id=0&page=1&limit=12&sort=hot_value&sex=&process=&creativity=%E5%85%A8%E9%83%A8', old_headers)
-          data=old.get('data') or []
-          if isinstance(data,dict): items=data.get('data') or data.get('list') or []
-          else: items=data
-          print('OLD_ROOT_KEYS',list(old.keys()),'ITEMS',len(items),'FIRST_KEYS',list(items[0].keys()) if items else [])
-          if not items: raise SystemExit('old api returned no manga')
-          first=items[0]
-          car=str(first.get('id') or first.get('car_id') or first.get('cartoon_id') or '')
-          print('OLD_FIRST_ID',car,'TITLE',first.get('name') or first.get('title'))
-          detail=get(OLD+'/c/getCartoonInfoV1?car_id='+urllib.parse.quote(car)+'&comment_id',old_headers)
-          dd=detail.get('data') or {}
-          print('DETAIL_KEYS',list(dd.keys()))
-          chapters=dd.get('chapter') or dd.get('chapter_list') or dd.get('chapters') or dd.get('chapterList') or []
-          if isinstance(chapters,dict):
-              # flatten common grouped forms
-              flat=[]
-              for v in chapters.values():
-                  if isinstance(v,list): flat.extend(v)
-              chapters=flat
-          print('CHAPTER_COUNT',len(chapters),'FIRST_CHAPTER_KEYS',list(chapters[0].keys()) if chapters else [])
-          if chapters:
-              ch=chapters[0]
-              cid=str(ch.get('id') or ch.get('c_id') or ch.get('cid') or '')
-              print('CHAPTER_ID',cid,'TITLE',ch.get('name') or ch.get('title'))
-              content=get(OLD+'/c/getChapterInfo?c_id='+urllib.parse.quote(cid)+'&clarity=gq',old_headers)
-              print('CONTENT_DATA_TYPE',type(content.get('data')).__name__)
-              def comments(label,params):
-                  u=OLD+'/c/getCommentList_v1?'+urllib.parse.urlencode(params)
-                  try:
-                      x=get(u,old_headers); d=x.get('data') or {}
-                      print(label,'DATA_TYPE',type(d).__name__,'KEYS',list(d.keys()) if isinstance(d,dict) else '', 'RAW_DATA_PREVIEW',str(d)[:700])
-                  except Exception as e: print(label,'ERROR',repr(e))
-              base={'obj_id':car,'page':1,'limit':30,'top_id':0,'score':0,'obj_type':'cartoon','sort':'hot'}
-              comments('CHAPTER_HOT',{**base,'chapter_id':cid})
-              comments('CHAPTER_TIME',{**base,'sort':'time','chapter_id':cid})
-              comments('MANGA_OMIT',base)
-              comments('MANGA_ZERO',{**base,'chapter_id':'0'})
-          print('=== NEW current API ===')
-          for path in ['/api/v1/rank/rank-data?rank_id=1&page=1','/api/v1/search/search-comic-data?title=&category=&page=1']:
+                  raw=r.read().decode('utf-8','ignore')
+                  print('HTTP',r.status,path,'len',len(raw))
+                  return json.loads(raw)
+          pop=get('/c/getCartoonList?cat_id=0&page=1&limit=12&sort=hot_value&sex=&process=&creativity=%E5%85%A8%E9%83%A8')
+          item=pop['data'][0]; car=str(item['id'])
+          print('COMIC',car,item.get('name'),'comment_num',item.get('comment_num'),'book_only',item.get('comment_num_without_chapter'),'can_comment',item.get('can_comment'))
+          dd=get('/c/getCartoonInfoV1?car_id='+car+'&comment_id')['data']
+          groups=dd.get('chapter_list') or []
+          print('GROUPS',[(g.get('name'),len(g.get('values') or [])) for g in groups])
+          vals=[]
+          for g in groups: vals.extend(g.get('values') or [])
+          print('CHAPTERS',len(vals),'FIRST',vals[0] if vals else None)
+          if not vals: raise SystemExit('no chapters')
+          ch=vals[-1] if vals[-1].get('id') else vals[0]
+          cid=str(ch.get('id') or ch.get('c_id') or ch.get('cid'))
+          print('CHAPTER',cid,ch.get('name') or ch.get('title'))
+          try:
+              cont=get('/c/getChapterInfo?c_id='+cid+'&clarity=gq')['data']
+              print('CONTENT_KEYS',list(cont.keys()) if isinstance(cont,dict) else type(cont).__name__)
+          except Exception as e: print('CONTENT_ERROR',repr(e))
+          def check(label, **kwargs):
+              p={'obj_id':car,'page':1,'limit':30,'top_id':0,'score':0,'obj_type':'cartoon','sort':'hot'}; p.update(kwargs)
               try:
-                  x=get(NEW+path,new_headers); print('NEW_KEYS',path,list(x.keys()))
-              except Exception as e: print('NEW_ERROR',path,repr(e))
+                  x=get('/c/getCommentList_v1?'+urllib.parse.urlencode(p)); d=x.get('data')
+                  if isinstance(d,dict):
+                      arr=d.get('data') or d.get('list') or []; total=d.get('comment_num',d.get('total'))
+                      print(label,'keys',list(d.keys()),'items',len(arr) if isinstance(arr,list) else type(arr).__name__,'total',total,'first',str(arr[0])[:350] if isinstance(arr,list) and arr else None)
+                  else: print(label,'data',str(d)[:500])
+              except Exception as e: print(label,'ERROR',repr(e))
+          check('CHAPTER_HOT',chapter_id=cid)
+          check('CHAPTER_TIME',chapter_id=cid,sort='time')
+          check('BOOK_OMIT')
+          check('BOOK_ZERO',chapter_id='0')
+          check('BOOK_EMPTY',chapter_id='')
           PY
+
+      - name: Extract login and preference contract from reference APK
+        run: |
+          set -euo pipefail
+          curl -L --fail --retry 4 -o /tmp/vomic.apk 'https://raw.githubusercontent.com/LittleSurvival/copymanga-copy20/main/apk/tachiyomi-zh.vomicmh-v1.4.4.apk'
+          curl -L --fail --retry 4 -o /tmp/jadx.zip 'https://github.com/skylot/jadx/releases/download/v1.5.3/jadx-1.5.3.zip'
+          mkdir -p /tmp/jadx /tmp/vomic-src
+          unzip -q /tmp/jadx.zip -d /tmp/jadx
+          /tmp/jadx/bin/jadx --no-res -d /tmp/vomic-src /tmp/vomic.apk >/dev/null 2>&1
+          root=/tmp/vomic-src/sources/eu/kanade/tachiyomi/extension/zh/vomicmh
+          for f in PreferencesKt.java special/TokenProvider.java api/dto/LoginResult.java Translate.java; do
+            echo "===== $f ====="
+            grep -nE -C 4 'login|LOGIN|email|password|token|Preference|resolution|chapter_comment|cc|translate|toSimplified|toTraditional|POST|FormBody|RequestBody|access' "$root/$f" | head -n 260 || true
+          done
