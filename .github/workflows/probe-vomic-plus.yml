@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - name: Extract concise VomicMHPlus report
+      - name: Extract reference implementation details
         run: |
           set -euo pipefail
           curl -L --fail --retry 4 -o /tmp/vomic.apk 'https://raw.githubusercontent.com/LittleSurvival/copymanga-copy20/main/apk/tachiyomi-zh.vomicmh-v1.4.4.apk'
@@ -24,11 +24,15 @@ jobs:
           unzip -q /tmp/jadx.zip -d /tmp/jadx
           /tmp/jadx/bin/jadx --no-res -d /tmp/vomic-src /tmp/vomic.apk >/tmp/jadx.log 2>&1 || { cat /tmp/jadx.log; exit 1; }
           root=/tmp/vomic-src/sources/eu/kanade/tachiyomi/extension/zh/vomicmh
-          echo '=== FILES ==='
-          find "$root" -maxdepth 2 -type f -printf '%P\n' | sort
-          echo '=== UNIQUE URL/API STRINGS ==='
-          grep -RhoE 'https?://[^"[:space:]]+|/[A-Za-z0-9_./?=&{}$:-]*(api|comment|tucao|tsukkomi|chapter|comic|search|rank|login)[A-Za-z0-9_./?=&{}$:-]*' "$root" | sed 's/[);,]$//' | sort -u | head -n 250 || true
-          echo '=== PREFERENCES/FUNCTIONS ==='
-          grep -RniE 'ListPreference|SwitchPreference|EditTextPreference|PreferenceScreen|title =|key =|entries =|entryValues =|getPopular|popular|latest|search|filter|mangaDetails|chapterList|getPageList|imageRequest|Interceptor|headers|baseUrl|mirror|login|token|cookie' "$root" | head -n 300 || true
-          echo '=== COMMENT/TUCAO CONTEXT ==='
-          grep -RniE -C 5 '吐槽|评论|評論|comment|tucao|tsukkomi|danmaku|review' "$root" | head -n 400 || true
+          for f in api/ApiRepo.java FilterKt.java CCOption.java ResolutionOption.java PreferencesKeys.java interceptor/AuthorizationInterceptor.java interceptor/HeadersInterceptor.java interceptor/CacheInterceptor.java; do
+            echo "===== $f ====="
+            sed -n '1,420p' "$root/$f"
+          done
+          echo '===== VomicMHPlus core methods ====='
+          sed -n '70,470p' "$root/VomicMHPlus.java"
+          echo '===== Comment DTO ====='
+          sed -n '1,260p' "$root/api/dto/Comment.java"
+          echo '===== User DTO ====='
+          sed -n '1,240p' "$root/api/dto/User.java"
+          echo '===== ChapterCommentResult DTO ====='
+          sed -n '1,190p' "$root/api/dto/ChapterCommentResult.java"
