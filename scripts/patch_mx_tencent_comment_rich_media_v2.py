@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import sys
 
 root = Path(sys.argv[1]) if len(sys.argv) > 1 else Path('.')
@@ -31,24 +32,22 @@ if old not in text:
     raise SystemExit('image host set baseline not found')
 text = text.replace(old, new, 1)
 
-old = '''private val COMMENT_IMAGE_FILE_REGEX = Regex(
-    "\\.(?:jpe?g|jfif|pjpeg|pjp|png|apng|webp|gif|avif|bmp|dib|heic|heif|svg|svgz|wbmp)(?:[?#].*)?$",
-    RegexOption.IGNORE_CASE,
+image_block = re.compile(
+    r'private val COMMENT_IMAGE_FILE_REGEX = Regex\(\n.*?\n\)',
+    re.DOTALL,
 )
-'''
-new = '''private val COMMENT_IMAGE_FILE_REGEX = Regex(
-    "\\.(?:jpe?g|jfif|pjpeg|pjp|png|apng|webp|gif|avif|bmp|dib|heic|heif|svg|svgz|wbmp)(?:(?:[/@!~])[^\\s<>\\\"'?#]*)*(?:[?#].*)?$",
+replacement = '''private val COMMENT_IMAGE_FILE_REGEX = Regex(
+    "\\\\.(?:jpe?g|jfif|pjpeg|pjp|png|apng|webp|gif|avif|bmp|dib|heic|heif|svg|svgz|wbmp)(?:(?:[/@!~])[^\\\\s<>\\\"'?#]*)*(?:[?#].*)?$",
     RegexOption.IGNORE_CASE,
-)
-'''
-if old not in text:
-    raise SystemExit('image extension regex baseline not found')
-text = text.replace(old, new, 1)
+)'''
+text, count = image_block.subn(lambda _: replacement, text, count=1)
+if count != 1:
+    raise SystemExit(f'image extension regex block matches={count}')
 
 marker = '''private val COMMENT_CUSTOM_EMOJI_TOKEN_REGEX = Regex(
 '''
 insertion = '''private val COMMENT_COLON_EMOJI_TOKEN_REGEX = Regex(
-    "\\[:([^:\\]\\r\\n]{1,40}):]",
+    "\\\\[:([^:\\\\]\\\\r\\\\n]{1,40}):]",
 )
 private val COMMENT_CUSTOM_EMOJI_TOKEN_REGEX = Regex(
 '''
