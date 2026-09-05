@@ -1,0 +1,84 @@
+name: Export validated Baozi Manhua Plus source
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/export-baozimanhuaplus-validated-source.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout pinned Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          ref: 0ca8b46ec5229955a6a76b736de27642bca0808f
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout MX development source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: dev
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Restore complete upstream Baozi baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC='upstream/src/zh/baozimanhua'
+          SRC_KT="$SRC/src/eu/kanade/tachiyomi/extension/zh/baozimanhua"
+          DST='dev/src/zh/baozimanhuaplus'
+          DST_KT="$DST/src/eu/kanade/tachiyomi/extension/zh/baozimanhuaplus"
+
+          test -f "$DST/build.gradle.kts"
+          mkdir -p "$DST_KT"
+          rm -rf "$DST/src/eu/kanade/tachiyomi/extension/zh/baozimanhua"
+
+          for file in Filters.kt BannerChecker.kt BannerConstants.kt BaoziBannerInterceptor.kt; do
+            cp "$SRC_KT/$file" "$DST_KT/$file"
+            sed -i 's/package eu\.kanade\.tachiyomi\.extension\.zh\.baozimanhua/package eu.kanade.tachiyomi.extension.zh.baozimanhuaplus/' "$DST_KT/$file"
+          done
+
+          rm -rf "$DST/res"
+          cp -a "$SRC/res" "$DST/res"
+          sed -i '/import eu\.kanade\.tachiyomi\.extension\.zh\.baozimanhua\.BaoziBannerInterceptor/d' "$DST_KT/BaoziPlus.kt"
+
+          rm -rf upstream/src/zh/baozimanhuaplus
+          cp -a "$DST" upstream/src/zh/baozimanhuaplus
+          cd upstream
+          ./gradlew :src:zh:baozimanhuaplus:spotlessApply
+          ./gradlew :src:zh:baozimanhuaplus:spotlessCheck
+          cd ..
+
+          rm -rf dev/src/zh/baozimanhuaplus
+          cp -a upstream/src/zh/baozimanhuaplus dev/src/zh/baozimanhuaplus
+          rm -rf dev/src/zh/baozimanhuaplus/build
+          python3 dev/scripts/validate_sources.py
+          git -C dev diff --check
+
+      - name: Upload exact validated source
+        uses: actions/upload-artifact@v4
+        with:
+          name: baozimanhuaplus-validated-source
+          path: dev/src/zh/baozimanhuaplus
+          if-no-files-found: error
+          retention-days: 14
