@@ -1,4 +1,4 @@
-# v3 reader/T2S validation trigger
+# v3 reader/T2S validation trigger 2
 name: Build And Stage Baozi Manhua Plus
 
 on:
@@ -255,7 +255,7 @@ jobs:
         run: |
           set -euo pipefail
           git -C dev config user.name "github-actions[bot]"
-          git -C dev config user.email "41898282+huoguotiankong@users.noreply.github.com"
+          git -C dev config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git -C dev add src/zh/baozimanhuaplus
           if git -C dev diff --cached --quiet; then
             echo "Baozi Manhua Plus source is already current"
