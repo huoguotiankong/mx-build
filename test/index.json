@@ -159,6 +159,41 @@
         ]
       },
       {
+        "name": "MiHouTaoManga",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.mihoutao",
+        "resources": {
+          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.mihoutao-v1.6.3.apk",
+          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.mihoutao-v106003.png"
+        },
+        "extensionLib": "1.6",
+        "versionCode": 106003,
+        "versionName": "1.6.3",
+        "contentWarning": "MIXED",
+        "sources": [
+          {
+            "id": 5618009198170626277,
+            "name": "猕猴桃漫画",
+            "language": "zh",
+            "homeUrl": "https://manwari.cc",
+            "mirrorUrls": [
+              "https://manwari.cc",
+              "https://manwaan.cc",
+              "https://manwaye.cc",
+              "https://manware.cc",
+              "https://manwaqi.cc",
+              "https://manwana.cc",
+              "https://manwali.cc",
+              "https://www.manwali.cc",
+              "https://manwalu.cc",
+              "https://mwmw.cc",
+              "https://www.manwaye.cc",
+              "https://www.mwwz.cc"
+            ],
+            "message": null
+          }
+        ]
+      },
+      {
         "name": "Picacomic",
         "packageName": "eu.kanade.tachiyomi.extension.zh.picacomic",
         "resources": {
