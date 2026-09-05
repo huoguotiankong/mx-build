@@ -236,6 +236,28 @@
             "message": null
           }
         ]
+      },
+      {
+        "name": "Vomic Plus",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.vomicplus",
+        "resources": {
+          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.vomicplus-v1.6.1.apk",
+          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.vomicplus-v106001.png"
+        },
+        "extensionLib": "1.6",
+        "versionCode": 106001,
+        "versionName": "1.6.1",
+        "contentWarning": "MIXED",
+        "sources": [
+          {
+            "id": 8237640194557812301,
+            "name": "Vomic Plus",
+            "language": "zh",
+            "homeUrl": "https://www.vomicmh.com",
+            "mirrorUrls": [],
+            "message": null
+          }
+        ]
       }
     ]
   },
