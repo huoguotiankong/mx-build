@@ -93,6 +93,31 @@
         ]
       },
       {
+        "name": "Dongman Manhua Plus",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.dongmanmanhuaplus",
+        "resources": {
+          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.dongmanmanhuaplus-v1.6.1.apk",
+          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.dongmanmanhuaplus-v106001.png"
+        },
+        "extensionLib": "1.6",
+        "versionCode": 106001,
+        "versionName": "1.6.1",
+        "contentWarning": "SAFE",
+        "sources": [
+          {
+            "id": 4940002032762570168,
+            "name": "咚漫画 Plus",
+            "language": "zh-Hans",
+            "homeUrl": "https://m.dongmanmanhua.cn",
+            "mirrorUrls": [
+              "https://m.dongmanmanhua.cn",
+              "https://www.dongmanmanhua.cn"
+            ],
+            "message": null
+          }
+        ]
+      },
+      {
         "name": "E-Hentai Plus",
         "packageName": "eu.kanade.tachiyomi.extension.zh.ehentaiplus",
         "resources": {
