@@ -1,0 +1,2 @@
+1.6.1 / source 1 / Android 106001
+Spotless Debug Release Lint signed and MX ABI verified
