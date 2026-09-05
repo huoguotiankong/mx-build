@@ -1,0 +1,34 @@
+name: Probe Vomic Plus Reference
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-vomic-plus.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Download and decompile VomicMHPlus
+        run: |
+          set -euo pipefail
+          curl -L --fail --retry 4 -o /tmp/vomic.apk 'https://raw.githubusercontent.com/LittleSurvival/copymanga-copy20/main/apk/tachiyomi-zh.vomicmh-v1.4.4.apk'
+          curl -L --fail --retry 4 -o /tmp/jadx.zip 'https://github.com/skylot/jadx/releases/download/v1.5.3/jadx-1.5.3.zip'
+          mkdir -p /tmp/jadx /tmp/vomic-src
+          unzip -q /tmp/jadx.zip -d /tmp/jadx
+          /tmp/jadx/bin/jadx --no-res -d /tmp/vomic-src /tmp/vomic.apk >/tmp/jadx.log 2>&1 || { cat /tmp/jadx.log; exit 1; }
+          echo '=== PACKAGE FILES ==='
+          find /tmp/vomic-src/sources/eu/kanade/tachiyomi/extension/zh/vomicmh -maxdepth 2 -type f -printf '%P\n' | sort
+          echo '=== URL / API / COMMENT / LOGIN HITS ==='
+          grep -RniE 'https?://|/api/|comment|吐槽|評論|评论|login|登录|rank|search|preference|token|cookie|chapter' /tmp/vomic-src/sources/eu/kanade/tachiyomi/extension/zh/vomicmh | head -n 600 || true
+          echo '=== SOURCE DUMPS ==='
+          for f in $(find /tmp/vomic-src/sources/eu/kanade/tachiyomi/extension/zh/vomicmh -maxdepth 1 -type f | sort); do
+            echo "===== FILE: $f ====="
+            sed -n '1,520p' "$f"
+          done
