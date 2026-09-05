@@ -1,0 +1,54 @@
+name: Validate MX App Detail Source Actions
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/validate-mx-app-detail-source-actions.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout MX App feature branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-app
+          ref: feat/detail-page-source-actions
+          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          path: source
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Spotless check
+        working-directory: source
+        run: ./gradlew spotlessCheck
+
+      - name: Build Preview APK
+        working-directory: source
+        run: ./gradlew assemblePreview -Pdisable-code-shrink --no-configuration-cache
+
+      - name: Unit tests
+        working-directory: source
+        run: ./gradlew testReleaseUnitTest
+
+      - name: Upload Preview APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: mx-app-detail-source-actions-preview
+          path: source/app/build/outputs/apk/preview/*.apk
+          if-no-files-found: error
+          retention-days: 7
