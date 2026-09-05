@@ -1,0 +1,208 @@
+name: Promote Tencent v26 Staging
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/promote-tencent-v26-staging.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: promote-tencent-v26-staging
+  cancel-in-progress: false
+
+jobs:
+  stage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check required secrets
+        shell: bash
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]]
+          [[ -n "$MANGA_SIGNING_BUNDLE" ]]
+
+      - name: Checkout verified Tencent v26 handoff
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-build
+          ref: handoff/tencent-comment-rich-media-v26
+          path: handoff
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout MX development scripts
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: fix/tencent-comment-rich-media-v26
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout current Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Restore verified v26 module
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf source/src/zh/tencentcomics upstream/src/zh/tencentcomics
+          cp -a handoff/source-handoff/tencent-v26/src/zh/tencentcomics source/src/zh/tencentcomics
+          cp -a source/src/zh/tencentcomics upstream/src/zh/tencentcomics
+          grep -F 'versionCode = 26' source/src/zh/tencentcomics/build.gradle.kts
+          grep -F '55 to "🀅"' source/src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+          grep -F '56 to "服"' source/src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+          python3 source/scripts/validate_sources.py
+          git -C source diff --check
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Format and compile Tencent v26
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:tencentcomics:spotlessApply
+          ./gradlew :src:zh:tencentcomics:spotlessCheck :src:zh:tencentcomics:assembleDebug :src:zh:tencentcomics:lintRelease
+
+      - name: Prepare stable signing key
+        shell: bash
+        env:
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, json, os
+          from pathlib import Path
+          bundle=json.loads(os.environ['MANGA_SIGNING_BUNDLE'])
+          required=('signingKey','alias','storePassword','keyPassword')
+          missing=[k for k in required if not bundle.get(k)]
+          if missing:
+              raise SystemExit('Signing bundle missing: ' + ', '.join(missing))
+          Path('upstream/signingkey.jks').write_bytes(base64.b64decode(bundle['signingKey']))
+          with Path(os.environ['GITHUB_ENV']).open('a',encoding='utf-8') as f:
+              for env_name,key in (('ALIAS','alias'),('KEY_STORE_PASSWORD','storePassword'),('KEY_PASSWORD','keyPassword')):
+                  value=str(bundle[key]); print(f'::add-mask::{value}')
+                  f.write(f'{env_name}<<__MX_EOF__\n{value}\n__MX_EOF__\n')
+          PY
+
+      - name: Build and verify signed release
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620'
+          actual="$(keytool -exportcert -alias "$ALIAS" -keystore upstream/signingkey.jks -storepass "$KEY_STORE_PASSWORD" | sha256sum | awk '{print $1}' | tr '[:upper:]' '[:lower:]')"
+          [[ "$actual" == "$expected" ]]
+          echo "SIGNING_FINGERPRINT=$actual" >> "$GITHUB_ENV"
+          (cd upstream && ./gradlew :src:zh:tencentcomics:assembleRelease)
+          apk="$(find upstream/src/zh/tencentcomics -path '*/build/outputs/apk/release/*.apk' -type f | sort | head -n1)"
+          [[ -f "$apk" ]]
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n1)"
+          "$apksigner" verify "$apk"
+          cert_output="$("$apksigner" verify --print-certs "$apk" 2>&1)"
+          normalized="$(printf '%s' "$cert_output" | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')"
+          [[ "$normalized" == *"$actual"* ]]
+
+      - name: Checkout extension staging
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-build
+          ref: extension-staging
+          token: ${{ github.token }}
+          path: staging
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Generate Tencent v26 isolated test store
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'zh/tencentcomics\n' > "$RUNNER_TEMP/tencent-v26-targets.txt"
+          python3 source/scripts/publish_test_repo.py \
+            --targets "$RUNNER_TEMP/tencent-v26-targets.txt" \
+            --upstream-root upstream \
+            --source-root source \
+            --repo-dir staging/test \
+            --owner huoguotiankong \
+            --repository mx-repo \
+            --signing-key "$SIGNING_FINGERPRINT"
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          data=json.loads(Path('staging/test/index.json').read_text('utf-8'))
+          package='eu.kanade.tachiyomi.extension.zh.tencentcomics'
+          items=[x for x in data['extensionList']['extensions'] if x.get('packageName') == package]
+          if len(items) != 1:
+              raise SystemExit(f'Expected one Tencent entry, got {len(items)}')
+          item=items[0]
+          actual=(item.get('versionName'), item.get('versionCode'))
+          expected=('1.4.26', 104026)
+          if actual != expected:
+              raise SystemExit(f'Expected {expected}, got {actual}')
+          print(f'Tencent staging verified: {actual}')
+          PY
+          test -f staging/test/apk/tachiyomi-zh.tencentcomics-v1.4.26.apk
+
+      - name: Commit extension staging snapshot
+        working-directory: staging
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add test
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo 'Tencent v26 staging already current'
+          else
+            git commit -m 'Stage Tencent Comics v26 test store'
+            git push origin HEAD:extension-staging
+          fi
+
+      - name: Verify staging online
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://raw.githubusercontent.com/huoguotiankong/mx-build/extension-staging/test'
+          for f in index.json repo.json; do
+            ok=0
+            for n in 1 2 3 4 5 6; do
+              code="$(curl -L -sS -o "/tmp/$f" -w '%{http_code}' "$base/$f" || true)"
+              if [[ "$code" == 200 ]]; then ok=1; break; fi
+              sleep $((n*2))
+            done
+            [[ "$ok" -eq 1 ]]
+          done
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          data=json.loads(Path('/tmp/index.json').read_text('utf-8'))
+          package='eu.kanade.tachiyomi.extension.zh.tencentcomics'
+          items=[x for x in data['extensionList']['extensions'] if x.get('packageName') == package]
+          if len(items) != 1 or items[0].get('versionName') != '1.4.26' or items[0].get('versionCode') != 104026:
+              raise SystemExit(f'Online staging mismatch: {items}')
+          print('Tencent v26 online staging verified')
+          PY
+
+      - name: Cleanup signing material
+        if: always()
+        shell: bash
+        run: rm -f upstream/signingkey.jks
