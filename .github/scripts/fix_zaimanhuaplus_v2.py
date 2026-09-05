@@ -46,19 +46,13 @@ def patch_kotlin() -> None:
     text = KOTLIN.read_text("utf-8")
 
     text = text.replace("import android.util.Base64\n", "")
+    text = text.replace("import androidx.preference.Preference\n", "")
     if "import android.os.Handler\n" not in text:
         text = replace_once(
             text,
             "import android.content.SharedPreferences\n",
             "import android.content.SharedPreferences\nimport android.os.Handler\nimport android.os.Looper\n",
             "android handler imports",
-        )
-    if "import androidx.preference.Preference\n" not in text:
-        text = replace_once(
-            text,
-            "import androidx.preference.ListPreference\n",
-            "import androidx.preference.ListPreference\nimport androidx.preference.Preference\n",
-            "preference import",
         )
     if "import java.util.UUID\n" not in text:
         text = replace_once(
@@ -269,12 +263,13 @@ def patch_kotlin() -> None:
                 setEnabled(false)
             }.let(screen::addPreference)
 """
-    new_login_prefs = """            Preference(screen.context).apply {
+    new_login_prefs = """            EditTextPreference(screen.context).apply {
+                key = "LOGIN_ACTION"
                 title = "立即登录 / 检查登录"
                 summary = loginSummary()
                 setOnPreferenceClickListener { preference ->
                     if (!loginRunning.compareAndSet(false, true)) return@setOnPreferenceClickListener true
-                    preference.isEnabled = false
+                    preference.setEnabled(false)
                     preference.summary = "正在登录…"
                     Thread {
                         val status = runCatching {
@@ -294,7 +289,7 @@ def patch_kotlin() -> None:
                         }
                         Handler(Looper.getMainLooper()).post {
                             preference.summary = status
-                            preference.isEnabled = true
+                            preference.setEnabled(true)
                             loginRunning.set(false)
                         }
                     }.start()
@@ -302,10 +297,11 @@ def patch_kotlin() -> None:
                 }
             }.let(screen::addPreference)
 
-            Preference(screen.context).apply {
+            EditTextPreference(screen.context).apply {
+                key = "LOGIN_STATUS_VIEW"
                 title = "登录状态"
                 summary = loginSummary()
-                isSelectable = false
+                setEnabled(false)
             }.let(screen::addPreference)
 """
     if old_token_pref not in text:
