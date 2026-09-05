@@ -30,9 +30,9 @@ old = '''private fun isCommentImageUrl(url: String): Boolean {
         COMMENT_V3MH_SOCIAL_IMAGE_REGEX.containsMatchIn(normalized)
 }
 
-private val COMMENT_URL_REGEX = Regex("https?://[^\\s<>\\\"']+", RegexOption.IGNORE_CASE)
-private val COMMENT_IMAGE_FILE_REGEX = Regex("\\.(?:jpe?g|png|webp|gif|avif)(?:[?#].*)?$", RegexOption.IGNORE_CASE)
-private val COMMENT_V3MH_SOCIAL_IMAGE_REGEX = Regex("^https?://[^/]*\\.v3mh\\.com/social/", RegexOption.IGNORE_CASE)
+private val COMMENT_URL_REGEX = Regex("https?://[^\\\\s<>\\\"']+", RegexOption.IGNORE_CASE)
+private val COMMENT_IMAGE_FILE_REGEX = Regex("\\\\.(?:jpe?g|png|webp|gif|avif)(?:[?#].*)?$", RegexOption.IGNORE_CASE)
+private val COMMENT_V3MH_SOCIAL_IMAGE_REGEX = Regex("^https?://[^/]*\\\\.v3mh\\\\.com/social/", RegexOption.IGNORE_CASE)
 '''
 new = '''private fun normalizeCommentMediaUrl(rawUrl: String): String = rawUrl
     .trimEnd(*COMMENT_URL_TRAILING_PUNCTUATION)
@@ -47,14 +47,14 @@ private fun isCommentImageUrl(url: String): Boolean {
         COMMENT_TENCENT_IMAGE_HOST_REGEX.containsMatchIn(normalized)
 }
 
-private val COMMENT_URL_REGEX = Regex("(?:https?:)?//[^\\s<>\\\"']+", RegexOption.IGNORE_CASE)
+private val COMMENT_URL_REGEX = Regex("(?:https?:)?//[^\\\\s<>\\\"']+", RegexOption.IGNORE_CASE)
 private val COMMENT_IMAGE_FILE_REGEX = Regex(
-    "\\.(?:jpe?g|jfif|png|apng|webp|gif|avif|bmp|heic|heif)(?:/[^?#\\s]*)?(?:[?#].*)?$",
+    "\\\\.(?:jpe?g|jfif|png|apng|webp|gif|avif|bmp|heic|heif)(?:/[^?#\\\\s]*)?(?:[?#].*)?$",
     RegexOption.IGNORE_CASE,
 )
-private val COMMENT_V3MH_SOCIAL_IMAGE_REGEX = Regex("^https?://[^/]*\\.v3mh\\.com/social/", RegexOption.IGNORE_CASE)
+private val COMMENT_V3MH_SOCIAL_IMAGE_REGEX = Regex("^https?://[^/]*\\\\.v3mh\\\\.com/social/", RegexOption.IGNORE_CASE)
 private val COMMENT_TENCENT_IMAGE_HOST_REGEX = Regex(
-    "^https?://(?:manhua\\.acimg\\.cn|manhua\\.qpic\\.cn|ugc\\.qpic\\.cn|gtimg\\.ac\\.qq\\.com|gtimgcdn\\.ac\\.qq\\.com)/",
+    "^https?://(?:manhua\\\\.acimg\\\\.cn|manhua\\\\.qpic\\\\.cn|ugc\\\\.qpic\\\\.cn|gtimg\\\\.ac\\\\.qq\\\\.com|gtimgcdn\\\\.ac\\\\.qq\\\\.com)/",
     RegexOption.IGNORE_CASE,
 )
 '''
