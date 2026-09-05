@@ -65,6 +65,10 @@ jobs:
           newdir="upstream/src/zh/zaimanhuaplus/src/eu/kanade/tachiyomi/extension/zh/zaimanhuaplus"
           mv "$olddir" "$newdir"
           mv "$newdir/Zaimanhua.kt" "$newdir/ZaimanhuaPlus.kt"
+          legacy_mx="dev/src/zh/noyacgplus/src/eu/kanade/tachiyomi/extension/zh/noyacgplus/source/mx"
+          mkdir -p "$legacy_mx"
+          cp dev/src/zh/noyacgplus/src/eu/kanade/tachiyomi/source/mx/Comment.kt "$legacy_mx/Comment.kt"
+          cp dev/src/zh/noyacgplus/src/eu/kanade/tachiyomi/source/mx/CommentSource.kt "$legacy_mx/CommentSource.kt"
           python3 helper/.github/scripts/bootstrap_zaimanhuaplus_v1.py
           git -C upstream diff --check -- src/zh/zaimanhuaplus
 
