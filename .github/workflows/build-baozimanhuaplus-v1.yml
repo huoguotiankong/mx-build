@@ -68,20 +68,17 @@ jobs:
           mkdir -p "$DST_KT"
           rm -rf "$DST/src/eu/kanade/tachiyomi/extension/zh/baozimanhua"
 
-          # Keep every original Baozi filter and the complete banner remover.
           for file in Filters.kt BannerChecker.kt BannerConstants.kt BaoziBannerInterceptor.kt; do
             cp "$SRC_KT/$file" "$DST_KT/$file"
             sed -i 's/package eu\.kanade\.tachiyomi\.extension\.zh\.baozimanhua/package eu.kanade.tachiyomi.extension.zh.baozimanhuaplus/' "$DST_KT/$file"
           done
 
-          # Keep the official icon in all Android density buckets.
           rm -rf "$DST/res"
           cp -a "$SRC/res" "$DST/res"
           for d in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
             test -f "$DST/res/mipmap-${d}/ic_launcher.png"
           done
 
-          # Banner code is local to Plus; remove the stale cross-package import.
           sed -i '/import eu\.kanade\.tachiyomi\.extension\.zh\.baozimanhua\.BaoziBannerInterceptor/d' "$DST_KT/BaoziPlus.kt"
 
           python3 dev/scripts/validate_sources.py
@@ -231,3 +228,5 @@ jobs:
       - name: Cleanup signing material
         if: always()
         run: rm -f upstream/signingkey.jks
+
+# Export final v1 candidate after complete upstream sync.
