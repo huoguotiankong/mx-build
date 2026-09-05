@@ -12,12 +12,12 @@
         "name": "Baozi Manhua Plus",
         "packageName": "eu.kanade.tachiyomi.extension.zh.baozimanhuaplus",
         "resources": {
-          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.baozimanhuaplus-v1.6.2.apk",
-          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.baozimanhuaplus-v106002.png"
+          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.baozimanhuaplus-v1.6.3.apk",
+          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.baozimanhuaplus-v106003.png"
         },
         "extensionLib": "1.6",
-        "versionCode": 106002,
-        "versionName": "1.6.2",
+        "versionCode": 106003,
+        "versionName": "1.6.3",
         "contentWarning": "SAFE",
         "sources": [
           {
