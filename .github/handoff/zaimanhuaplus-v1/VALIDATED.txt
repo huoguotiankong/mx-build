@@ -1,0 +1,4 @@
+validated: current Keiyoushi Spotless + assembleDebug + assembleRelease + lintRelease
+signing: fixed extension identity verified
+mx-abi: CommentSource and CommentTarget retained in release dex
+upstream: keiyoushi/extensions-source@19c8e5f463d7b626eb8f92948d5e3c0290394616
