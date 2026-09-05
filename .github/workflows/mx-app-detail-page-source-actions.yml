@@ -43,6 +43,40 @@ jobs:
         working-directory: source
         run: python3 ../build-infra/scripts/mx-app-detail-page-source-actions.py
 
+      - name: Fix Kotlin cross-module rating access
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("app/src/main/java/eu/kanade/presentation/manga/components/MangaRatingDialog.kt")
+          text = path.read_text(encoding="utf-8")
+          old = '''                        if (ratingInfo.averageScore != null) {
+                              Text(
+                                  "${stringResource(KMR.strings.mx_manga_rating_average)}：" +
+                                      "${formatRating(ratingInfo.averageScore)} / ${formatRating(max)}",
+                              )
+                          } else {
+                              Text(stringResource(KMR.strings.mx_manga_rating_no_data))
+                          }
+          '''
+          new = '''                        val averageScore = ratingInfo.averageScore
+                          if (averageScore != null) {
+                              Text(
+                                  "${stringResource(KMR.strings.mx_manga_rating_average)}：" +
+                                      "${formatRating(averageScore)} / ${formatRating(max)}",
+                              )
+                          } else {
+                              Text(stringResource(KMR.strings.mx_manga_rating_no_data))
+                          }
+          '''
+          if text.count(old) != 1:
+              raise SystemExit(f"rating average block mismatch: {text.count(old)}")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
+
       - name: Set up Java
         uses: actions/setup-java@v5
         with:
@@ -51,8 +85,6 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-        with:
-          build-root-directory: source
 
       - name: Apply Spotless
         working-directory: source
