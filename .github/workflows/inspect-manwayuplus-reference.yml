@@ -26,12 +26,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl -L --fail --retry 3 \
-            -o /tmp/manwayuplus.apk \
-            'https://raw.githubusercontent.com/LittleSurvival/copymanga-copy20/main/apk/tachiyomi-zh.manwayuplus-v1.4.7.apk'
-          curl -L --fail --retry 3 \
-            -o /tmp/jadx.zip \
-            'https://github.com/skylot/jadx/releases/download/v1.5.1/jadx-1.5.1.zip'
+          curl -L --fail --retry 3 -o /tmp/manwayuplus.apk 'https://raw.githubusercontent.com/LittleSurvival/copymanga-copy20/main/apk/tachiyomi-zh.manwayuplus-v1.4.7.apk'
+          curl -L --fail --retry 3 -o /tmp/jadx.zip 'https://github.com/skylot/jadx/releases/download/v1.5.1/jadx-1.5.1.zip'
           mkdir -p /tmp/jadx /tmp/manwayu-out
           unzip -q /tmp/jadx.zip -d /tmp/jadx
           /tmp/jadx/bin/jadx --show-bad-code --deobf -d /tmp/manwayu-out /tmp/manwayuplus.apk
@@ -40,7 +36,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p report/reference report/site
+          mkdir -p report/reference report/site/assets
           find /tmp/manwayu-out -type f | sort > report/all-files.txt
           while IFS= read -r f; do
             case "$f" in
@@ -57,24 +53,38 @@ jobs:
             cp "$f" "report/reference/$rel"
           done
           grep -RniE 'api/|image_source|线路|線路|筛选|篩選|comment|评论|評論|cate|areaId|pageSize|level|status|day|tag|manwa|mwzu|mwtu|mwtuwu' report/reference > report/reference-grep.txt || true
-          echo '=== package files ==='
-          find report/reference -type f | sort
-          echo '=== endpoint/settings excerpts ==='
-          sed -n '1,1200p' report/reference-grep.txt
 
-      - name: Probe current site assets and API hints
+      - name: Probe current site assets, comments and API hints
         shell: bash
         run: |
           set -euo pipefail
           UA='Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140.0 Mobile Safari/537.36'
-          for host in manwali.cc manwaye.cc; do
-            curl -L --fail --retry 2 -A "$UA" "https://$host/cate/" -o "report/site/${host}-cate.html" || true
-          done
-          grep -RhoE '<script[^>]+src=["'"'][^"'"']+' report/site/*.html 2>/dev/null | sed -E 's/.*src=["'"']//g' | sort -u > report/site/script-paths.txt || true
-          echo '=== site script paths ==='
-          cat report/site/script-paths.txt || true
-          echo '=== site API/filter hints ==='
-          grep -RniE 'api/|areaId|image_source|线路|線路|comment|评论|評論|level|status|day|tag' report/site || true
+          BASE='https://manwali.cc'
+          curl -L --fail --retry 3 -A "$UA" "$BASE/cate/" -o report/site/cate.html
+          curl -L --fail --retry 3 -A "$UA" "$BASE/comic/94413" -o report/site/comic-94413.html
+          python3 - <<'PY'
+          from pathlib import Path
+          import html,re,subprocess,urllib.parse
+          base='https://manwali.cc'
+          ua='Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140.0 Mobile Safari/537.36'
+          texts='\n'.join(p.read_text('utf-8',errors='ignore') for p in Path('report/site').glob('*.html'))
+          srcs=[]
+          for m in re.finditer(r'<script[^>]+src=["\']([^"\']+)', texts, re.I):
+              u=html.unescape(m.group(1))
+              u=urllib.parse.urljoin(base+'/',u)
+              if u not in srcs: srcs.append(u)
+          Path('report/site/script-urls.txt').write_text('\n'.join(srcs)+'\n','utf-8')
+          for i,u in enumerate(srcs):
+              name=urllib.parse.urlparse(u).path.rsplit('/',1)[-1] or f'script-{i}.js'
+              name=re.sub(r'[^A-Za-z0-9_.-]','_',name)
+              out=Path('report/site/assets')/f'{i:02d}-{name}'
+              subprocess.run(['curl','-L','--fail','--retry','2','-A',ua,u,'-o',str(out)],check=False)
+          PY
+          grep -RniE 'comment|comments|評論|评论|reply|like|api/|fetch\(|ajax|XMLHttpRequest|signalr|hub' report/site > report/site/comment-api-hints.txt || true
+          echo '=== current script URLs ==='
+          cat report/site/script-urls.txt || true
+          echo '=== comment/API hints ==='
+          sed -n '1,1600p' report/site/comment-api-hints.txt || true
 
       - name: Upload inspection report
         uses: actions/upload-artifact@v4
