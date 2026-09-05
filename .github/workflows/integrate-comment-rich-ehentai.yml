@@ -1,0 +1,115 @@
+name: Integrate MX Rich Comments with E-Hentai
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [integration/comment-rich-ehentai-helper]
+    paths:
+      - ".github/workflows/integrate-comment-rich-ehentai.yml"
+      - "scripts/integrate_comment_rich_into_ehentai.py"
+
+permissions:
+  contents: read
+
+jobs:
+  integrate-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check private repository token
+        shell: bash
+        env:
+          MX_APP_PUBLISH_TOKEN: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_APP_PUBLISH_TOKEN" ]] || {
+            echo "::error::Missing MX_APP_PUBLISH_TOKEN"
+            exit 1
+          }
+
+      - name: Checkout build helper
+        uses: actions/checkout@v5
+        with:
+          path: infra
+          persist-credentials: false
+
+      - name: Checkout MX integration branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-app
+          ref: integration/comment-rich-ehentai-20260905
+          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          path: app-src
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Fetch rich-comment donor branch
+        working-directory: app-src
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin feat/comment-rich-content-v2:refs/remotes/origin/feat/comment-rich-content-v2
+
+      - name: Integrate rich comments without losing E-Hentai votes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 infra/scripts/integrate_comment_rich_into_ehentai.py app-src
+          git -C app-src diff --check
+          grep -F 'decodeCommentEntities' app-src/app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt
+          grep -F 'onError = { imageLoadFailed = true }' app-src/app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt
+          grep -F 'CommentVoteState.UPVOTE' app-src/app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt
+          grep -F 'CommentVoteState.DOWNVOTE' app-src/app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Spotless apply
+        working-directory: app-src
+        run: ./gradlew spotlessApply
+
+      - name: Spotless gate
+        working-directory: app-src
+        run: ./gradlew spotlessCheck
+
+      - name: Rich-comment unit tests
+        working-directory: app-src
+        shell: bash
+        run: |
+          set -o pipefail
+          ./gradlew :app:testReleaseUnitTest --tests 'eu.kanade.presentation.manga.comments.CommentRichContentTest' || {
+            find app/build/test-results/testReleaseUnitTest -type f -name '*.xml' -print -exec cat {} \;
+            exit 1
+          }
+
+      - name: Release unit tests
+        working-directory: app-src
+        run: ./gradlew testReleaseUnitTest
+
+      - name: Build Preview
+        working-directory: app-src
+        run: ./gradlew assemblePreview -Pdisable-code-shrink --no-configuration-cache
+
+      - name: Commit verified integration branch
+        working-directory: app-src
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt \
+            app/src/test/java/eu/kanade/presentation/manga/comments/CommentRichContentTest.kt
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "No integration changes to commit"
+          else
+            git commit -m "fix: combine rich comments with ehentai voting"
+            git push origin HEAD:integration/comment-rich-ehentai-20260905
+          fi
