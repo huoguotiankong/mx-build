@@ -64,8 +64,6 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-        with:
-          build-root-directory: app-src
 
       - name: Spotless apply
         working-directory: app-src
@@ -77,7 +75,13 @@ jobs:
 
       - name: Comment rich-content unit tests
         working-directory: app-src
-        run: ./gradlew :app:testReleaseUnitTest --tests 'eu.kanade.presentation.manga.comments.CommentRichContentTest'
+        shell: bash
+        run: |
+          set -o pipefail
+          ./gradlew :app:testReleaseUnitTest --tests 'eu.kanade.presentation.manga.comments.CommentRichContentTest' || {
+            find app/build/test-results/testReleaseUnitTest -type f -name '*.xml' -print -exec cat {} \;
+            exit 1
+          }
 
       - name: Release unit tests
         working-directory: app-src
