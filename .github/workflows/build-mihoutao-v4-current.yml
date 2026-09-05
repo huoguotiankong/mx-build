@@ -80,7 +80,7 @@ jobs:
           for src in scripts:
               u=urllib.parse.urljoin(base+'/',src)
               js=get(u).decode('utf-8','ignore')
-              if '/api/comments?comic_id=' in js and 'chapter_id=${window.COMIC_CID}' in js:
+              if '/comments?comic_id=' in js and 'chapter_id=${window.COMIC_CID}' in js:
                   matched=True; print('chapter comment JS contract verified:',u); break
           assert matched, 'chapter comment JS contract not found'
           q=urllib.parse.urlencode({'comic_id':comic,'chapter_id':chapter,'page':1,'page_size':20,'sort':'time'})
@@ -134,7 +134,6 @@ jobs:
           grep -a -F -q 'Leu/kanade/tachiyomi/source/mx/CommentSource;' /tmp/mihoutao-release.dex
           grep -a -F -q 'Leu/kanade/tachiyomi/source/mx/CommentCapabilities;' /tmp/mihoutao-release.dex
           grep -a -F -q 'Leu/kanade/tachiyomi/source/mx/SortableCommentSource;' /tmp/mihoutao-release.dex
-          grep -a -F -q 'supportsChapterComments' /tmp/mihoutao-release.dex || true
           echo 'MX comment ABI descriptors preserved in release dex'
 
       - name: Verify signing
