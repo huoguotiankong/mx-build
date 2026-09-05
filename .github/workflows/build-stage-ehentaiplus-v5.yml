@@ -6,6 +6,7 @@ on:
     paths:
       - ".github/workflows/build-stage-ehentaiplus-v5.yml"
       - ".github/scripts/fix_ehentaiplus_v5.py"
+      - ".github/scripts/fix_ehentaiplus_v5_post.py"
   workflow_dispatch:
 
 permissions:
@@ -51,6 +52,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 buildrepo/.github/scripts/fix_ehentaiplus_v5.py
+          python3 buildrepo/.github/scripts/fix_ehentaiplus_v5_post.py
           python3 source/scripts/validate_sources.py
           grep -q 'versionCode = 5' source/src/zh/ehentaiplus/build.gradle.kts
           grep -q 'imageUrlCache' source/src/zh/ehentaiplus/src/eu/kanade/tachiyomi/extension/zh/ehentaiplus/EHentaiPlus.kt
