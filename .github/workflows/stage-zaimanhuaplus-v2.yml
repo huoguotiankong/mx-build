@@ -30,6 +30,15 @@ jobs:
           [[ -n "$MANGA_SIGNING_BUNDLE" ]]
           [[ -n "$MX_PRIVATE_READ_TOKEN" ]]
 
+      - name: Checkout build helpers
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-build
+          ref: main
+          path: buildrepo
+          fetch-depth: 1
+          persist-credentials: false
+
       - name: Checkout current Keiyoushi framework
         uses: actions/checkout@v5
         with:
@@ -53,7 +62,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 .github/scripts/fix_zaimanhuaplus_v2.py
+          python3 buildrepo/.github/scripts/fix_zaimanhuaplus_v2.py
           target='dev/src/zh/zaimanhuaplus/res'
           rm -rf "$target"/mipmap-mdpi "$target"/mipmap-hdpi "$target"/mipmap-xhdpi "$target"/mipmap-xxhdpi "$target"/mipmap-xxxhdpi
           for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
