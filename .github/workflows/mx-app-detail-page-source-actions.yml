@@ -53,28 +53,22 @@ jobs:
 
           path = Path("app/src/main/java/eu/kanade/presentation/manga/components/MangaRatingDialog.kt")
           text = path.read_text(encoding="utf-8")
-          old = '''                        if (ratingInfo.averageScore != null) {
-                              Text(
-                                  "${stringResource(KMR.strings.mx_manga_rating_average)}：" +
-                                      "${formatRating(ratingInfo.averageScore)} / ${formatRating(max)}",
-                              )
-                          } else {
-                              Text(stringResource(KMR.strings.mx_manga_rating_no_data))
-                          }
-          '''
-          new = '''                        val averageScore = ratingInfo.averageScore
-                          if (averageScore != null) {
-                              Text(
-                                  "${stringResource(KMR.strings.mx_manga_rating_average)}：" +
-                                      "${formatRating(averageScore)} / ${formatRating(max)}",
-                              )
-                          } else {
-                              Text(stringResource(KMR.strings.mx_manga_rating_no_data))
-                          }
-          '''
-          if text.count(old) != 1:
-              raise SystemExit(f"rating average block mismatch: {text.count(old)}")
-          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          old_check = "                        if (ratingInfo.averageScore != null) {\n"
+          new_check = (
+              "                        val averageScore = ratingInfo.averageScore\n"
+              "                        if (averageScore != null) {\n"
+          )
+          if text.count(old_check) != 1:
+              raise SystemExit(f"rating average check mismatch: {text.count(old_check)}")
+          text = text.replace(old_check, new_check, 1)
+
+          old_value = "formatRating(ratingInfo.averageScore)"
+          if text.count(old_value) != 1:
+              raise SystemExit(f"rating average value mismatch: {text.count(old_value)}")
+          text = text.replace(old_value, "formatRating(averageScore)", 1)
+
+          path.write_text(text, encoding="utf-8")
           PY
 
       - name: Set up Java
