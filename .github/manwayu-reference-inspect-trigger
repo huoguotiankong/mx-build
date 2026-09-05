@@ -1,3 +1,3 @@
 requested=manwayuplus-v1.4.7
-reason=probe-current-comments-and-assets
-attempt=2
+reason=capture-current-comment-json
+attempt=3
