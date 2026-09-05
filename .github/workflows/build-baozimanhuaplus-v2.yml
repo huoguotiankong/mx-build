@@ -48,6 +48,12 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
       - name: Restore complete upstream Baozi baseline in Plus module
         shell: bash
         run: |
