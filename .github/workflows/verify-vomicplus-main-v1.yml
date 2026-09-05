@@ -1,0 +1,125 @@
+name: Verify Vomic Plus persisted v1
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/verify-vomicplus-main-v1.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Check secrets
+        env:
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MANGA_SIGNING_BUNDLE" ]]
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]]
+
+      - name: Checkout Keiyoushi
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          ref: 0ca8b46ec5229955a6a76b736de27642bca0808f
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout current MX source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: dev
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify persisted source shape and live comments
+        run: |
+          set -euo pipefail
+          python3 dev/scripts/validate_sources.py
+          grep -q 'versionCode = 1' dev/src/zh/vomicplus/build.gradle.kts
+          grep -q 'supportsMangaComments = true' dev/src/zh/vomicplus/src/eu/kanade/tachiyomi/extension/zh/vomicplus/VomicPlus.kt
+          grep -q 'supportsChapterComments = true' dev/src/zh/vomicplus/src/eu/kanade/tachiyomi/extension/zh/vomicplus/VomicPlus.kt
+          grep -q '.map { it.absoluteUrl() }' dev/src/zh/vomicplus/src/eu/kanade/tachiyomi/extension/zh/vomicplus/VomicPlus.kt
+          ! grep -q 'setSingleLine(true)' dev/src/zh/vomicplus/src/eu/kanade/tachiyomi/extension/zh/vomicplus/VomicPlus.kt
+          ! grep -q 'Preference(screen.context)' dev/src/zh/vomicplus/src/eu/kanade/tachiyomi/extension/zh/vomicplus/VomicPlus.kt
+          python3 - <<'PY'
+          import json,urllib.parse,urllib.request
+          base='http://43.143.245.32/pics/c/getCommentList_v1'
+          h={'host':'43.143.245.32','name':'pics','platform':'android','showsuccess':'false','showtoast':'false','version':'1.0.10','User-Agent':'Mozilla/5.0'}
+          for sort in ('hot','time'):
+              for chapter in (None,10671):
+                  p={'obj_id':12607,'page':1,'limit':30,'top_id':0,'score':0,'obj_type':'cartoon','sort':sort}
+                  if chapter is not None: p['chapter_id']=chapter
+                  req=urllib.request.Request(base+'?'+urllib.parse.urlencode(p),headers=h)
+                  with urllib.request.urlopen(req,timeout=20) as r: data=json.loads(r.read())
+                  assert isinstance(data.get('data'),dict),data
+          print('Persisted source shape and Vomic comments verified')
+          PY
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Overlay persisted source and official icon
+        run: |
+          set -euo pipefail
+          rm -rf upstream/src/zh/vomicplus
+          cp -a dev/src/zh/vomicplus upstream/src/zh/vomicplus
+          rm -rf upstream/src/zh/vomicplus/res
+          cp -a upstream/src/zh/vomic/res upstream/src/zh/vomicplus/res
+
+      - name: Format check debug and lint
+        working-directory: upstream
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:vomicplus:spotlessApply :src:zh:vomicplus:spotlessCheck
+          ./gradlew :src:zh:vomicplus:assembleDebug :src:zh:vomicplus:lintRelease
+
+      - name: Prepare signing
+        env:
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64,json,os
+          from pathlib import Path
+          b=json.loads(os.environ['MANGA_SIGNING_BUNDLE'])
+          Path('upstream/signingkey.jks').write_bytes(base64.b64decode(b['signingKey']))
+          with Path(os.environ['GITHUB_ENV']).open('a',encoding='utf-8') as f:
+              for e,k in (('ALIAS','alias'),('KEY_STORE_PASSWORD','storePassword'),('KEY_PASSWORD','keyPassword')):
+                  v=str(b[k]); print(f'::add-mask::{v}'); f.write(f'{e}<<EOF_SIGN\n{v}\nEOF_SIGN\n')
+          PY
+
+      - name: Build signed release and verify fixed signing plus MX ABI
+        working-directory: upstream
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:vomicplus:assembleRelease
+          fp="$(keytool -exportcert -alias "$ALIAS" -keystore signingkey.jks -storepass "$KEY_STORE_PASSWORD" | sha256sum | awk '{print $1}' | tr '[:upper:]' '[:lower:]')"
+          [[ "$fp" == '1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620' ]]
+          apk="$(find src/zh/vomicplus -path '*/build/outputs/apk/release/*.apk' -type f | head -n1)"
+          test -n "$apk"
+          apksigner="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n1)"
+          "$apksigner" verify "$apk"
+          unzip -p "$apk" classes.dex >/tmp/vomicplus.dex
+          grep -a -F -q 'Leu/kanade/tachiyomi/source/mx/CommentSource;' /tmp/vomicplus.dex
+          grep -a -F -q 'Leu/kanade/tachiyomi/source/mx/CommentCapabilities;' /tmp/vomicplus.dex
+          grep -a -F -q 'Leu/kanade/tachiyomi/source/mx/SortableCommentSource;' /tmp/vomicplus.dex
+          echo "Persisted mx-dev/main Vomic Plus v1 source verified: $fp"
+
+      - name: Cleanup
+        if: always()
+        run: rm -f upstream/signingkey.jks
