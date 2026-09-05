@@ -73,17 +73,24 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           p = Path('source/src/zh/ehentaiplus/src/eu/kanade/tachiyomi/extension/zh/ehentaiplus/EHentaiPlus.kt')
-          s = p.read_text('utf-8')
-          bad_regex = "        val reloadToken = Regex(\"nl\\\\('([^']+)'\\\\)\")"
-          good_regex = "        val reloadToken = Regex(\"\"\"nl\\\\('([^']+)'\\\\)\"\"\")"
-          if bad_regex not in s:
-              raise SystemExit('v4 Kotlin regex compatibility fix did not find expected line')
-          s = s.replace(bad_regex, good_regex, 1)
-          old_selectable = "            isSelectable = false\n"
-          if old_selectable not in s:
-              raise SystemExit('v4 Preference compatibility fix did not find expected line')
-          s = s.replace(old_selectable, "            setOnPreferenceClickListener { true }\n", 1)
-          p.write_text(s, 'utf-8')
+          lines = p.read_text('utf-8').splitlines()
+          regex_fixed = False
+          pref_fixed = False
+          out = []
+          for line in lines:
+              if 'val reloadToken = Regex(' in line:
+                  out.append('        val reloadToken = Regex("""nl\\(\'([^\']+)\'\\)""")')
+                  regex_fixed = True
+              elif line.strip() == 'isSelectable = false':
+                  out.append('            setOnPreferenceClickListener { true }')
+                  pref_fixed = True
+              else:
+                  out.append(line)
+          if not regex_fixed:
+              raise SystemExit('v4 Kotlin regex compatibility fix did not find reloadToken line')
+          if not pref_fixed:
+              raise SystemExit('v4 Preference compatibility fix did not find isSelectable line')
+          p.write_text('\n'.join(out) + '\n', 'utf-8')
           PY
           python3 source/scripts/validate_sources.py
           grep -q 'versionCode = 4' source/src/zh/ehentaiplus/build.gradle.kts
