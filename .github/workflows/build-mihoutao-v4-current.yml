@@ -1,4 +1,4 @@
-name: Build MiHouTao v4 Current
+name: Build MiHouTao v5 Comment ABI
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: build-mihoutao-v4-current
+  group: build-mihoutao-v5-comment-abi
   cancel-in-progress: false
 
 jobs:
@@ -49,7 +49,9 @@ jobs:
       - name: Validate current source
         run: |
           set -euo pipefail
-          grep -q 'versionCode = 4' dev/src/zh/mihoutao/build.gradle.kts
+          grep -q 'versionCode = 5' dev/src/zh/mihoutao/build.gradle.kts
+          grep -q 'proguardFiles("proguard-rules.pro")' dev/src/zh/mihoutao/build.gradle.kts
+          grep -q 'eu.kanade.tachiyomi.source.mx.\*\*' dev/src/zh/mihoutao/proguard-rules.pro
           grep -q 'MiHouTaoV4Base()' dev/src/zh/mihoutao/src/eu/kanade/tachiyomi/extension/zh/mihoutao/MiHouTaoManga.kt
           grep -q 'CommentSource' dev/src/zh/mihoutao/src/eu/kanade/tachiyomi/extension/zh/mihoutao/MiHouTaoEnhancedBase.kt
           grep -q 'ExtraCookieInterceptor' dev/src/zh/mihoutao/src/eu/kanade/tachiyomi/extension/zh/mihoutao/MiHouTaoV4Base.kt
@@ -93,6 +95,17 @@ jobs:
         run: |
           set -euo pipefail
           ./gradlew :src:zh:mihoutao:assembleDebug :src:zh:mihoutao:assembleRelease :src:zh:mihoutao:lintRelease
+
+      - name: Verify MX comment ABI survives R8
+        run: |
+          set -euo pipefail
+          apk="$(find upstream/src/zh/mihoutao -path '*/build/outputs/apk/release/*.apk' -type f | head -n1)"
+          test -n "$apk"
+          unzip -p "$apk" classes.dex > /tmp/mihoutao-release.dex
+          grep -a -F -q 'Leu/kanade/tachiyomi/source/mx/CommentSource;' /tmp/mihoutao-release.dex
+          grep -a -F -q 'Leu/kanade/tachiyomi/source/mx/CommentCapabilities;' /tmp/mihoutao-release.dex
+          grep -a -F -q 'Leu/kanade/tachiyomi/source/mx/SortableCommentSource;' /tmp/mihoutao-release.dex
+          echo 'MX comment ABI descriptors preserved in release dex'
 
       - name: Verify signing
         id: signing
@@ -140,7 +153,7 @@ jobs:
             --owner huoguotiankong \
             --repository mx-repo \
             --signing-key "$SIGNING_FINGERPRINT"
-          test -f staging/test/apk/tachiyomi-zh.mihoutao-v1.6.4.apk
+          test -f staging/test/apk/tachiyomi-zh.mihoutao-v1.6.5.apk
           python3 - <<'PY'
           import json
           from pathlib import Path
@@ -149,7 +162,7 @@ jobs:
           items=[x for x in data['extensionList']['extensions'] if x.get('packageName')==p]
           assert len(items)==1, items
           item=items[0]
-          assert (item.get('versionName'),item.get('versionCode'))==('1.6.4',106004), item
+          assert (item.get('versionName'),item.get('versionCode'))==('1.6.5',106005), item
           print('staged:',item.get('versionName'),item.get('versionCode'))
           PY
 
@@ -162,7 +175,7 @@ jobs:
           git add test
           git diff --cached --check
           if ! git diff --cached --quiet; then
-            git commit -m 'Stage MiHouTao v1.6.4 test store'
+            git commit -m 'Stage MiHouTao v1.6.5 test store'
             git push origin HEAD:extension-staging
           fi
 
@@ -175,14 +188,14 @@ jobs:
           data=json.load(open('/tmp/index.json',encoding='utf-8'))
           p='eu.kanade.tachiyomi.extension.zh.mihoutao'
           item=[x for x in data['extensionList']['extensions'] if x.get('packageName')==p][0]
-          assert (item.get('versionName'),item.get('versionCode'))==('1.6.4',106004), item
+          assert (item.get('versionName'),item.get('versionCode'))==('1.6.5',106005), item
           print('online staging verified')
           PY
 
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: mihoutao-v4-signed-test-apk
+          name: mihoutao-v5-signed-test-apk
           path: upstream/src/zh/mihoutao/**/build/outputs/apk/release/*.apk
           if-no-files-found: error
           retention-days: 14
@@ -190,7 +203,7 @@ jobs:
       - name: Upload formatted source
         uses: actions/upload-artifact@v4
         with:
-          name: mihoutao-v4-formatted-source
+          name: mihoutao-v5-formatted-source
           path: formatted-source
           if-no-files-found: error
           retention-days: 14
@@ -198,7 +211,7 @@ jobs:
       - name: Upload test store
         uses: actions/upload-artifact@v4
         with:
-          name: mihoutao-v4-test-store
+          name: mihoutao-v5-test-store
           path: staging/test
           if-no-files-found: error
           retention-days: 14
