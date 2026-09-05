@@ -113,25 +113,6 @@ jobs:
           echo "fingerprint=$expected" >> "$GITHUB_OUTPUT"
           echo "apk=$apk" >> "$GITHUB_OUTPUT"
 
-      - name: Generate isolated test store
-        env:
-          SIGNING_FINGERPRINT: ${{ steps.signing.outputs.fingerprint }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          printf '%s\n' 'zh/baozimanhuaplus' > targets.txt
-          python3 dev/scripts/publish_test_repo.py \
-            --targets targets.txt \
-            --upstream-root upstream \
-            --source-root dev \
-            --repo-dir teststore \
-            --owner huoguotiankong \
-            --repository mx-repo \
-            --signing-key "$SIGNING_FINGERPRINT"
-          test -f teststore/index.json
-          test -f teststore/repo.json
-          find teststore/apk -type f -name '*baozimanhuaplus*.apk' -print -quit | grep -q .
-
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
@@ -147,6 +128,27 @@ jobs:
           path: upstream/src/zh/baozimanhuaplus
           if-no-files-found: error
           retention-days: 14
+
+      - name: Generate isolated test store
+        env:
+          SIGNING_FINGERPRINT: ${{ steps.signing.outputs.fingerprint }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dev/src/zh/baozimanhuaplus/res
+          cp -a upstream/src/zh/baozimanhua/res dev/src/zh/baozimanhuaplus/res
+          printf '%s\n' 'zh/baozimanhuaplus' > targets.txt
+          python3 dev/scripts/publish_test_repo.py \
+            --targets targets.txt \
+            --upstream-root upstream \
+            --source-root dev \
+            --repo-dir teststore \
+            --owner huoguotiankong \
+            --repository mx-repo \
+            --signing-key "$SIGNING_FINGERPRINT"
+          test -f teststore/index.json
+          test -f teststore/repo.json
+          find teststore/apk -type f -name '*baozimanhuaplus*.apk' -print -quit | grep -q .
 
       - name: Upload isolated test store
         uses: actions/upload-artifact@v4
