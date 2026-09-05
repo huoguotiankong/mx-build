@@ -1,0 +1,89 @@
+name: Inspect ManwaYu Plus Reference
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/inspect-manwayuplus-reference.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Download reference APK and JADX
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -L --fail --retry 3 \
+            -o /tmp/manwayuplus.apk \
+            'https://raw.githubusercontent.com/LittleSurvival/copymanga-copy20/main/apk/tachiyomi-zh.manwayuplus-v1.4.7.apk'
+          curl -L --fail --retry 3 \
+            -o /tmp/jadx.zip \
+            'https://github.com/skylot/jadx/releases/download/v1.5.1/jadx-1.5.1.zip'
+          mkdir -p /tmp/jadx /tmp/manwayu-out
+          unzip -q /tmp/jadx.zip -d /tmp/jadx
+          /tmp/jadx/bin/jadx --show-bad-code --deobf -d /tmp/manwayu-out /tmp/manwayuplus.apk
+
+      - name: Collect reference implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p report/reference report/site
+          find /tmp/manwayu-out -type f | sort > report/all-files.txt
+          while IFS= read -r f; do
+            case "$f" in
+              *manwayuplus*|*Manwa*|*manwa*)
+                rel="${f#/tmp/manwayu-out/}"
+                mkdir -p "report/reference/$(dirname "$rel")"
+                cp "$f" "report/reference/$rel"
+                ;;
+            esac
+          done < report/all-files.txt
+
+          # Include useful decoded manifest/resources if present.
+          find /tmp/manwayu-out -type f \( -name 'AndroidManifest.xml' -o -name 'strings.xml' -o -name '*preferences*' \) -print0 | while IFS= read -r -d '' f; do
+            rel="${f#/tmp/manwayu-out/}"
+            mkdir -p "report/reference/$(dirname "$rel")"
+            cp "$f" "report/reference/$rel"
+          done
+
+          grep -RniE 'api/|image_source|线路|線路|筛选|篩選|comment|评论|評論|cate|areaId|pageSize|level|status|day|tag|manwa|mwzu|mwtu|mwtuwu' \
+            report/reference > report/reference-grep.txt || true
+
+          echo '=== package files ==='
+          find report/reference -type f | sort
+          echo '=== endpoint/settings excerpts ==='
+          sed -n '1,1200p' report/reference-grep.txt
+
+      - name: Probe current site assets and API hints
+        shell: bash
+        run: |
+          set -euo pipefail
+          UA='Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140.0 Mobile Safari/537.36'
+          for host in manwali.cc manwaye.cc; do
+            curl -L --fail --retry 2 -A "$UA" "https://$host/cate/" -o "report/site/${host}-cate.html" || true
+          done
+          grep -RhoE '<script[^>]+src=["'"'][^"'"']+' report/site/*.html 2>/dev/null | sed -E 's/.*src=["'"']//g' | sort -u > report/site/script-paths.txt || true
+          echo '=== site script paths ==='
+          cat report/site/script-paths.txt || true
+          echo '=== site API/filter hints ==='
+          grep -RniE 'api/|areaId|image_source|线路|線路|comment|评论|評論|level|status|day|tag' report/site || true
+
+      - name: Upload inspection report
+        uses: actions/upload-artifact@v4
+        with:
+          name: manwayuplus-reference-inspection
+          path: report
+          if-no-files-found: error
+          retention-days: 7
