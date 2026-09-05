@@ -1,0 +1,72 @@
+name: Build Qingman v1
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/build-qingman-v1.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check private source token
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+        run: test -n "$MX_PRIVATE_READ_TOKEN"
+
+      - name: Checkout development source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: dev
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout current Keiyoushi build framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          ref: main
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Overlay Qingman
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf upstream/src/zh/qingman
+          cp -a dev/src/zh/qingman upstream/src/zh/qingman
+          python3 dev/scripts/validate_sources.py
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Format check
+        working-directory: upstream
+        run: ./gradlew :src:zh:qingman:spotlessCheck
+
+      - name: Build debug APK
+        working-directory: upstream
+        run: ./gradlew :src:zh:qingman:assembleDebug
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: qingman-v1-debug-apk
+          path: upstream/src/zh/qingman/**/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
