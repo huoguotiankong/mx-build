@@ -79,13 +79,15 @@ jobs:
           s=s.replace('Preference(screen.context).apply {\n            key = LOGIN_ACTION_PREF','EditTextPreference(screen.context).apply {\n            key = LOGIN_ACTION_PREF')
           info='''\n        Preference(screen.context).apply {\n            title = "付费章节正文替换"\n            summary = "已启用 MX 章节替换入口。官方账号已解锁/已购买章节优先读取咚漫官方内容；未解锁章节可由 MX 选择其它已安装且可访问的漫画源替换，不绕过源站付费限制。"\n            isSelectable = false\n        }.also(screen::addPreference)\n'''
           s=s.replace(info,'\n')
+          s=s.replace('private var loginStatusPreference: Preference? = null','private var loginStatusPreference: EditTextPreference? = null')
           s=s.replace('import androidx.preference.Preference\n','')
           p.write_text(s,'utf-8')
           PY
           file='upstream/src/zh/dongmanmanhuaplus/src/eu/kanade/tachiyomi/extension/zh/dongmanmanhuaplus/DongmanManhuaPlus.kt'
           test "$(grep -Fc 'EditTextPreference(screen.context).apply {' "$file")" -ge 3
+          grep -Fq 'loginStatusPreference: EditTextPreference?' "$file"
           ! grep -Fq 'Preference(screen.context)' "$file"
-          nl -ba "$file" | sed -n '100,155p'
+          nl -ba "$file" | sed -n '78,160p'
           python3 dev/scripts/validate_sources.py
 
       - name: Set up Java
