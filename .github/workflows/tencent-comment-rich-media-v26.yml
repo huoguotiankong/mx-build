@@ -1,0 +1,237 @@
+name: Tencent Comment Rich Media v26
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/tencent-comment-rich-media-v26.yml"
+      - "scripts/patch_tencent_comment_rich_media_v26.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tencent-comment-rich-media-v26
+  cancel-in-progress: false
+
+jobs:
+  build-publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check required secrets
+        shell: bash
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+          MX_REPO_TOKEN: ${{ secrets.MX_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]] || { echo "::error::Missing MX_PRIVATE_READ_TOKEN"; exit 1; }
+          [[ -n "$MANGA_SIGNING_BUNDLE" ]] || { echo "::error::Missing MANGA_SIGNING_BUNDLE"; exit 1; }
+          [[ -n "$MX_REPO_TOKEN" ]] || { echo "::error::Missing MX_REPO_TOKEN"; exit 1; }
+
+      - name: Checkout build helper
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-build
+          ref: main
+          path: helper
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout Tencent v26 source branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: fix/tencent-comment-rich-media-v26
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply Tencent v26 source patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 helper/scripts/patch_tencent_comment_rich_media_v26.py source
+          python3 source/scripts/validate_sources.py
+          git -C source diff --check
+          grep -F 'versionCode = 26' source/src/zh/tencentcomics/build.gradle.kts
+          grep -F 'TENCENT_EMOJI_PACK_PREFIXES' source/src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+          grep -F 'commentInlineImageUrls' source/src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+          grep -F 'BARE_MEDIA_URL' source/src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Checkout current Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Overlay and format Tencent module
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf upstream/src/zh/tencentcomics
+          cp -a source/src/zh/tencentcomics upstream/src/zh/tencentcomics
+          cd upstream
+          ./gradlew :src:zh:tencentcomics:spotlessApply
+          cd ..
+          rm -rf source/src/zh/tencentcomics
+          cp -a upstream/src/zh/tencentcomics source/src/zh/tencentcomics
+          python3 source/scripts/validate_sources.py
+          git -C source diff --check
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          build-root-directory: upstream
+
+      - name: Verify formatting and compile
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew \
+            :src:zh:tencentcomics:spotlessCheck \
+            :src:zh:tencentcomics:assembleDebug \
+            :src:zh:tencentcomics:lintRelease
+
+      - name: Prepare stable extension signing key
+        shell: bash
+        env:
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, json, os
+          from pathlib import Path
+          bundle = json.loads(os.environ["MANGA_SIGNING_BUNDLE"])
+          required = ("signingKey", "alias", "storePassword", "keyPassword")
+          missing = [key for key in required if not bundle.get(key)]
+          if missing:
+              raise SystemExit(f"Signing bundle missing fields: {', '.join(missing)}")
+          Path("upstream/signingkey.jks").write_bytes(base64.b64decode(bundle["signingKey"]))
+          values = {
+              "ALIAS": str(bundle["alias"]),
+              "KEY_STORE_PASSWORD": str(bundle["storePassword"]),
+              "KEY_PASSWORD": str(bundle["keyPassword"]),
+          }
+          with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as f:
+              for name, value in values.items():
+                  print(f"::add-mask::{value}")
+                  f.write(f"{name}<<__MX_EXT_EOF__\n{value}\n__MX_EXT_EOF__\n")
+          PY
+
+      - name: Verify extension signing identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620"
+          actual="$(keytool -exportcert -alias "$ALIAS" -keystore upstream/signingkey.jks -storepass "$KEY_STORE_PASSWORD" | sha256sum | awk '{print $1}')"
+          actual="$(printf '%s' "$actual" | tr '[:upper:]' '[:lower:]')"
+          [[ "$actual" == "$expected" ]] || { echo "::error::Extension signing certificate mismatch"; exit 1; }
+          echo "SIGNING_FINGERPRINT=$actual" >> "$GITHUB_ENV"
+
+      - name: Build signed Tencent v26 release
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:tencentcomics:assembleRelease
+
+      - name: Verify signed APK and rich-media payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          apk="$(find upstream/src/zh/tencentcomics -path '*/build/outputs/apk/release/*.apk' -type f | sort | head -n 1)"
+          [[ -f "$apk" ]] || { echo "::error::Tencent release APK missing"; exit 1; }
+          cert_output="$("$apksigner" verify --print-certs "$apk" 2>&1)"
+          normalized="$(printf '%s' "$cert_output" | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')"
+          [[ "$normalized" == *"$SIGNING_FINGERPRINT"* ]] || { echo "::error::Tencent APK signing certificate mismatch"; exit 1; }
+          dump="$RUNNER_TEMP/tencent-v26-dex.txt"
+          : > "$dump"
+          while IFS= read -r dex; do unzip -p "$apk" "$dex" | strings >> "$dump"; done < <(unzip -Z1 "$apk" | grep -E '^classes([0-9]+)?\.dex$' || true)
+          grep -Fq 'TENCENT_EMOJI_PACK_PREFIXES' source/src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+          grep -Fq 'manhua.acimg.cn' source/docs/sources/tencentcomics.md
+          grep -Fq '【表情：' "$dump"
+          grep -Fq 'originalUrl' "$dump"
+
+      - name: Commit verified Tencent v26 source branch
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/zh/tencentcomics docs/sources/tencentcomics.md
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git commit -m "fix(tencentcomics): expand comment rich-media compatibility v26"
+            git push origin HEAD:fix/tencent-comment-rich-media-v26
+          fi
+
+      - name: Checkout public test repository
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-repo
+          ref: repo
+          token: ${{ secrets.MX_REPO_TOKEN }}
+          path: repo
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Generate Tencent v26 test-store update
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'zh/tencentcomics\n' > "$RUNNER_TEMP/tencent-v26-targets.txt"
+          python3 source/scripts/publish_test_repo.py \
+            --targets "$RUNNER_TEMP/tencent-v26-targets.txt" \
+            --upstream-root upstream \
+            --source-root source \
+            --repo-dir repo/test \
+            --owner huoguotiankong \
+            --repository mx-repo \
+            --signing-key "$SIGNING_FINGERPRINT"
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('repo/test/index.json').read_text('utf-8'))
+          versions = {x['packageName']: (x['versionName'], x['versionCode']) for x in data['extensionList']['extensions']}
+          expected = ('1.4.26', 104026)
+          actual = versions.get('eu.kanade.tachiyomi.extension.zh.tencentcomics')
+          if actual != expected:
+              raise SystemExit(f'Tencent test entry expected {expected}, got {actual}')
+          print('Tencent v26 test entry verified')
+          PY
+          test -f repo/test/apk/tachiyomi-zh.tencentcomics-v1.4.26.apk
+
+      - name: Publish Tencent v26 test store
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add test
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git commit -m "Publish Tencent Comics v26 rich-media test"
+            git push origin HEAD:repo
+          fi
+
+      - name: Cleanup signing material
+        if: always()
+        shell: bash
+        run: rm -f upstream/signingkey.jks
