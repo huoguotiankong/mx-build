@@ -1,0 +1,249 @@
+name: Build Vomic Plus v1
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/build-vomicplus-v1.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-vomicplus-v1
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - name: Check secrets
+        env:
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MANGA_SIGNING_BUNDLE" && -n "$MX_PRIVATE_READ_TOKEN" ]]
+
+      - name: Checkout Keiyoushi
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          ref: 0ca8b46ec5229955a6a76b736de27642bca0808f
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout MX source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: dev
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Validate current source
+        run: |
+          set -euo pipefail
+          grep -q 'versionCode = 1' dev/src/zh/vomicplus/build.gradle.kts
+          grep -q 'id = 8237640194557812301L' dev/src/zh/vomicplus/build.gradle.kts
+          grep -q 'supportsMangaComments = true' dev/src/zh/vomicplus/src/eu/kanade/tachiyomi/extension/zh/vomicplus/VomicPlus.kt
+          grep -q 'supportsChapterComments = true' dev/src/zh/vomicplus/src/eu/kanade/tachiyomi/extension/zh/vomicplus/VomicPlus.kt
+          grep -q 'getCommentList_v1' dev/src/zh/vomicplus/src/eu/kanade/tachiyomi/extension/zh/vomicplus/VomicPlus.kt
+          grep -q 'eu.kanade.tachiyomi.source.mx.\*\*' dev/src/zh/vomicplus/proguard-rules.pro
+          python3 dev/scripts/validate_sources.py
+          git -C dev diff --check
+
+      - name: Verify live Vomic public APIs
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, urllib.parse, urllib.request
+          base='http://43.143.245.32/pics'
+          h={'host':'43.143.245.32','name':'pics','platform':'android','showsuccess':'false','showtoast':'false','version':'1.0.10','User-Agent':'Mozilla/5.0'}
+          def get(path, params):
+              u=base+path+'?'+urllib.parse.urlencode(params)
+              req=urllib.request.Request(u,headers=h)
+              with urllib.request.urlopen(req,timeout=20) as r: return json.loads(r.read())
+          pop=get('/c/getCartoonList',{'cat_id':0,'page':1,'limit':12,'sort':'hot_value','sex':'','process':'','creativity':'全部'})
+          assert pop.get('code') in (None,200) and isinstance(pop.get('data'),list) and pop['data'], pop
+          detail=get('/c/getCartoonInfoV1',{'car_id':12607,'comment_id':''})
+          assert detail.get('code') in (None,200) and isinstance(detail.get('data'),dict), detail
+          for sort in ('hot','time'):
+              ch=get('/c/getCommentList_v1',{'obj_id':12607,'page':1,'limit':30,'top_id':0,'score':0,'obj_type':'cartoon','sort':sort,'chapter_id':10671})
+              book=get('/c/getCommentList_v1',{'obj_id':12607,'page':1,'limit':30,'top_id':0,'score':0,'obj_type':'cartoon','sort':sort})
+              assert ch.get('code') in (None,200) and isinstance(ch.get('data'),dict), ch
+              assert book.get('code') in (None,200) and isinstance(book.get('data'),dict), book
+          print('Vomic public list/detail/book-review/chapter-review APIs verified')
+          PY
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Overlay source and official Vomic icon
+        run: |
+          set -euo pipefail
+          rm -rf upstream/src/zh/vomicplus
+          cp -a dev/src/zh/vomicplus upstream/src/zh/vomicplus
+          rm -rf upstream/src/zh/vomicplus/res
+          cp -a upstream/src/zh/vomic/res upstream/src/zh/vomicplus/res
+
+      - name: Format and check
+        working-directory: upstream
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:vomicplus:spotlessApply
+          ./gradlew :src:zh:vomicplus:spotlessCheck
+
+      - name: Prepare signing key
+        env:
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64,json,os
+          from pathlib import Path
+          b=json.loads(os.environ['MANGA_SIGNING_BUNDLE'])
+          Path('upstream/signingkey.jks').write_bytes(base64.b64decode(b['signingKey']))
+          with Path(os.environ['GITHUB_ENV']).open('a',encoding='utf-8') as f:
+              for e,k in (('ALIAS','alias'),('KEY_STORE_PASSWORD','storePassword'),('KEY_PASSWORD','keyPassword')):
+                  v=str(b[k]); print(f'::add-mask::{v}'); f.write(f'{e}<<EOF_SIGN\n{v}\nEOF_SIGN\n')
+          PY
+
+      - name: Build debug release and lint
+        working-directory: upstream
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:vomicplus:assembleDebug :src:zh:vomicplus:assembleRelease :src:zh:vomicplus:lintRelease
+
+      - name: Verify MX comment ABI survives R8
+        run: |
+          set -euo pipefail
+          apk="$(find upstream/src/zh/vomicplus -path '*/build/outputs/apk/release/*.apk' -type f | head -n1)"
+          test -n "$apk"
+          unzip -p "$apk" classes.dex > /tmp/vomicplus-release.dex
+          grep -a -F -q 'Leu/kanade/tachiyomi/source/mx/CommentSource;' /tmp/vomicplus-release.dex
+          grep -a -F -q 'Leu/kanade/tachiyomi/source/mx/CommentCapabilities;' /tmp/vomicplus-release.dex
+          grep -a -F -q 'Leu/kanade/tachiyomi/source/mx/SortableCommentSource;' /tmp/vomicplus-release.dex
+          echo 'MX book/chapter comment ABI descriptors preserved in release dex'
+
+      - name: Verify signing
+        id: signing
+        run: |
+          set -euo pipefail
+          expected="$(keytool -exportcert -alias "$ALIAS" -keystore upstream/signingkey.jks -storepass "$KEY_STORE_PASSWORD" | sha256sum | awk '{print $1}' | tr '[:upper:]' '[:lower:]')"
+          designated='1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620'
+          [[ "$expected" == "$designated" ]]
+          apk="$(find upstream/src/zh/vomicplus -path '*/build/outputs/apk/release/*.apk' -type f | head -n1)"
+          test -n "$apk"
+          apksigner="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n1)"
+          "$apksigner" verify "$apk"
+          echo "fingerprint=$expected" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare formatted source snapshot
+        run: |
+          set -euo pipefail
+          rm -rf formatted-source
+          mkdir -p formatted-source
+          rsync -a --exclude build upstream/src/zh/vomicplus/ formatted-source/
+
+      - name: Checkout staging
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-build
+          ref: extension-staging
+          token: ${{ github.token }}
+          path: staging
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Generate test store
+        env:
+          SIGNING_FINGERPRINT: ${{ steps.signing.outputs.fingerprint }}
+        run: |
+          set -euo pipefail
+          rm -rf dev/src/zh/vomicplus
+          cp -a formatted-source dev/src/zh/vomicplus
+          printf '%s\n' 'zh/vomicplus' > targets.txt
+          python3 dev/scripts/publish_test_repo.py \
+            --targets targets.txt \
+            --upstream-root upstream \
+            --source-root dev \
+            --repo-dir staging/test \
+            --owner huoguotiankong \
+            --repository mx-repo \
+            --signing-key "$SIGNING_FINGERPRINT"
+          test -f staging/test/apk/tachiyomi-zh.vomicplus-v1.6.1.apk
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          data=json.loads(Path('staging/test/index.json').read_text('utf-8'))
+          p='eu.kanade.tachiyomi.extension.zh.vomicplus'
+          items=[x for x in data['extensionList']['extensions'] if x.get('packageName')==p]
+          assert len(items)==1, items
+          item=items[0]
+          assert (item.get('versionName'),item.get('versionCode'))==('1.6.1',106001), item
+          assert item['sources'][0]['id']==8237640194557812301, item
+          print('staged:',item.get('versionName'),item.get('versionCode'),item['sources'][0]['id'])
+          PY
+
+      - name: Commit staging
+        working-directory: staging
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add test
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git commit -m 'Stage Vomic Plus v1.6.1 test store'
+            git push origin HEAD:extension-staging
+          fi
+
+      - name: Verify staging online
+        run: |
+          set -euo pipefail
+          curl -L --fail --retry 5 -o /tmp/index.json 'https://raw.githubusercontent.com/huoguotiankong/mx-build/extension-staging/test/index.json'
+          python3 - <<'PY'
+          import json
+          data=json.load(open('/tmp/index.json',encoding='utf-8'))
+          p='eu.kanade.tachiyomi.extension.zh.vomicplus'
+          item=[x for x in data['extensionList']['extensions'] if x.get('packageName')==p][0]
+          assert (item.get('versionName'),item.get('versionCode'))==('1.6.1',106001), item
+          print('online staging verified')
+          PY
+
+      - name: Upload signed APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: vomicplus-v1-signed-test-apk
+          path: upstream/src/zh/vomicplus/**/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload formatted source
+        uses: actions/upload-artifact@v4
+        with:
+          name: vomicplus-v1-formatted-source
+          path: formatted-source
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload test store
+        uses: actions/upload-artifact@v4
+        with:
+          name: vomicplus-v1-test-store
+          path: staging/test
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Cleanup
+        if: always()
+        run: rm -f upstream/signingkey.jks
