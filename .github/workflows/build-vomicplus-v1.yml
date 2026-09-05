@@ -43,8 +43,8 @@ jobs:
           ref: main
           token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
           path: dev
-          fetch-depth: 1
-          persist-credentials: false
+          fetch-depth: 0
+          persist-credentials: true
 
       - name: Validate current source
         run: |
@@ -80,6 +80,130 @@ jobs:
               assert book.get('code') in (None,200) and isinstance(book.get('data'),dict), book
           print('Vomic public list/detail/book-review/chapter-review APIs verified')
           PY
+
+      - name: Patch current Keiyoushi compatibility
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('dev/src/zh/vomicplus/src/eu/kanade/tachiyomi/extension/zh/vomicplus/VomicPlus.kt')
+          text = path.read_text('utf-8')
+
+          text = text.replace('import androidx.preference.Preference\n', '')
+          text = text.replace('.map(String::absoluteUrl)', '.map { it.absoluteUrl() }')
+          text = text.replace(
+              'Vomic 需要登录：请在扩展设置中填写邮箱/手机号和密码后点击登录',
+              'Vomic 需要登录：请在扩展设置中填写邮箱/手机号和密码，保存密码后会自动登录',
+          )
+
+          start = text.index('    override fun setupPreferenceScreen(screen: PreferenceScreen) {')
+          end = text.index('    private fun performLogin(identity: String, password: String): String {')
+          replacement = '''    override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        val uiContext = screen.context
+
+        EditTextPreference(uiContext).apply {
+            key = EMAIL_KEY
+            title = "Vomic 邮箱或手机号"
+            dialogTitle = title
+            summary = preferences.getString(EMAIL_KEY, "").orEmpty().ifBlank { "未设置" }
+            setDefaultValue("")
+            setOnBindEditTextListener { editText -> editText.isSingleLine = true }
+            setOnPreferenceChangeListener { preference, newValue ->
+                val identity = (newValue as? String).orEmpty().trim()
+                (preference as EditTextPreference).summary = identity.ifBlank { "未设置" }
+                if (identity.isBlank()) {
+                    clearLogin("未登录")
+                } else {
+                    val password = preferences.getString(PASSWORD_KEY, "").orEmpty()
+                    if (password.isNotBlank()) {
+                        triggerLogin(uiContext, identity, password) { status ->
+                            Toast.makeText(uiContext, status, Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+                true
+            }
+        }.also(screen::addPreference)
+
+        EditTextPreference(uiContext).apply {
+            key = PASSWORD_KEY
+            title = "Vomic 密码"
+            dialogTitle = title
+            val saved = preferences.getString(PASSWORD_KEY, "").orEmpty()
+            summary = if (saved.isBlank()) "未设置" else "已设置（${saved.length} 位）"
+            setDefaultValue("")
+            setOnBindEditTextListener { editText ->
+                editText.isSingleLine = true
+                editText.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            }
+            setOnPreferenceChangeListener { preference, newValue ->
+                val password = (newValue as? String).orEmpty()
+                val passwordPreference = preference as EditTextPreference
+                passwordPreference.summary = if (password.isBlank()) "未设置" else "已设置（${password.length} 位）"
+                if (password.isBlank()) {
+                    clearLogin("未登录")
+                    Toast.makeText(uiContext, "已清除 Vomic 登录状态", Toast.LENGTH_SHORT).show()
+                } else {
+                    val identity = preferences.getString(EMAIL_KEY, "").orEmpty().trim()
+                    if (identity.isBlank()) {
+                        Toast.makeText(uiContext, "请先填写邮箱/手机号", Toast.LENGTH_SHORT).show()
+                    } else {
+                        triggerLogin(uiContext, identity, password) { status ->
+                            passwordPreference.summary = "已设置 · $status"
+                        }
+                    }
+                }
+                true
+            }
+        }.also(screen::addPreference)
+
+        ListPreference(uiContext).apply {
+            key = RESOLUTION_KEY
+            title = "正文图片画质"
+            entries = arrayOf("高清", "原画")
+            entryValues = arrayOf(RESOLUTION_HIGH, RESOLUTION_ORIGINAL)
+            setDefaultValue(RESOLUTION_HIGH)
+            summary = "%s"
+        }.also(screen::addPreference)
+
+        ListPreference(uiContext).apply {
+            key = CC_KEY
+            title = "简繁切换"
+            entries = arrayOf("简体", "繁體")
+            entryValues = arrayOf(CC_SIMPLIFIED, CC_TRADITIONAL)
+            setDefaultValue(CC_SIMPLIFIED)
+            summary = "%s · 同步转换漫画信息、章节名、搜索词和评论文字"
+        }.also(screen::addPreference)
+    }
+
+    private fun triggerLogin(
+        uiContext: android.content.Context,
+        identity: String,
+        password: String,
+        onStatus: (String) -> Unit,
+    ) {
+        Thread {
+            val status = runCatching { performLogin(identity, password) }
+                .getOrElse { error ->
+                    clearLogin("登录失败：${error.message.orEmpty().ifBlank { "网络或账号错误" }}")
+                    preferences.getString(LOGIN_STATUS_KEY, "登录失败") ?: "登录失败"
+                }
+            Handler(Looper.getMainLooper()).post {
+                onStatus(status)
+                Toast.makeText(uiContext, status, Toast.LENGTH_SHORT).show()
+            }
+        }.start()
+    }
+
+'''
+          text = text[:start] + replacement + text[end:]
+          path.write_text(text, 'utf-8')
+          PY
+          grep -q '.map { it.absoluteUrl() }' dev/src/zh/vomicplus/src/eu/kanade/tachiyomi/extension/zh/vomicplus/VomicPlus.kt
+          ! grep -q 'Preference(screen.context)' dev/src/zh/vomicplus/src/eu/kanade/tachiyomi/extension/zh/vomicplus/VomicPlus.kt
+          ! grep -q 'setSingleLine' dev/src/zh/vomicplus/src/eu/kanade/tachiyomi/extension/zh/vomicplus/VomicPlus.kt
+          git -C dev diff --check
 
       - name: Set up Java
         uses: actions/setup-java@v5
@@ -147,12 +271,14 @@ jobs:
           "$apksigner" verify "$apk"
           echo "fingerprint=$expected" >> "$GITHUB_OUTPUT"
 
-      - name: Prepare formatted source snapshot
+      - name: Sync validated formatted source
         run: |
           set -euo pipefail
-          rm -rf formatted-source
-          mkdir -p formatted-source
-          rsync -a --exclude build upstream/src/zh/vomicplus/ formatted-source/
+          rm -rf dev/src/zh/vomicplus
+          cp -a upstream/src/zh/vomicplus dev/src/zh/vomicplus
+          rm -rf dev/src/zh/vomicplus/build
+          python3 dev/scripts/validate_sources.py
+          git -C dev diff --check
 
       - name: Checkout staging
         uses: actions/checkout@v5
@@ -169,8 +295,6 @@ jobs:
           SIGNING_FINGERPRINT: ${{ steps.signing.outputs.fingerprint }}
         run: |
           set -euo pipefail
-          rm -rf dev/src/zh/vomicplus
-          cp -a formatted-source dev/src/zh/vomicplus
           printf '%s\n' 'zh/vomicplus' > targets.txt
           python3 dev/scripts/publish_test_repo.py \
             --targets targets.txt \
@@ -220,6 +344,21 @@ jobs:
           print('online staging verified')
           PY
 
+      - name: Commit validated source to private development repository
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          git -C dev config user.name 'github-actions[bot]'
+          git -C dev config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C dev add src/zh/vomicplus
+          if git -C dev diff --cached --quiet; then
+            echo 'Vomic Plus source is already current'
+          else
+            git -C dev commit -m 'fix(vomicplus): align v1 with current Keiyoushi preferences'
+            git -C dev pull --rebase origin main
+            git -C dev push origin HEAD:main
+          fi
+
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
@@ -232,7 +371,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: vomicplus-v1-formatted-source
-          path: formatted-source
+          path: dev/src/zh/vomicplus
           if-no-files-found: error
           retention-days: 14
 
