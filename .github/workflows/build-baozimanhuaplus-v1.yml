@@ -1,0 +1,161 @@
+name: Build Baozi Manhua Plus v1
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/build-baozimanhuaplus-v1.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-baozimanhuaplus-v1
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check required secrets
+        env:
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "$MANGA_SIGNING_BUNDLE" ]]
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]]
+
+      - name: Checkout current Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout MX development source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: dev
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Overlay Baozi Manhua Plus and preserve official icon
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f dev/src/zh/baozimanhuaplus/build.gradle.kts
+          grep -q 'versionCode = 1' dev/src/zh/baozimanhuaplus/build.gradle.kts
+          rm -rf upstream/src/zh/baozimanhuaplus
+          cp -a dev/src/zh/baozimanhuaplus upstream/src/zh/baozimanhuaplus
+          rm -rf upstream/src/zh/baozimanhuaplus/res
+          cp -a upstream/src/zh/baozimanhua/res upstream/src/zh/baozimanhuaplus/res
+          for d in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            test -f "upstream/src/zh/baozimanhuaplus/res/mipmap-${d}/ic_launcher.png"
+          done
+
+      - name: Format and static validation
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:baozimanhuaplus:spotlessApply
+          ./gradlew :src:zh:baozimanhuaplus:spotlessCheck
+
+      - name: Prepare signing key
+        env:
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, json, os
+          from pathlib import Path
+          b=json.loads(os.environ['MANGA_SIGNING_BUNDLE'])
+          Path('upstream/signingkey.jks').write_bytes(base64.b64decode(b['signingKey']))
+          with Path(os.environ['GITHUB_ENV']).open('a', encoding='utf-8') as f:
+              for e,k in (('ALIAS','alias'),('KEY_STORE_PASSWORD','storePassword'),('KEY_PASSWORD','keyPassword')):
+                  v=str(b[k]); print(f'::add-mask::{v}'); f.write(f'{e}<<EOF_SIGN\n{v}\nEOF_SIGN\n')
+          PY
+
+      - name: Build debug, signed release and lint
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:baozimanhuaplus:assembleDebug :src:zh:baozimanhuaplus:assembleRelease :src:zh:baozimanhuaplus:lintRelease
+
+      - name: Verify signing identity
+        id: signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(keytool -exportcert -alias "$ALIAS" -keystore upstream/signingkey.jks -storepass "$KEY_STORE_PASSWORD" | sha256sum | awk '{print $1}' | tr '[:upper:]' '[:lower:]')"
+          designated='1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620'
+          [[ "$expected" == "$designated" ]]
+          apk="$(find upstream/src/zh/baozimanhuaplus -path '*/build/outputs/apk/release/*.apk' -type f | head -n1)"
+          test -n "$apk"
+          apksigner="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n1)"
+          "$apksigner" verify "$apk"
+          echo "fingerprint=$expected" >> "$GITHUB_OUTPUT"
+          echo "apk=$apk" >> "$GITHUB_OUTPUT"
+
+      - name: Generate isolated test store
+        env:
+          SIGNING_FINGERPRINT: ${{ steps.signing.outputs.fingerprint }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' 'zh/baozimanhuaplus' > targets.txt
+          python3 dev/scripts/publish_test_repo.py \
+            --targets targets.txt \
+            --upstream-root upstream \
+            --source-root dev \
+            --repo-dir teststore \
+            --owner huoguotiankong \
+            --repository mx-repo \
+            --signing-key "$SIGNING_FINGERPRINT"
+          test -f teststore/index.json
+          test -f teststore/repo.json
+          find teststore/apk -type f -name '*baozimanhuaplus*.apk' -print -quit | grep -q .
+
+      - name: Upload signed APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: baozimanhuaplus-v1-signed-test-apk
+          path: upstream/src/zh/baozimanhuaplus/**/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload formatted source candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: baozimanhuaplus-v1-formatted-source
+          path: upstream/src/zh/baozimanhuaplus
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload isolated test store
+        uses: actions/upload-artifact@v4
+        with:
+          name: baozimanhuaplus-v1-test-store
+          path: teststore
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Cleanup signing material
+        if: always()
+        run: rm -f upstream/signingkey.jks
