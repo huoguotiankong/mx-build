@@ -1,0 +1,105 @@
+name: Patch NoyAcg Plus Popular v3
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/patch-noyacgplus-popular-v3.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout private source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Patch popular feed and version
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          src = Path('source/src/zh/noyacgplus/src/eu/kanade/tachiyomi/extension/zh/noyacgplus/NoyAcgPlus.kt')
+          text = src.read_text('utf-8')
+          old = '''    override suspend fun getPopularManga(page: Int): MangasPage {
+        ensureSessionAndSign()
+        val body = FormBody.Builder()
+            .add("type", prefs.getString(POPULAR_PREF, "day") ?: "day")
+            .add("page", page.toString())
+            .build()
+        return listing(client.post("$baseUrl/api/readLeaderboard", body), page)
+    }
+'''
+          new = '''    override suspend fun getPopularManga(page: Int): MangasPage {
+        ensureSessionAndSign()
+        val safePage = page.coerceAtLeast(1)
+        val rankType = when (prefs.getString(POPULAR_PREF, "day") ?: "day") {
+            "month" -> "moon"
+            else -> prefs.getString(POPULAR_PREF, "day") ?: "day"
+        }
+        val rankingBody = FormBody.Builder()
+            .add("type", rankType)
+            .add("page", safePage.toString())
+            .build()
+        val ranking = listing(client.post("$baseUrl/api/readLeaderboard", rankingBody), safePage)
+        if (ranking.mangas.isNotEmpty()) return ranking
+
+        val fallbackBody = FormBody.Builder()
+            .add("page", safePage.toString())
+            .add("sort", "views")
+            .add("finished", "")
+            .build()
+        return listing(client.post("$baseUrl/api/b1/booklist", fallbackBody), safePage)
+    }
+'''
+          if old not in text:
+              raise SystemExit('Expected getPopularManga block not found; source changed')
+          src.write_text(text.replace(old, new, 1), 'utf-8')
+
+          pref = Path('source/src/zh/noyacgplus/src/eu/kanade/tachiyomi/extension/zh/noyacgplus/Preferences.kt')
+          ptext = pref.read_text('utf-8')
+          ptext = ptext.replace('entryValues = arrayOf("day", "week", "month")', 'entryValues = arrayOf("day", "week", "moon")')
+          pref.write_text(ptext, 'utf-8')
+
+          gradle = Path('source/src/zh/noyacgplus/build.gradle.kts')
+          gtext = gradle.read_text('utf-8')
+          if 'versionCode = 2' not in gtext:
+              raise SystemExit('Expected versionCode 2 not found')
+          gradle.write_text(gtext.replace('versionCode = 2', 'versionCode = 3', 1), 'utf-8')
+          PY
+          python3 source/scripts/validate_sources.py
+          git -C source diff --check
+          grep -q 'versionCode = 3' source/src/zh/noyacgplus/build.gradle.kts
+          grep -q 'sort", "views"' source/src/zh/noyacgplus/src/eu/kanade/tachiyomi/extension/zh/noyacgplus/NoyAcgPlus.kt
+          grep -q '"moon"' source/src/zh/noyacgplus/src/eu/kanade/tachiyomi/extension/zh/noyacgplus/Preferences.kt
+
+      - name: Commit v3 to private source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C source config user.name "github-actions[bot]"
+          git -C source config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C source add \
+            src/zh/noyacgplus/build.gradle.kts \
+            src/zh/noyacgplus/src/eu/kanade/tachiyomi/extension/zh/noyacgplus/NoyAcgPlus.kt \
+            src/zh/noyacgplus/src/eu/kanade/tachiyomi/extension/zh/noyacgplus/Preferences.kt
+          if git -C source diff --cached --quiet; then
+            echo 'NoyAcg Plus v3 patch already applied'
+          else
+            git -C source commit -m 'fix(noyacgplus): fallback popular feed and month rank'
+            git -C source pull --rebase origin main
+            git -C source push origin HEAD:main
+          fi
