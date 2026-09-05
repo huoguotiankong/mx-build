@@ -56,9 +56,11 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Format check
+      - name: Apply and verify formatting
         working-directory: upstream
-        run: ./gradlew :src:zh:qingman:spotlessCheck
+        run: |
+          ./gradlew :src:zh:qingman:spotlessApply
+          ./gradlew :src:zh:qingman:spotlessCheck
 
       - name: Build debug APK
         working-directory: upstream
