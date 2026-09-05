@@ -1,3 +1,4 @@
+# Trigger: signed detail preview for feat/detail-page-source-actions
 name: MX Detail Page Current Preview
 
 on:
