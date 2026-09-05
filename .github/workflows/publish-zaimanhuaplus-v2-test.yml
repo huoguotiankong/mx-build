@@ -1,0 +1,164 @@
+name: Publish Zaimanhua Plus v1.4.2 Test
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/publish-zaimanhuaplus-v2-test.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-zaimanhuaplus-v2-test
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check required secrets
+        shell: bash
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+          MX_REPO_TOKEN: ${{ secrets.MX_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]]
+          [[ -n "$MANGA_SIGNING_BUNDLE" ]]
+          [[ -n "$MX_REPO_TOKEN" ]]
+
+      - name: Checkout build handoff
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-build
+          ref: main
+          path: helper
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout MX source tools
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout current Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          ref: main
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Overlay validated v1.4.2 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          module='helper/.github/handoff/zaimanhuaplus-v2/module'
+          test -f "$module/build.gradle.kts"
+          grep -q 'versionCode = 2' "$module/build.gradle.kts"
+          rm -rf source/src/zh/zaimanhuaplus upstream/src/zh/zaimanhuaplus
+          cp -a "$module" source/src/zh/zaimanhuaplus
+          cp -a "$module" upstream/src/zh/zaimanhuaplus
+          python3 source/scripts/validate_sources.py
+          for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            find "$module/res/mipmap-$density" -maxdepth 1 -type f -name 'ic_launcher.*' | grep -q .
+          done
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Prepare stable signing key
+        shell: bash
+        env:
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64,json,os
+          from pathlib import Path
+          b=json.loads(os.environ['MANGA_SIGNING_BUNDLE'])
+          required=('signingKey','alias','storePassword','keyPassword')
+          missing=[k for k in required if not b.get(k)]
+          if missing: raise SystemExit('Signing bundle missing: '+', '.join(missing))
+          Path('upstream/signingkey.jks').write_bytes(base64.b64decode(b['signingKey']))
+          with Path(os.environ['GITHUB_ENV']).open('a',encoding='utf-8') as f:
+              for e,k in (('ALIAS','alias'),('KEY_STORE_PASSWORD','storePassword'),('KEY_PASSWORD','keyPassword')):
+                  v=str(b[k]); print(f'::add-mask::{v}'); f.write(f'{e}<<EOF_SIGN\n{v}\nEOF_SIGN\n')
+          PY
+
+      - name: Build and verify release
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:zaimanhuaplus:spotlessCheck :src:zh:zaimanhuaplus:assembleRelease
+          actual="$(keytool -exportcert -alias "$ALIAS" -keystore signingkey.jks -storepass "$KEY_STORE_PASSWORD" | sha256sum | awk '{print $1}' | tr '[:upper:]' '[:lower:]')"
+          expected='1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620'
+          [[ "$actual" == "$expected" ]]
+          echo "SIGNING_FINGERPRINT=$actual" >> "$GITHUB_ENV"
+          apk="$(find src/zh/zaimanhuaplus -path '*/build/outputs/apk/release/*.apk' -type f | head -n1)"
+          test -n "$apk"
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n1)"
+          "$apksigner" verify "$apk"
+
+      - name: Checkout public test repository
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-repo
+          ref: repo
+          token: ${{ secrets.MX_REPO_TOKEN }}
+          path: repo
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Generate v1.4.2 test store
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'zh/zaimanhuaplus\n' > targets.txt
+          python3 source/scripts/publish_test_repo.py \
+            --targets targets.txt \
+            --upstream-root upstream \
+            --source-root source \
+            --repo-dir repo/test \
+            --owner huoguotiankong \
+            --repository mx-repo \
+            --signing-key "$SIGNING_FINGERPRINT"
+          test -f repo/test/apk/tachiyomi-zh.zaimanhuaplus-v1.4.2.apk
+          grep -q 'tachiyomi-zh.zaimanhuaplus-v1.4.2.apk' repo/test/index.json
+
+      - name: Publish public test store
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add test
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo 'Public test store already current'
+          else
+            git commit -m 'Publish Zaimanhua Plus v1.4.2 login and icon fix'
+            git push origin HEAD:repo
+          fi
+
+      - name: Cleanup signing material
+        if: always()
+        run: rm -f upstream/signingkey.jks
