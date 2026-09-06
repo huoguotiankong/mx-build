@@ -29,7 +29,7 @@ jobs:
             /tmp/blutter/dartsdk
             /tmp/blutter/packages
           key: qingman-blutter-dart-3.12.2-arm64-v1
-      - name: Annotate bootstrap object-pool loads
+      - name: Locate structural references globally
         shell: bash
         run: |
           set -euo pipefail
@@ -52,77 +52,73 @@ jobs:
           from elftools.elf.elffile import ELFFile
           from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM
 
-          START=0x515780
-          END=0x516160
-          pp_lines=Path('/tmp/blutter-out/pp.txt').read_text(encoding='utf-8',errors='replace').splitlines()
           pp={}
-          for line in pp_lines:
+          for line in Path('/tmp/blutter-out/pp.txt').read_text(encoding='utf-8',errors='replace').splitlines():
               m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s*(.*)$',line)
               if m: pp[int(m.group(1),16)]=m.group(2)
 
-          safe_words=(
-              'bootstrap','nonce','sign','apiDomain','appAccessToken','Content-Type','packageName',
-              'buildNumber','buildSignature','installerStore','timestamp','deviceId','requestId',
-              'canonicalRequest','X-QM-','X-Timestamp','X-Signature','body','code','msg','platform',
-              'appVersion','User-Agent','Accept','Field <upb.','AnonymousClosure','Type: Map'
-          )
-          def safe_desc(off):
+          targets={
+              0x8e10,0x8e30,0x8e38,0x8e40,0x90a0,0x96d8,
+              0xbfd0,0xbfd8,0xbfe0,0xbfe8,0xbff0,0xbff8,
+              0xc000,0xc008,0xc010,0xc018,0xc020,0xc028,0xc030,0xc038,0xc040,
+              0xc048,0xc050,0xc058,0xc060,0xc090,0xc098,0xc0a0,0xc0a8,0xc0b8,
+              0xc128,0xc138,0xc140,0xc148,0xc150,
+          }
+          safe_words=('bootstrap','nonce','sign','apiDomain','appAccessToken','Content-Type','timestamp',
+                      'deviceId','requestId','canonicalRequest','X-QM-','X-Timestamp','X-Signature','body',
+                      'code','msg','Field <upb.','AnonymousClosure','Type: Map')
+          def desc(off):
               s=pp.get(off,'')
-              if not s: return ''
-              if any(w.lower() in s.lower() for w in safe_words): return s
-              if s.startswith(('Field <upb.','AnonymousClosure:','Type: Map')): return s
-              return '<non-structural pool entry>'
+              if any(w.lower() in s.lower() for w in safe_words) or s.startswith(('Field <upb.','AnonymousClosure:','Type: Map')):
+                  return s
+              return '<structural target>'
 
           with open('/tmp/app-lib/libapp.so','rb') as f:
               elf=ELFFile(f)
-              sec=None
-              for s in elf.iter_sections():
-                  a=s['sh_addr']; z=s['sh_size']
-                  if a <= START < a+z:
-                      sec=s; break
-              if sec is None: raise SystemExit('code section not found')
-              data=sec.data()[START-sec['sh_addr']:END-sec['sh_addr']]
+              sec=elf.get_section_by_name('.text')
+              if sec is None:
+                  # Flutter AOT sometimes places code in another executable section.
+                  sec=next(s for s in elf.iter_sections() if (s['sh_flags'] & 0x4) and s['sh_size']>0x100000)
+              base=sec['sh_addr']; data=sec.data()
 
           md=Cs(CS_ARCH_ARM64, CS_MODE_ARM)
-          md.detail=False
-          tracked={}
-          def regnorm(x): return x.strip().lower()
-          print('=== annotated bootstrap machine code ===')
-          for ins in md.disasm(data,START):
-              text=f'{ins.address:08x}: {ins.mnemonic:<7} {ins.op_str}'
-              ann=[]
+          insns=list(md.disasm(data,base))
+          hits=[]
+          # Pool loads are usually ADD xN, PP(x27), #page followed closely by LDR xM,[xN,#disp].
+          pending={}
+          for idx,ins in enumerate(insns):
               op=ins.op_str.lower()
-              # Track common Dart PP materialization: add xN, x27, #imm [, lsl #12]
+              # age pending bases to avoid carrying dataflow across arbitrary code.
+              pending={r:(b,ttl-1) for r,(b,ttl) in pending.items() if ttl>1}
               m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
               if ins.mnemonic=='add' and m:
-                  imm=int(m.group(2),0); shift=int(m.group(3) or 0)
-                  tracked[regnorm(m.group(1))]=imm << shift
-                  ann.append(f'PPBASE=0x{tracked[regnorm(m.group(1))]:x}')
-              # Direct register copy from PP.
-              m2=re.match(r'(x\d+),\s*x27$',op)
-              if ins.mnemonic=='mov' and m2:
-                  tracked[regnorm(m2.group(1))]=0
-              # LDR/LDUR through x27 or a tracked PP-derived register.
+                  pending[m.group(1)]=(int(m.group(2),0) << int(m.group(3) or 0),6)
               if ins.mnemonic in ('ldr','ldur','ldrsw'):
                   mm=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
                   if mm:
-                      base=regnorm(mm.group(2)); disp=int(mm.group(3),0) if mm.group(3) else 0
-                      if base=='x27' or base in tracked:
-                          off=(0 if base=='x27' else tracked[base])+disp
-                          ann.append(f'PP+0x{off:x} => {safe_desc(off)}')
-              # ADRP/add can overwrite a tracked register; common arithmetic other than PP-add invalidates it.
-              dest=None
-              dm=re.match(r'([xw]\d+),',op)
-              if dm: dest=dm.group(1).replace('w','x',1)
-              if dest and ins.mnemonic not in ('add','mov','ldr','ldur','ldrsw') and dest in tracked:
-                  tracked.pop(dest,None)
-              # Print all control flow plus PP-related instructions; this keeps logs compact.
-              if ann or ins.mnemonic in ('bl','blr','ret','b','b.eq','b.ne','cbz','cbnz','tbz','tbnz'):
-                  print(text + (('    ; '+' | '.join(ann)) if ann else ''))
-          print('=== safe structural pool entries referenced by range ===')
-          # Explicitly print known safe neighborhood for correlation, never arbitrary pool strings.
-          for off in sorted(pp):
-              if 0xbfc0 <= off <= 0xc160:
-                  d=safe_desc(off)
-                  if d and d!='<non-structural pool entry>': print(f'PP+0x{off:x}: {d}')
+                      br=mm.group(2); disp=int(mm.group(3),0) if mm.group(3) else 0
+                      off=None
+                      if br=='x27': off=disp
+                      elif br in pending: off=pending[br][0]+disp
+                      if off in targets:
+                          hits.append((idx,ins.address,off))
+          print('=== target reference hits ===')
+          for idx,addr,off in hits:
+              print(f'0x{addr:x} -> PP+0x{off:x} {desc(off)}')
+          print('=== grouped code windows ===')
+          # Merge overlapping windows around hits so main bootstrap construction is readable.
+          ranges=[]
+          for idx,_,_ in hits:
+              a=max(0,idx-18); b=min(len(insns),idx+26)
+              if ranges and a <= ranges[-1][1]+4: ranges[-1]=(ranges[-1][0],max(ranges[-1][1],b))
+              else: ranges.append((a,b))
+          hit_by_addr={addr:(off,desc(off)) for _,addr,off in hits}
+          for a,b in ranges:
+              print(f'\n--- 0x{insns[a].address:x}..0x{insns[b-1].address:x} ---')
+              for ins in insns[a:b]:
+                  extra=''
+                  if ins.address in hit_by_addr:
+                      off,d=hit_by_addr[ins.address]; extra=f' ; TARGET PP+0x{off:x} {d}'
+                  print(f'{ins.address:08x}: {ins.mnemonic:<7} {ins.op_str}{extra}')
+          print('hit_count=',len(hits))
           PY
