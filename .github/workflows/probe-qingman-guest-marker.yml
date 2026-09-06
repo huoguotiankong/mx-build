@@ -1,0 +1,37 @@
+name: Inspect Qingman Guest Mode Markers
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-guest-marker.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Inspect current official APK guest-mode strings
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/apk_url
+          import json, urllib.request, sys
+          a=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))['data']['datas']['android']
+          print(a['downloadUrl'])
+          print('OFFICIAL_VERSION='+str(a.get('version','')), file=sys.stderr)
+          print('OFFICIAL_VERSION_CODE='+str(a.get('versionCode','')), file=sys.stderr)
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(head -1 /tmp/apk_url)" -o /tmp/qingman.apk
+          unzip -q -j /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' -d /tmp/qm
+
+          echo '=== GUEST_MARKERS ==='
+          strings -a /tmp/qm/libapp.so \
+            | grep -Ei 'guest/login|guest mode|guest_|qm_guest|qm_is_guest|isGuest|QxGuestService|游客|api/appapi/user/.*/login|X-Register-Channel|deviceId|userName' \
+            | grep -Eiv 'password|token|cookie|authorization|bearer|private|certificate|proof|signature|clientp12' \
+            | sort -u \
+            | head -250
