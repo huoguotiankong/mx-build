@@ -1,4 +1,4 @@
-name: Trace Qingman mTLS Client Setup Flow
+name: Trace Qingman QxNet mTLS Wrapper Callers
 
 on:
   push:
@@ -32,7 +32,7 @@ jobs:
             /tmp/blutter/packages
           key: qingman-blutter-dart-3.12.2-arm64-v1
 
-      - name: Trace safe mTLS setup metadata
+      - name: Trace safe QxNet and mTLS caller metadata
         shell: bash
         run: |
           set -euo pipefail
@@ -58,137 +58,150 @@ jobs:
           from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
           from elftools.elf.elffile import ELFFile
 
-          # Only metadata/control-flow names are allowed to be printed. No credential values/blobs.
-          targets = [
-              'getCaCert',
-              'getClientP12',
-              'getClientP12Password',
-              'SecurityContext_UsePrivateKeyBytes',
-              'SecurityContext_SetTrustedCertificatesBytes',
-              'SecurityContext_UseCertificateChainBytes',
-              'SecurityContext',
-              'HttpClient',
-              'IOHttpClientAdapter',
-              'createHttpClient',
-              'badCertificateCallback',
-              'qx/security',
+          # Fixed wrapper entry points established by the previous safe probe.
+          wrappers={
+              0xaacc00:'getClientP12Password_wrapper',
+              0xaacc80:'getCaCert_wrapper',
+              0xaacd00:'getClientP12_wrapper',
+          }
+          target_strings=[
+              'App startup detail: QxNet adapter configured',
+              'getCaCert','getClientP12','getClientP12Password',
           ]
-          allowed_exact=set(targets)
-          allowed_fragments=(
-              'mTLS','mtls','SecurityContext','HttpClient','client cert','client certificate',
-              '证书','双向','TLS','apiDomain','bootstrap','Dio','adapter'
+          safe_fragments=(
+              'QxNet','adapter','HttpClient','SecurityContext','TLS','mTLS','mtls','bootstrap','apiDomain',
+              '网络','证书','双向','安全','client','Dio'
           )
-          hard_sensitive=re.compile(r'(?i)(password|private|clientp12|certificate|cert|token|secret|cookie|authorization|bearer|proof|signature|seed|k1a|k1b|k2a|k2b|k3a|k3b)')
+          sensitive=re.compile(r'(?i)(password|private|clientp12|certificate|cert|token|secret|cookie|authorization|bearer|proof|signature|seed|k1a|k1b|k2a|k2b|k3a|k3b)')
+          exact_allowed=set(target_strings)
 
           pp_lines=Path('/tmp/blutter-out/pp.txt').read_text('utf-8',errors='replace').splitlines()
-          pp={}
-          string_by_off={}
+          pp={}; strings={}
           for line in pp_lines:
               m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s+(.*)$',line)
               if not m: continue
               off=int(m.group(1),16); val=m.group(2); pp[off]=val
               sm=re.fullmatch(r'String: "(.*)"',val)
-              if sm: string_by_off[off]=sm.group(1)
+              if sm: strings[off]=sm.group(1)
 
-          print('=== TARGET POOL OFFSETS ===')
-          target_offsets={}
-          for t in targets:
-              offs=[off for off,s in string_by_off.items() if s==t]
-              target_offsets[t]=offs
-              print(f'{t}: '+(','.join(f'0x{x:x}' for x in offs) if offs else '<not-in-object-pool>'))
+          target_offs={}
+          for t in target_strings:
+              for off,s in strings.items():
+                  if s==t: target_offs[off]=t
+          print('=== TARGET STRING OFFSETS ===')
+          for off,name in sorted(target_offs.items()): print(f'{name}: PP+0x{off:x}')
 
-          print('=== SAFE NETWORK CONTROL STRINGS ===')
-          shown=0
-          for off,s in sorted(string_by_off.items()):
-              if shown>=100: break
-              if not any(f.lower() in s.lower() for f in allowed_fragments): continue
-              # Never print values that could themselves be credentials; method/control names remain allowed.
-              if hard_sensitive.search(s) and s not in allowed_exact:
-                  continue
-              if len(s)>220: continue
+          print('=== SAFE QXNET STRINGS ===')
+          for off,s in sorted(strings.items()):
+              if not any(x.lower() in s.lower() for x in safe_fragments): continue
+              if sensitive.search(s) and s not in exact_allowed: continue
+              if len(s)>200: continue
               print(f'PP+0x{off:x}: {s}')
-              shown+=1
 
           with open('/tmp/app-lib/libapp.so','rb') as f:
-              elf=ELFFile(f)
-              sec=elf.get_section_by_name('.text')
+              elf=ELFFile(f); sec=elf.get_section_by_name('.text')
               base=int(sec['sh_addr']); data=sec.data()
           md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.skipdata=True
           ins=list(md.disasm(data,base))
+          addr_to_idx={it.address:i for i,it in enumerate(ins)}
 
-          wanted={off:name for name,offs in target_offsets.items() for off in offs}
-          xrefs=[]
-          pending={}
-          for idx,it in enumerate(ins):
+          # Find direct branch/call sites into the three native-bridge wrappers.
+          direct=[]
+          for i,it in enumerate(ins):
+              if it.mnemonic not in ('bl','b'): continue
+              m=re.fullmatch(r'#(0x[0-9a-f]+|\d+)',it.op_str.lower())
+              if not m: continue
+              dst=int(m.group(1),0)
+              if dst in wrappers: direct.append((i,dst,wrappers[dst]))
+          print('=== DIRECT WRAPPER CALLERS ===')
+          for i,dst,name in direct:
+              print(f'{name}: caller=0x{ins[i].address:x} -> 0x{dst:x}')
+          print('direct_caller_count='+str(len(direct)))
+
+          # Resolve object-pool string xrefs, especially QxNet configured marker.
+          xrefs=[]; pending={}
+          for i,it in enumerate(ins):
               pending={r:(b,n-1) for r,(b,n) in pending.items() if n>1}
               op=it.op_str.lower()
               m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
               if it.mnemonic=='add' and m:
-                  pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),20)
-                  continue
+                  pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),20); continue
               if it.mnemonic not in ('ldr','ldur','ldrsw'): continue
               m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
               if not m: continue
               br=m.group(2); disp=int(m.group(3),0) if m.group(3) else 0
               off=disp if br=='x27' else (pending[br][0]+disp if br in pending else None)
-              if off in wanted:
-                  xrefs.append((idx,off,wanted[off]))
+              if off in target_offs: xrefs.append((i,off,target_offs[off]))
+          print('=== TARGET STRING XREFS ===')
+          for i,off,name in xrefs: print(f'{name}: xref=0x{ins[i].address:x}')
 
-          print('=== TARGET XREFS ===')
-          for idx,off,name in xrefs:
-              print(f'{name}: addr=0x{ins[idx].address:x} pp=0x{off:x}')
-          print('xref_count='+str(len(xrefs)))
-
-          # Print compact instruction windows. Pool annotations are allowlisted labels only.
-          def pool_label_for(it,pending_state):
-              op=it.op_str.lower()
-              m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
-              if it.mnemonic=='add' and m:
-                  pending_state[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),20)
-                  return ''
-              if it.mnemonic not in ('ldr','ldur','ldrsw'): return ''
-              m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
-              if not m: return ''
-              br=m.group(2); disp=int(m.group(3),0) if m.group(3) else 0
-              off=disp if br=='x27' else (pending_state[br][0]+disp if br in pending_state else None)
-              if off is None: return ''
-              if off in wanted: return f' ; TARGET={wanted[off]}'
-              s=string_by_off.get(off)
-              if s and any(f.lower() in s.lower() for f in allowed_fragments) and not (hard_sensitive.search(s) and s not in allowed_exact) and len(s)<=180:
-                  return f' ; SAFE={s}'
-              if off in pp: return ' ; POOL=<redacted-or-unrelated>'
-              return ''
-
-          printed=set()
-          for idx,off,name in xrefs[:60]:
-              # coalesce close xrefs
-              if any(abs(idx-j)<50 for j in printed): continue
-              printed.add(idx)
-              start=max(0,idx-45); end=min(len(ins),idx+90)
-              print(f'--- FLOW {name} xref=0x{ins[idx].address:x} ---')
-              pending_state={}
+          def safe_ann_for_window(start,end):
+              anns={}; pend={}
               for j in range(start,end):
-                  pending_state={r:(b,n-1) for r,(b,n) in pending_state.items() if n>1}
-                  it=ins[j]
-                  ann=pool_label_for(it,pending_state)
-                  mark='>>' if j==idx else '  '
-                  print(f'{mark} 0x{it.address:x} {it.mnemonic:<8} {it.op_str}{ann}')
+                  pend={r:(b,n-1) for r,(b,n) in pend.items() if n>1}
+                  it=ins[j]; op=it.op_str.lower()
+                  m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
+                  if it.mnemonic=='add' and m:
+                      pend[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),20); continue
+                  if it.mnemonic not in ('ldr','ldur','ldrsw'): continue
+                  m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
+                  if not m: continue
+                  br=m.group(2); disp=int(m.group(3),0) if m.group(3) else 0
+                  off=disp if br=='x27' else (pend[br][0]+disp if br in pend else None)
+                  if off is None: continue
+                  s=strings.get(off)
+                  if s and any(x.lower() in s.lower() for x in safe_fragments) and not (sensitive.search(s) and s not in exact_allowed) and len(s)<=180:
+                      anns[j]=' ; SAFE='+s
+                  elif off in pp:
+                      anns[j]=' ; POOL=<redacted-or-unrelated>'
+              return anns
 
-          print('=== ASM LOCATION HINTS ===')
-          addr_tokens={f'0x{ins[idx].address:x}':name for idx,off,name in xrefs}
-          hints=0
-          for p in Path('/tmp/blutter-out/asm').rglob('*.dart'):
-              try: lines=p.read_text('utf-8',errors='replace').splitlines()
-              except Exception: continue
-              for i,line in enumerate(lines):
-                  low=line.lower()
-                  matched=[(a,n) for a,n in addr_tokens.items() if a in low]
-                  if not matched: continue
-                  for a,n in matched:
-                      print(f'{n}: file={p.name} line={i+1} addr={a}')
-                      hints+=1
-                      if hints>=80: break
-                  if hints>=80: break
-              if hints>=80: break
-          print('asm_hints='+str(hints))
+          # Build compact windows around each direct wrapper caller and QxNet configured marker.
+          centers=[(i,name) for i,dst,name in direct]+[(i,name) for i,off,name in xrefs if 'QxNet adapter configured' in name]
+          centers.sort()
+          emitted=[]
+          for i,name in centers:
+              if any(abs(i-j)<70 for j in emitted): continue
+              emitted.append(i)
+              start=max(0,i-90); end=min(len(ins),i+140)
+              anns=safe_ann_for_window(start,end)
+              print(f'--- CALLER FLOW {name} center=0x{ins[i].address:x} ---')
+              for j in range(start,end):
+                  it=ins[j]
+                  extra=anns.get(j,'')
+                  # Highlight direct calls to known wrappers.
+                  call=''
+                  if it.mnemonic in ('bl','b'):
+                      m=re.fullmatch(r'#(0x[0-9a-f]+|\d+)',it.op_str.lower())
+                      if m and int(m.group(1),0) in wrappers:
+                          call=' ; WRAPPER_CALL='+wrappers[int(m.group(1),0)]
+                  mark='>>' if j==i else '  '
+                  print(f'{mark} 0x{it.address:x} {it.mnemonic:<8} {it.op_str}{call}{extra}')
+
+          # Inspect nearby pool metadata around bridge method names without printing any credential-like strings.
+          print('=== BRIDGE POOL NEIGHBOR METADATA ===')
+          for anchor in (0x8b40,0x8b50,0x8b60):
+              print(f'--- around PP+0x{anchor:x} ---')
+              for off in sorted(k for k in pp if anchor-0x28 <= k <= anchor+0x28):
+                  val=pp[off]
+                  s=strings.get(off)
+                  if s is not None:
+                      if s in exact_allowed: print(f'PP+0x{off:x}: String: {s}')
+                      else: print(f'PP+0x{off:x}: String: <redacted>')
+                  else:
+                      # non-string metadata can expose closure/function identities but not credentials
+                      print(f'PP+0x{off:x}: {val[:500]}')
+
+          # Safe grep of class/function metadata for network/security types; quoted literals are stripped.
+          print('=== SAFE OBJECT/FUNCTION TYPE HINTS ===')
+          objs=Path('/tmp/blutter-out/objs.txt').read_text('utf-8',errors='replace').splitlines()
+          terms=('SecurityContext','HttpClient','QxNet','QxSecurity','IOHttpClientAdapter')
+          count=0
+          for n,line in enumerate(objs):
+              if not any(t.lower() in line.lower() for t in terms): continue
+              sanitized=re.sub(r'"[^"]*"','"<redacted>"',line)
+              print(f'objs:{n+1}: {sanitized[:800]}')
+              count+=1
+              if count>=120: break
+          print('type_hint_count='+str(count))
           PY
