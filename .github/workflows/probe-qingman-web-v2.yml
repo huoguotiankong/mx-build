@@ -1,0 +1,103 @@
+name: Probe Qingman Web V2
+
+on:
+  push:
+    paths:
+      - '.github/workflows/probe-qingman-web-v2.yml'
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Inspect Qingman public web pages
+        shell: bash
+        run: |
+          set -euo pipefail
+          UA='Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Mobile Safari/537.36'
+          mkdir -p /tmp/qm
+          declare -A URLS=(
+            [home]='https://www.xydqyfw.com/'
+            [top]='https://www.xydqyfw.com/custom/top'
+            [update]='https://www.xydqyfw.com/custom/update'
+            [new]='https://www.xydqyfw.com/custom/new'
+            [category]='https://www.xydqyfw.com/category/'
+            [category1]='https://www.xydqyfw.com/category/list/1'
+            [search]='https://www.xydqyfw.com/search?key=%E6%9C%AB%E4%B8%96'
+            [detail]='https://www.xydqyfw.com/newgszc/28106.html'
+            [chapter]='https://www.xydqyfw.com/newgszx/779594.html'
+          )
+          for name in home top update new category category1 search detail chapter; do
+            url="${URLS[$name]}"
+            out="/tmp/qm/$name.html"
+            code=$(curl -L --compressed --connect-timeout 10 --max-time 30 -A "$UA" -sS -o "$out" -w '%{http_code}' "$url" || true)
+            echo "FETCH $name http=$code bytes=$(wc -c < "$out" 2>/dev/null || echo 0) url=$url"
+          done
+
+          python3 - <<'PY'
+          from html.parser import HTMLParser
+          from pathlib import Path
+          from urllib.parse import urljoin
+          import html, re
+
+          BASE='https://www.xydqyfw.com/'
+          class P(HTMLParser):
+              def __init__(self):
+                  super().__init__(convert_charrefs=True)
+                  self.stack=[]; self.links=[]; self.imgs=[]; self.forms=[]; self.inputs=[]; self.scripts=[]; self._script=False; self._script_buf=[]
+              def handle_starttag(self, tag, attrs):
+                  d=dict(attrs)
+                  self.stack.append((tag,d))
+                  if tag=='a': self.links.append([d.get('href',''), '', d.get('class','')])
+                  elif tag=='img': self.imgs.append(d)
+                  elif tag=='form': self.forms.append(d)
+                  elif tag=='input': self.inputs.append(d)
+                  elif tag=='script': self._script=True; self._script_buf=[]
+              def handle_endtag(self, tag):
+                  if tag=='script' and self._script:
+                      self.scripts.append(''.join(self._script_buf)); self._script=False; self._script_buf=[]
+                  for i in range(len(self.stack)-1,-1,-1):
+                      if self.stack[i][0]==tag:
+                          self.stack=self.stack[:i]; break
+              def handle_data(self, data):
+                  if self._script: self._script_buf.append(data)
+                  for item in reversed(self.stack):
+                      if item[0]=='a' and self.links:
+                          self.links[-1][1]+=data; break
+
+          def clean(s): return re.sub(r'\s+',' ',html.unescape(s or '')).strip()
+          for path in sorted(Path('/tmp/qm').glob('*.html')):
+              name=path.stem; text=path.read_text('utf-8',errors='ignore'); p=P(); p.feed(text)
+              print('\n===== PAGE', name, '=====')
+              m=re.search(r'<title[^>]*>(.*?)</title>',text,re.I|re.S); print('TITLE',clean(m.group(1)) if m else '')
+              print('FORMS',p.forms[:10]); print('INPUTS',p.inputs[:20])
+              print('LINKS')
+              shown=0
+              for href,label,cls in p.links:
+                  u=urljoin(BASE,href); lab=clean(label)
+                  if any(x in u for x in ['/newgszc/','/newgszx/','/custom/','/category/','/lists/','/search','chapterList']):
+                      print(' A',repr(lab[:80]),u,'class=',cls); shown+=1
+                      if shown>=80: break
+              print('IMGS')
+              for d in p.imgs[:80]:
+                  vals={k:v for k,v in d.items() if k in ['src','data-src','data-original','data-url','alt','class','id']}
+                  print(' IMG',vals)
+              print('SCRIPT_HINTS')
+              n=0
+              for s in p.scripts:
+                  if re.search(r'(?i)(jpg|jpeg|png|webp|chapter|comic|image|img|page|pic|mccms|content)',s):
+                      z=clean(s)
+                      if z:
+                          print(' JS',z[:1000]); n+=1
+                          if n>=20: break
+              urls=[]
+              for pat in [r'https?://[^\"\'<>\\ ]+\.(?:jpg|jpeg|png|webp)(?:\?[^\"\'<>\\ ]*)?', r'//[^\"\'<>\\ ]+\.(?:jpg|jpeg|png|webp)(?:\?[^\"\'<>\\ ]*)?']:
+                  urls += re.findall(pat,text,re.I)
+              print('IMAGE_URLS',len(urls))
+              for u in list(dict.fromkeys(urls))[:80]: print(' U',u)
+              for needle in ['newgszc','newgszx','chapter-list','chapterList','comic-list','search','data-src','page_data','chapterImages','img_list','pics','images']:
+                  idx=text.find(needle)
+                  if idx>=0:
+                      print('SNIP',needle,clean(text[max(0,idx-500):idx+1200])[:1700])
+          PY
