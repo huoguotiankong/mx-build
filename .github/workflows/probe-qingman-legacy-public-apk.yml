@@ -1,0 +1,51 @@
+name: Inspect Qingman Legacy Public APKs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-legacy-public-apk.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Download and safely inspect public legacy APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          urls=(
+            'https://glumimage.pwpni.com/app/qingman-web-release-02271622.apk'
+            'https://glumimage.pwpni.com/app/app-3.3.5-335-web-release.apk'
+          )
+          mkdir -p /tmp/qm-legacy
+          AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -1)"
+          for i in 0 1; do
+            u="${urls[$i]}"; apk="/tmp/qm-legacy/a$i.apk"
+            meta=$(curl -L --compressed --connect-timeout 10 --max-time 120 -sS -o "$apk" -w '%{http_code}\t%{url_effective}\t%{content_type}\t%{size_download}' "$u" || true)
+            echo "APK[$i] $meta source=$u"
+            if ! unzip -tq "$apk" >/dev/null 2>&1; then echo "APK[$i] invalid_zip"; continue; fi
+            echo "BADGING[$i]"
+            "$AAPT" dump badging "$apk" | grep -E '^(package:|application-label:|sdkVersion:|targetSdkVersion:)' | head -20 || true
+            echo "ABIS[$i]"
+            unzip -Z1 "$apk" | sed -n 's#^lib/\([^/]*\)/.*#\1#p' | sort -u
+            echo "NATIVE_SECURITY_LIBS[$i]"
+            unzip -Z1 "$apk" | grep -Ei '^lib/[^/]+/(libqx_security|libsecuritydevice|libsgcore|libcommonV2DevInfo|libapp|libflutter).*\.so$' || true
+            echo "WEB_ASSETS[$i]"
+            unzip -Z1 "$apk" | grep -Ei '(assets/.+\.(html|js|json)$|web|h5|share)' | head -180 || true
+
+            rm -rf "/tmp/qm-legacy/e$i" && mkdir -p "/tmp/qm-legacy/e$i"
+            unzip -q "$apk" 'lib/arm64-v8a/libapp.so' -d "/tmp/qm-legacy/e$i" 2>/dev/null || true
+            lib="/tmp/qm-legacy/e$i/lib/arm64-v8a/libapp.so"
+            if [[ -s "$lib" ]]; then
+              echo "SAFE_STRINGS[$i]"
+              strings -a "$lib" | grep -E 'https?://|api/comic/|bootstrap/domain|X-QM-|X-Api-Guard|initializeSignKeys|buildHeaders|clientP12|certificate|required|comic/read|comic/detail|comic/home|comic/update|comic/category|comic/ranking' \
+                | grep -Eiv 'token|password|private|secret|cookie|authorization|bearer' \
+                | sort -u | head -500 || true
+            fi
+          done
