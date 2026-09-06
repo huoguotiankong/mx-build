@@ -1,0 +1,60 @@
+name: Inspect Qingman Public Web Domains
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-web-domains.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Probe public domains
+        shell: bash
+        run: |
+          set -u
+          cat > /tmp/hosts <<'EOF'
+          www.qingman.vip
+          www.qingman.dev
+          www.qingman.my
+          www.qingman.pro
+          www.qingman.xyz
+          ios.qingman.vip
+          EOF
+          echo '=== DOMAIN_ROOTS ==='
+          while IFS= read -r host; do
+            [ -n "$host" ] || continue
+            tmp=$(mktemp)
+            code=$(curl -sSL --connect-timeout 8 --max-time 20 -o "$tmp" -w '%{http_code}' "https://${host}/" 2>/tmp/e || true)
+            final=$(curl -sSL --connect-timeout 8 --max-time 20 -o /dev/null -w '%{url_effective}' "https://${host}/" 2>/dev/null || true)
+            bytes=$(wc -c < "$tmp" | tr -d ' ')
+            ctype=$(curl -sSIL --connect-timeout 8 --max-time 20 "https://${host}/" 2>/dev/null | awk 'BEGIN{IGNORECASE=1}/^content-type:/{v=$0}END{sub(/^content-type:[ ]*/,"",v);gsub("\r", "", v);print v}')
+            title=$(python3 - "$tmp" <<'PY'
+          import sys,re,html
+          s=open(sys.argv[1],'rb').read().decode('utf-8','replace')
+          m=re.search(r'<title[^>]*>(.*?)</title>',s,re.I|re.S)
+          print(html.unescape(re.sub(r'<[^>]+>',' ',m.group(1))).strip()[:120] if m else '')
+          PY
+          )
+            printf 'host=%s code=%s bytes=%s final=%s ctype=%s title=%s\n' "$host" "$code" "$bytes" "$final" "$ctype" "$title"
+            rm -f "$tmp"
+          done < /tmp/hosts
+
+          echo '=== READ_ONLY_ROUTE_CHECK ==='
+          while IFS= read -r host; do
+            [ -n "$host" ] || continue
+            for route in api/comic/categories/list api/comic/comics/v1/homeList api/comic/comics/homerecentUpdates; do
+              tmp=$(mktemp)
+              code=$(curl -sSL --connect-timeout 8 --max-time 15 -o "$tmp" -w '%{http_code}' "https://${host}/${route}" 2>/tmp/e || true)
+              bytes=$(wc -c < "$tmp" | tr -d ' ')
+              sha=$(sha256sum "$tmp" | cut -c1-16)
+              printf 'host=%s route=%s code=%s bytes=%s sha16=%s\n' "$host" "$route" "$code" "$bytes" "$sha"
+              rm -f "$tmp"
+            done
+          done < /tmp/hosts
