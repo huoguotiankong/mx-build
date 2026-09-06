@@ -9,17 +9,16 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Test chapter client signature formats
+      - name: Probe HTTPS and image routes
         shell: bash
         run: |
-          set -euo pipefail
-          base='http://ai.xajtl.com'
-          ua='Dart/3.5 (dart:io)'
-          cid='223246'
-          lower='cdd266df8b2399c24da38e408b6d9825c7bd2af073229847f551ea653ea096e1'
-          upper='CDD266DF8B2399C24DA38E408B6D9825C7BD2AF073229847F551EA653EA096E1'
-          for sig in "$lower" "$upper"; do
-            echo "=== sig=$sig ==="
-            curl -sS -A "$ua" -w '\nHTTP:%{http_code}\n' "$base/app/api/chapter/v2/$cid?packname=com.hbsclj.uth&appsign256=$sig" | head -c 8000
-            echo
+          set -u
+          for base in https://ai.xajtl.com https://crm.weichu.asia http://ai.xajtl.com http://crm.weichu.asia; do
+            echo "=== $base ==="
+            curl -kLsS -o /dev/null -w 'health HTTP:%{http_code} final:%{url_effective}\n' --connect-timeout 8 --max-time 15 "$base/app/api/health" || true
+          done
+          path='/3/22613/656200/1.jpg'
+          for base in https://img.kunmu.asia https://i.lzimg.xyz https://cf-1.imgio.club https://p.imgo.buzz; do
+            echo "=== IMG $base$path ==="
+            curl -kILsS --connect-timeout 8 --max-time 15 -A 'Dart/3.5 (dart:io)' "$base$path" | head -n 20 || true
           done
