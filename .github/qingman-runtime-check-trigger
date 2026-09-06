@@ -1,3 +1,4 @@
-requested: 2026-09-06T10:05-07:00
+requested: 2026-09-07T07:48+08:00
 source: mx-dev/fix/qingman-v3-runtime-clean
-reason: Spotless and Debug validation after official account auth integration
+source_sha: b5f7c3cddaac6d1963fbb0079a688cb484598fea
+reason: rerun runtime bootstrap, Spotless and Debug validation on current v3 auth integration
