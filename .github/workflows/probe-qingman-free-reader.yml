@@ -30,7 +30,7 @@ jobs:
             /tmp/blutter/dartsdk
             /tmp/blutter/packages
           key: qingman-blutter-dart-3.12.2-arm64-v1
-      - name: Inspect free/read markers and owning functions
+      - name: Trace free reader semantic regions
         shell: bash
         run: |
           set -euo pipefail
@@ -51,92 +51,44 @@ jobs:
           from pathlib import Path
           from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
           from elftools.elf.elffile import ELFFile
-          import re,bisect
-
+          import re
           sensitive=re.compile(r'(?i)(password|passwd|pwd|token|cookie|authorization|bearer|private|clientp12|certificate|proof|signature|p12|seed|k1a|k1b|k2a|k2b|k3a|k3b)')
-          def safe(s): return '<redacted-sensitive-line>' if sensitive.search(s) else s[:700]
+          def safe(s): return '<redacted-sensitive-line>' if sensitive.search(s) else s[:650]
           pp={}
           for line in Path('/tmp/blutter-out/pp.txt').read_text('utf-8',errors='replace').splitlines():
               m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s+(.*)$',line)
               if m: pp[int(m.group(1),16)]=m.group(2)
-
-          needles={
-              'free_line':'freeLine',
-              'free_url':'freeUrl',
-              'free_prompt':'ComicReadFreeLinePromptDate',
-              'ad_unlock':'api/comic/buy/qmv1/adUnlockcomic',
-              'reader_detail':'api/comic/chapter/ie84hfh8/detail',
-              'cache_detail':'api/comic/chapter/ie84hfh8/cache/detail',
-              'page_urls':'pageUrls',
-              'pic_list':'picList',
-              'preview':'preview',
-          }
-          targets={}
-          print('=== TARGET PP OFFSETS ===')
-          for name,needle in needles.items():
-              xs=[o for o,v in pp.items() if needle.lower() in v.lower() and not sensitive.search(v)]
-              print(name+'='+','.join(hex(x) for x in xs[:30]))
-              for x in xs: targets[x]=name
-
-          funcs=[]
-          for p in Path('/tmp/blutter-out/asm').rglob('*.dart'):
-              lines=p.read_text('utf-8',errors='replace').splitlines()
-              for i,s in enumerate(lines):
-                  m=re.search(r'\*\* addr: 0x([0-9a-fA-F]+), size: 0x([0-9a-fA-F]+)',s)
-                  if not m: continue
-                  st=int(m.group(1),16); sz=int(m.group(2),16); decl=''
-                  for j in range(i-1,max(-1,i-8),-1):
-                      t=lines[j].strip()
-                      if t and not t.startswith('//'): decl=t; break
-                  funcs.append((st,st+sz,p.name,decl,lines,i))
-          funcs.sort(key=lambda x:x[0]); starts=[x[0] for x in funcs]
-          def owner(addr):
-              k=bisect.bisect_right(starts,addr)-1
-              return funcs[k] if k>=0 and funcs[k][0]<=addr<funcs[k][1] else None
-
           with open('/tmp/app-lib/libapp.so','rb') as f:
               elf=ELFFile(f); sec=elf.get_section_by_name('.text'); base=int(sec['sh_addr']); data=sec.data()
           md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.skipdata=True
-          pending={}; refs=[]
-          for ins in md.disasm(data,base):
-              pending={r:(b,n-1) for r,(b,n) in pending.items() if n>1}
-              op=ins.op_str.lower()
-              m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
-              if ins.mnemonic=='add' and m:
-                  pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),20); continue
-              if ins.mnemonic in ('ldr','ldur','ldrsw'):
-                  m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
-                  if not m: continue
-                  br=m.group(2); disp=int(m.group(3),0) if m.group(3) else 0
-                  off=disp if br=='x27' else (pending[br][0]+disp if br in pending else None)
-                  if off in targets: refs.append((ins.address,off,targets[off]))
 
-          print('\n=== XREF OWNERS ===')
-          seen=set()
-          for addr,off,label in refs:
-              f=owner(addr); key=(f[0],label) if f else (addr,label)
-              if key in seen: continue
-              seen.add(key)
-              print(f'XREF label={label} addr=0x{addr:x} pp=0x{off:x}')
-              if not f:
-                  print('  OWNER=<unmapped>'); continue
-              st,en,pn,decl,lines,mark=f
-              print(f'  OWNER=0x{st:x}-0x{en:x} file={pn} decl={safe(decl)}')
-              emitted=0
-              for s in lines[max(0,mark-8):min(len(lines),mark+260)]:
-                  if sensitive.search(s): continue
-                  if re.search(r'(?i)(PP\+0x|LoadStaticField|LoadField|StoreField|call 0x|bl\s+#0x|free|preview|reader|chapter|comic|page|pic|adUnlock|guest|login|api/|type|status|code|await|returnasync)',s):
-                      print('    '+safe(s)); emitted+=1
-                      if emitted>=150: break
+          def dump(title,start,end):
+              print(f'\n=== {title} {start:#x}-{end:#x} ===')
+              pending={}
+              for ins in md.disasm(data[start-base:end-base],start):
+                  pending={r:(b,n-1) for r,(b,n) in pending.items() if n>1}
+                  op=ins.op_str.lower(); ann=''
+                  m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
+                  if ins.mnemonic=='add' and m:
+                      pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),24)
+                  elif ins.mnemonic in ('ldr','ldur','ldrsw'):
+                      m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
+                      if m:
+                          br=m.group(2); disp=int(m.group(3),0) if m.group(3) else 0
+                          off=disp if br=='x27' else (pending[br][0]+disp if br in pending else None)
+                          if off is not None and off in pp: ann=' ; '+safe(f'PP+0x{off:x} {pp[off]}')
+                  if ann or ins.mnemonic in ('bl','blr','ret','b','b.eq','b.ne','b.ls','b.hi','cbz','cbnz','tbz','tbnz') or ins.mnemonic.startswith('st'):
+                      print(f'0x{ins.address:x} {ins.mnemonic:<7} {ins.op_str}{ann}')
 
-          print('\n=== NEARBY SAFE STRINGS ===')
-          for off,label in sorted((o,l) for o,l in targets.items() if l in ('free_line','free_prompt','ad_unlock','page_urls','pic_list')):
-              print(f'--- {label} PP+0x{off:x} ---')
-              emitted=0
-              for p in sorted(k for k in pp if off-0x180<=k<=off+0x200):
-                  v=pp[p]
-                  if sensitive.search(v): continue
-                  if any(x in v.lower() for x in ('free','preview','read','chapter','comic','page','pic','api/','guest','login','ad','type','status','url')):
-                      print(f'  PP+0x{p:x} {safe(v)}'); emitted+=1
-                      if emitted>=100: break
+          dump('freeLine parser/use',0x489c80,0x489e20)
+          dump('AppConfig freeUrl parser/use',0x4cfe60,0x4cff40)
+          dump('AppConfig freeUrl assignment',0x4d03f0,0x4d04e0)
+          dump('ad unlock descriptor',0x7e2540,0x7e2660)
+          dump('reader/cache descriptor cluster',0x7e2660,0x7e2860)
+
+          print('\n=== PP AROUND FREELINE ===')
+          for p in sorted(k for k in pp if 0x2a3c0<=k<=0x2a560):
+              v=pp[p]
+              if sensitive.search(v): continue
+              print(f'PP+0x{p:x} {safe(v)}')
           PY
