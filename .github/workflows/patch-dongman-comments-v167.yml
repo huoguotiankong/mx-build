@@ -1,21 +1,27 @@
-# Retriggered after live pagination/avatar diagnostics.
 name: Patch Dongman comments v1.6.7
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
     paths:
-      - ".github/workflows/patch-dongman-comments-v167.yml"
+      - .github/workflows/patch-dongman-comments-v167.yml
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  patch-build-commit:
+  patch:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
+      - name: Checkout build helpers
+        uses: actions/checkout@v5
+        with:
+          path: infra
+          persist-credentials: false
+
       - name: Checkout private source
         uses: actions/checkout@v5
         with:
@@ -26,124 +32,8 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
-      - name: Apply comment pagination repair
-        working-directory: source
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-
-          gradle = Path('src/zh/dongmanmanhuaplus/build.gradle.kts')
-          g = gradle.read_text('utf-8')
-          if 'versionCode = 7' not in g:
-              if 'versionCode = 6' not in g:
-                  raise SystemExit('unexpected Dongman versionCode')
-              g = g.replace('versionCode = 6', 'versionCode = 7', 1)
-              gradle.write_text(g, 'utf-8')
-
-          p = Path('src/zh/dongmanmanhuaplus/src/eu/kanade/tachiyomi/extension/zh/dongmanmanhuaplus/DongmanManhuaPlus.kt')
-          s = p.read_text('utf-8')
-
-          old = '''        val comments = root.toChapterComments()
-          val regularCount = root.dataArray("commentList")?.size ?: 0
-          return CommentPage(
-              comments = comments,
-              hasNextPage = regularCount >= COMMENT_PAGE_SIZE,
-              totalCount = root.firstLong("commentCount", "totalCount", "total", "count"),
-          )'''
-          new = '''        val comments = root.toChapterComments()
-          val returnedCount = (root.dataArray("bestList")?.size ?: 0) +
-              (root.dataArray("commentList")?.size ?: 0)
-          val topLevelCount = root.firstLong("count")
-          val currentPage = page.coerceAtLeast(1)
-          return CommentPage(
-              comments = comments,
-              hasNextPage = topLevelCount?.let {
-                  currentPage.toLong() * COMMENT_PAGE_SIZE < it
-              } ?: (returnedCount >= COMMENT_PAGE_SIZE),
-              totalCount = root.firstLong("showTotalCount", "commentCount", "totalCount", "total", "count"),
-          )'''
-          if new not in s:
-              if old not in s:
-                  raise SystemExit('missing main comment pagination anchor')
-              s = s.replace(old, new, 1)
-
-          old = '''        val replies = root.toReplyComments(comment.id)
-          return CommentPage(
-              comments = replies,
-              hasNextPage = replies.size >= COMMENT_PAGE_SIZE,
-              totalCount = root.firstLong("count") ?: comment.replyCount,
-          )'''
-          new = '''        val replies = root.toReplyComments(comment.id)
-          val replyTotal = root.firstLong("count") ?: comment.replyCount
-          val currentPage = page.coerceAtLeast(1)
-          return CommentPage(
-              comments = replies,
-              hasNextPage = currentPage.toLong() * COMMENT_PAGE_SIZE < replyTotal,
-              totalCount = replyTotal,
-          )'''
-          if new not in s:
-              if old not in s:
-                  raise SystemExit('missing reply pagination anchor')
-              s = s.replace(old, new, 1)
-
-          old = 'avatarUrl = stringAny("profileImage", "profileImageUrl", "avatarUrl"),'
-          new = 'avatarUrl = stringAny("userProfileImage", "userProfileImageUrl", "profileImage", "profileImageUrl", "avatarUrl"),'
-          if new not in s:
-              if old not in s:
-                  raise SystemExit('missing avatar parser anchor')
-              s = s.replace(old, new, 1)
-
-          if 'private const val COMMENT_PAGE_SIZE = 10' not in s:
-              if 'private const val COMMENT_PAGE_SIZE = 20' not in s:
-                  raise SystemExit('missing comment page size anchor')
-              s = s.replace('private const val COMMENT_PAGE_SIZE = 20', 'private const val COMMENT_PAGE_SIZE = 10', 1)
-
-          p.write_text(s, 'utf-8')
-
-          doc = Path('docs/sources/dongmanmanhuaplus.md')
-          d = doc.read_text('utf-8')
-          d = d.replace(
-              '- 当前源码 `versionCode = 5`；正式 `1.6.5 / 106005 / zh` 已发布到 `mx-repo/repo`，功能恢复仍需用户实机验收。',
-              '- 当前源码 `versionCode = 7`；v1.6.6 图标已由用户实机确认恢复，v1.6.7 正在修复章评分页。',
-          )
-          if '## v1.6.7 章评分页与头像核验' not in d:
-              d += '''
-
-## v1.6.7 章评分页与头像核验
-
-### 用户实机反馈
-
-2026-09-06，用户确认 v1.6.6 图标已经恢复，同时反馈章评只能看到第一页的一部分评论，且所有评论均显示宿主默认头像。
-
-### 分页根因
-
-实时请求 `/v2/comment` 确认，服务端实际固定按 **10 个展示槽位/页** 返回数据，即使请求 `pageSize=20` 或 `pageSize=50` 也不会增加单页返回量。样本 `titleNo=2795&episodeNo=1`：
-
-- 第 1 页：`bestList=3`、`commentList=7`；
-- 第 2~5 页：每页 `commentList=10`；
-- 第 6 页：`commentList=4`；
-- 第 7 页：空；
-- `count=54`；
-- `showTotalCount=64`。
-
-旧代码以 `commentList.size >= 20` 判断是否还有下一页，因此第一页只有 7 条普通评论时立即返回 `hasNextPage=false`，宿主不会继续请求第 2 页。这就是“只能看到部分评论”的直接根因。
-
-v1.6.7 将评论 API 的有效分页大小改为 10，并优先根据服务端 `count` 与当前页计算 `hasNextPage`。回复列表也使用同一套 10 条分页规则，避免回复超过一页时被截断。评论页显示总数优先采用 `showTotalCount`；实时样本中 `showTotalCount = count + 一级评论 replyCount 之和`，与咚漫页面的“共 N 条”语义一致。
-
-### 头像核验
-
-实时跨 24 个当前首页作品抽样 231 条章评，所有评论均只有：
-
-- `imageNo = "*"`
-
-当前匿名 `/v1/comment` 与 `/v2/comment` 返回对象均没有 `profileImage`、`avatarUrl`、`userProfileImage` 或任何可直接加载的头像 URL。官方 APK 模型中虽然存在 `userProfileImage` 字段，但当前公开章评响应没有下发该字段。因此现阶段宿主显示默认头像是**源站当前评论接口没有提供可用头像数据**，不是扩展漏掉现有头像 URL。
-
-解析器仍兼容 `userProfileImage` / `userProfileImageUrl` / `profileImage` / `profileImageUrl` / `avatarUrl`，如果后续接口重新下发头像即可直接显示；不根据 `imageNo="*"` 伪造头像地址。
-'''
-          doc.write_text(d, 'utf-8')
-          PY
+      - name: Patch source
+        run: python3 infra/scripts/patch_dongman_comments_v167.py --source-root source
 
       - name: Set up Java
         uses: actions/setup-java@v5
@@ -160,82 +50,40 @@ v1.6.7 将评论 API 的有效分页大小改为 10，并优先根据服务端 `
           persist-credentials: false
 
       - name: Overlay module
-        shell: bash
         run: |
-          set -euo pipefail
           rm -rf upstream/src/zh/dongmanmanhuaplus
           cp -a source/src/zh/dongmanmanhuaplus upstream/src/zh/dongmanmanhuaplus
 
-      - uses: gradle/actions/setup-gradle@v4
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
         with:
           build-root-directory: upstream
 
-      - name: Format, build and lint
+      - name: Format and build
         working-directory: upstream
-        shell: bash
         run: |
-          set -euo pipefail
           ./gradlew :src:zh:dongmanmanhuaplus:spotlessApply
-          ./gradlew \
-            :src:zh:dongmanmanhuaplus:spotlessCheck \
-            :src:zh:dongmanmanhuaplus:assembleRelease \
-            :src:zh:dongmanmanhuaplus:lintRelease
+          ./gradlew :src:zh:dongmanmanhuaplus:spotlessCheck :src:zh:dongmanmanhuaplus:assembleRelease :src:zh:dongmanmanhuaplus:lintRelease
 
-      - name: Verify live pagination semantics
-        shell: bash
-        run: |
-          set -euo pipefail
-          api='https://apis.dongmanmanhua.cn/v2/comment'
-          headers=(-H 'Accept: application/json' -H 'Accept-Language: zh-CN,zh;q=0.9' -H 'User-Agent: Dongman/Android')
-          for page in 1 2 6 7; do
-            curl -fsSL --compressed "${headers[@]}" \
-              "$api?titleNo=2795&episodeNo=1&pageNo=$page&pageSize=10" \
-              -o "/tmp/p$page.json"
-          done
-          python3 - <<'PY'
-          import json
-          pages={p:json.load(open(f'/tmp/p{p}.json',encoding='utf-8')) for p in (1,2,6,7)}
-          for p,d in pages.items():
-              assert d.get('code') == 200, (p,d)
-          d1=pages[1]['data']; d2=pages[2]['data']; d6=pages[6]['data']; d7=pages[7]['data']
-          assert len(d1.get('bestList') or []) + len(d1.get('commentList') or []) == 10, d1
-          assert len(d1.get('commentList') or []) < 10, d1
-          assert len(d2.get('commentList') or []) == 10, d2
-          assert len(d6.get('commentList') or []) > 0, d6
-          assert len(d7.get('commentList') or []) == 0, d7
-          count=int(d1['count']); shown=int(d1['showTotalCount'])
-          assert 1*10 < count
-          assert 6*10 >= count
-          assert shown >= count
-          ids1={x['_id'] for x in (d1.get('bestList') or [])+(d1.get('commentList') or [])}
-          ids2={x['_id'] for x in d2.get('commentList') or []}
-          assert ids1 != ids2 and ids2, (ids1,ids2)
-          assert all((x.get('imageNo') == '*') for x in (d1.get('bestList') or [])+(d1.get('commentList') or []))
-          print('verified pagination: count',count,'showTotalCount',shown,'page1',len(ids1),'page2',len(ids2),'page6',len(d6.get('commentList') or []))
-          PY
+      - name: Verify live pagination
+        run: python3 infra/scripts/patch_dongman_comments_v167.py --verify-live
 
       - name: Copy formatted module back
-        shell: bash
         run: |
-          set -euo pipefail
           rm -rf source/src/zh/dongmanmanhuaplus
           cp -a upstream/src/zh/dongmanmanhuaplus source/src/zh/dongmanmanhuaplus
 
       - name: Validate private source tree
         working-directory: source
-        shell: bash
         run: |
-          set -euo pipefail
           python3 scripts/validate_sources.py
           grep -Fq 'versionCode = 7' src/zh/dongmanmanhuaplus/build.gradle.kts
           grep -Fq 'private const val COMMENT_PAGE_SIZE = 10' src/zh/dongmanmanhuaplus/src/eu/kanade/tachiyomi/extension/zh/dongmanmanhuaplus/DongmanManhuaPlus.kt
           grep -Fq 'showTotalCount' src/zh/dongmanmanhuaplus/src/eu/kanade/tachiyomi/extension/zh/dongmanmanhuaplus/DongmanManhuaPlus.kt
 
-      - name: Commit verified changes
+      - name: Commit verified source
         working-directory: source
-        shell: bash
         run: |
-          set -euo pipefail
           git diff --check
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
