@@ -19,7 +19,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq python3-pyelftools cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          sudo apt-get install -y -qq python3-pyelftools cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev binutils-aarch64-linux-gnu >/dev/null
           git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
       - name: Restore analyzer cache
         uses: actions/cache@v4
@@ -29,7 +29,7 @@ jobs:
             /tmp/blutter/dartsdk
             /tmp/blutter/packages
           key: qingman-blutter-dart-3.12.2-arm64-v1
-      - name: Dump bootstrap AOT class and security pool
+      - name: Inspect bootstrap function metadata
         shell: bash
         run: |
           set -euo pipefail
@@ -46,11 +46,11 @@ jobs:
           cd /tmp/blutter
           python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1 || true
           tail -8 /tmp/blutter.log || true
-          echo '=== full zzm.dart ==='
-          sed -n '1,1600p' /tmp/blutter-out/asm/zzm.dart || true
-          echo '=== exact bootstrap closure/function address references ==='
-          grep -RInE -C 220 '0x516018|516018|upb|_HYh|0x12f4' /tmp/blutter-out/asm | head -30000 || true
-          echo '=== network security pool neighborhood ==='
-          sed -n '5960,6260p' /tmp/blutter-out/pp.txt || true
-          echo '=== bootstrap pool neighborhood ==='
-          sed -n '8030,8235p' /tmp/blutter-out/pp.txt || true
+          echo '=== files generated ==='
+          find /tmp/blutter-out -maxdepth 1 -type f -printf '%f\n' | sort
+          echo '=== metadata mentioning upb / 516018 ==='
+          grep -RInE -C 80 'upb|516018|0x516018|_HYh@1486071866' /tmp/blutter-out --exclude='*.dart' | head -18000 || true
+          echo '=== dart functions around addresses 0x515000..0x518000 ==='
+          grep -RInE '\*\* addr: 0x51[5-7][0-9a-f]{3}' /tmp/blutter-out/asm | sort | head -1000 || true
+          echo '=== raw arm64 disassembly 0x515000..0x518000 ==='
+          aarch64-linux-gnu-objdump -d --start-address=0x515000 --stop-address=0x518000 /tmp/app-lib/libapp.so | head -12000 || true
