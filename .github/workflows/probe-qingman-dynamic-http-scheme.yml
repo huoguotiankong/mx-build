@@ -76,71 +76,88 @@ jobs:
           print('bootstrap_ok=true'); print('dynamic_host='+host); print('sensitive_bootstrap_fields_logged=false')
           PY
 
-      - name: Probe readonly endpoint method matrix
+      - name: Probe chapters and reader without logging URLs or credentials
         shell: bash
         run: |
           set -euo pipefail
           host=$(cat /tmp/qm_dynamic_host); access=$(cat /tmp/qm_app_access); did=$(cat /tmp/qm_device_id)
-          COMIC_ID='1965626277746577408'
+          comic='1965626277746577408'
           common=(-H 'Accept: application/json, text/plain, */*' -H 'User-Agent: qingman/4.4.5 (Android)' -H 'appVersion: 4.4.5' -H 'platform: android' -H "X-Device-Id: $did" -H "X-QM-App-Access: $access")
 
-          summarize() {
-            python3 - "$1" <<'PY'
-          import json,sys,re,urllib.parse
-          raw=open(sys.argv[1],'rb').read(1048576); text=raw.decode('utf-8','replace')
-          sensitive=re.compile(r'(?i)(token|secret|password|cookie|authorization|bearer|private|certificate|proof|signature|sign|key|seed)')
-          def walk(x,out,depth=0):
-              if depth>8:return
-              if isinstance(x,dict):
-                  item={}
-                  for k in ('id','comicId','comicTitle','title','name','chapterId','chapterName','chapterTitle','categoryId','categoryName','country','status','totalPages','pageNum','page','pageSize'):
-                      v=x.get(k)
-                      if isinstance(v,(str,int,float,bool)) or v is None and k in x: item[k]=v
-                  if item and any(k in item for k in ('id','comicId','comicTitle','chapterId','title','categoryId','country')) and len(out['items'])<12:
-                      out['items'].append(item)
-                  for k,v in x.items():
-                      if sensitive.search(str(k)): continue
-                      if k in ('comicCoverUrl','coverUrl','cover','thumbnail','imageUrl') and isinstance(v,str):
-                          h=urllib.parse.urlsplit(v).hostname
-                          if h and h not in out['imageHosts']: out['imageHosts'].append(h)
-                      elif isinstance(v,(dict,list)): walk(v,out,depth+1)
-              elif isinstance(x,list):
-                  for v in x[:40]: walk(v,out,depth+1)
-          try:
-              obj=json.loads(text); out={'code':obj.get('code') if isinstance(obj,dict) else None,'msg':obj.get('msg') if isinstance(obj,dict) else None,'items':[],'imageHosts':[]}; walk(obj,out); print(json.dumps(out,ensure_ascii=False,separators=(',',':'))[:7000])
-          except Exception:
-              print('non_json:'+re.sub(r'\s+',' ',text[:220]))
+          echo "=== LATEST_QUERY_FIX host=$host ==="
+          tmp=$(mktemp)
+          code=$(curl -sS --connect-timeout 8 --max-time 20 -X POST "${common[@]}" -H 'Content-Type: application/json' --data '{}' -o "$tmp" -w '%{http_code}' "http://$host/api/comic/comics/homerecentUpdates?page=1&size=20" || true)
+          python3 - "$tmp" "$code" <<'PY'
+          import json,sys
+          o=json.load(open(sys.argv[1])); d=o.get('data') or {}; rows=d.get('datas') if isinstance(d,dict) else []
+          print('latest_http='+sys.argv[2],'code='+str(o.get('code')),'msg='+str(o.get('msg')),'count='+str(len(rows) if isinstance(rows,list) else -1))
+          if isinstance(rows,list): print('latest_titles='+','.join(str(x.get('title') or x.get('comicTitle') or '') for x in rows[:8] if isinstance(x,dict)))
           PY
-          }
+          rm -f "$tmp"
 
-          probe_post() {
-            name="$1"; url="$2"; ctype="$3"; payload="$4"
-            body=$(mktemp); err=$(mktemp)
-            code=$(curl -sS --connect-timeout 8 --max-time 25 -X POST "${common[@]}" -H "Content-Type: $ctype" --data "$payload" -o "$body" -w '%{http_code}' "$url" 2>"$err" || true)
-            printf 'POST name=%s http=%s bytes=%s summary=%s err=%s\n' "$name" "$code" "$(wc -c < "$body" | tr -d ' ')" "$(summarize "$body")" "$(tr '\n' ' ' < "$err" | cut -c1-160)"
-            rm -f "$body" "$err"
-          }
+          echo '=== CHAPTER_LIST_GET ==='
+          chap=$(mktemp)
+          ccode=$(curl -sS --connect-timeout 8 --max-time 25 "${common[@]}" -o "$chap" -w '%{http_code}' "http://$host/api/comic/chapter/ie84hfh8/homelist/$comic?comicId=$comic" || true)
+          python3 - "$chap" "$ccode" <<'PY'
+          import json,sys,re
+          o=json.load(open(sys.argv[1])); found=[]
+          def walk(x):
+              if isinstance(x,dict):
+                  cid=x.get('chapterId') or x.get('id'); name=x.get('chapterName') or x.get('chapterTitle') or x.get('title') or x.get('name')
+                  if cid and name and len(found)<12: found.append((str(cid),str(name)))
+                  for v in x.values(): walk(v)
+              elif isinstance(x,list):
+                  for v in x: walk(v)
+          walk(o)
+          print('chapters_http='+sys.argv[2],'code='+str(o.get('code')),'msg='+str(o.get('msg')),'sampleCount='+str(len(found)))
+          print('chapter_names='+','.join(n for _,n in found[:10]))
+          if found: open('/tmp/qm_chapter_id','w').write(found[0][0])
+          PY
+          rm -f "$chap"
 
-          echo "=== DATASET_CONFIRMATION host=$host ==="
-          probe_post home "http://$host/api/comic/comics/v1/homeList" 'application/json' '{"page":1,"pageNum":1,"pageSize":20}'
-          probe_post rank "http://$host/api/comic/comics/getComicRankList" 'application/json' '{"page":1,"pageNum":1,"pageSize":20}'
+          if [[ -s /tmp/qm_chapter_id ]]; then
+            chapter=$(cat /tmp/qm_chapter_id)
+            echo '=== CHAPTER_DETAIL_GET ==='
+            pages=$(mktemp)
+            pcode=$(curl -sS --connect-timeout 8 --max-time 25 "${common[@]}" -o "$pages" -w '%{http_code}' "http://$host/api/comic/chapter/ie84hfh8/detail?comicId=$comic&chapterId=$chapter" || true)
+            python3 - "$pages" "$pcode" <<'PY'
+          import json,sys,urllib.parse
+          o=json.load(open(sys.argv[1])); urls=[]
+          def walk(x):
+              if isinstance(x,dict):
+                  for k,v in x.items():
+                      if k in ('pageUrls','pageUrl','imageUrl','url'):
+                          if isinstance(v,str) and v.startswith(('http://','https://')): urls.append(v)
+                          elif isinstance(v,list):
+                              for q in v:
+                                  if isinstance(q,str) and q.startswith(('http://','https://')): urls.append(q)
+                                  elif isinstance(q,dict):
+                                      z=q.get('pageUrl') or q.get('imageUrl') or q.get('url')
+                                      if isinstance(z,str) and z.startswith(('http://','https://')): urls.append(z)
+                      if isinstance(v,(dict,list)): walk(v)
+              elif isinstance(x,list):
+                  for v in x: walk(v)
+          walk(o); urls=list(dict.fromkeys(urls))
+          print('reader_http='+sys.argv[2],'code='+str(o.get('code')),'msg='+str(o.get('msg')),'pageCount='+str(len(urls)))
+          schemes=sorted(set(urllib.parse.urlsplit(u).scheme for u in urls)); hosts=sorted(set(urllib.parse.urlsplit(u).hostname or '' for u in urls))
+          print('page_schemes='+','.join(schemes)); print('page_hosts='+','.join(hosts[:12]))
+          if urls: open('/tmp/qm_first_page','w').write(urls[0])
+          PY
+            rm -f "$pages"
+          fi
 
-          echo '=== LATEST_METHOD_MATRIX ==='
-          probe_post latest_query "http://$host/api/comic/comics/homerecentUpdates?page=1&pageNum=1&pageSize=20" 'application/json' '{}'
-          probe_post latest_json "http://$host/api/comic/comics/homerecentUpdates" 'application/json' '{"page":1,"pageNum":1,"pageSize":20}'
-          probe_post latest_form "http://$host/api/comic/comics/homerecentUpdates" 'application/x-www-form-urlencoded' 'page=1&pageNum=1&pageSize=20'
+          if [[ -s /tmp/qm_first_page ]]; then
+            echo '=== FIRST_PAGE_TRANSPORT ==='
+            page=$(cat /tmp/qm_first_page)
+            for mode in plain direct; do
+              testurl="$page"
+              if [[ "$mode" == plain ]]; then testurl=$(python3 -c 'import sys,urllib.parse;u=urllib.parse.urlsplit(sys.argv[1]);print(urllib.parse.urlunsplit(("http",u.netloc,u.path,u.query,u.fragment)))' "$page"); fi
+              hdr=$(mktemp); out=$(mktemp); err=$(mktemp)
+              status=$(curl -sS --connect-timeout 8 --max-time 20 -D "$hdr" -o "$out" -w '%{http_code}' "$testurl" 2>"$err" || true)
+              ctype=$(awk 'BEGIN{IGNORECASE=1}/^content-type:/{v=$0}END{sub(/^content-type:[ ]*/,"",v);gsub("\r", "", v);print v}' "$hdr")
+              printf 'page_mode=%s http=%s bytes=%s ctype=%s err=%s\n' "$mode" "$status" "$(wc -c < "$out" | tr -d ' ')" "$ctype" "$(tr '\n' ' ' < "$err" | cut -c1-140)"
+              rm -f "$hdr" "$out" "$err"
+            done
+          fi
 
-          echo '=== DETAIL_METHOD_MATRIX ==='
-          probe_post detail_query "http://$host/api/comic/comics/ie84hfh8/detail?comicId=$COMIC_ID" 'application/json' '{}'
-          probe_post detail_json "http://$host/api/comic/comics/ie84hfh8/detail" 'application/json' "{\"comicId\":\"$COMIC_ID\"}"
-          probe_post detail_form "http://$host/api/comic/comics/ie84hfh8/detail" 'application/x-www-form-urlencoded' "comicId=$COMIC_ID"
-
-          echo '=== CHAPTER_LIST_METHOD_MATRIX ==='
-          probe_post chapters_path_query "http://$host/api/comic/chapter/ie84hfh8/homelist/$COMIC_ID?comicId=$COMIC_ID" 'application/json' '{}'
-          probe_post chapters_path_json "http://$host/api/comic/chapter/ie84hfh8/homelist/$COMIC_ID" 'application/json' "{\"comicId\":\"$COMIC_ID\"}"
-
-          echo '=== SEARCH_METHOD_MATRIX ==='
-          probe_post search_query "http://$host/api/comic/categories/comicList?page=1&pageNum=1&pageSize=20&keyword=%E6%88%91%E7%8B%AC%E8%87%AA%E5%8D%87%E7%BA%A7" 'application/json' '{}'
-          probe_post search_json "http://$host/api/comic/categories/comicList" 'application/json' '{"page":1,"pageNum":1,"pageSize":20,"keyword":"我独自升级"}'
-
-          rm -f /tmp/qm_app_access /tmp/qm_device_id
+          rm -f /tmp/qm_app_access /tmp/qm_device_id /tmp/qm_chapter_id /tmp/qm_first_page
