@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Decompile Qingman native bridge callers
+      - name: Focus Qingman bootstrap bridge contract
         shell: bash
         run: |
           set -euo pipefail
@@ -26,20 +26,22 @@ jobs:
           print('current_version',a.get('version'),'versionCode',a.get('versionCode'),file=open('/tmp/version','w'))
           PY
           echo "$(cat /tmp/version)"
-          curl -fL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qingman.apk
-          curl -fL --retry 2 --connect-timeout 20 --max-time 180 \
-            'https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip' \
-            -o /tmp/jadx.zip
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qingman.apk
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 \
+            'https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip' -o /tmp/jadx.zip
           mkdir -p /tmp/jadx-bin /tmp/jadx-out
           unzip -q /tmp/jadx.zip -d /tmp/jadx-bin
           /tmp/jadx-bin/bin/jadx --no-res --show-bad-code -d /tmp/jadx-out /tmp/qingman.apk >/tmp/jadx.log 2>&1 || true
-          echo '=== JADX summary ==='
-          tail -80 /tmp/jadx.log || true
-          echo '=== QxSecurityNative ==='
-          find /tmp/jadx-out -type f -path '*QxSecurityNative*' -print -exec sed -n '1,260p' {} \; || true
-          echo '=== security caller files ==='
-          grep -RIlE 'bootstrapSign|bootstrapProof|bootstrapDecrypt|initializeSignKeys|buildHeaders|QxSecurityNative' /tmp/jadx-out/sources 2>/dev/null | head -80 || true
-          echo '=== security caller excerpts ==='
-          grep -RInE -C 12 'bootstrapSign|bootstrapProof|bootstrapDecrypt|initializeSignKeys|buildHeaders|QxSecurityNative' /tmp/jadx-out/sources 2>/dev/null | head -1800 || true
-          echo '=== method channel / bridge excerpts ==='
-          grep -RInE -C 10 'MethodChannel|security|qx_security|native_security|QxSecurity' /tmp/jadx-out/sources/com 2>/dev/null | head -1800 || true
+          BRIDGE=/tmp/jadx-out/sources/P/z.java
+          CRYPTO=/tmp/jadx-out/sources/com/bycgti/xfc/security/QxSecurityCrypto.java
+          CONFIG=/tmp/jadx-out/sources/com/baidu/mobstat/Config.java
+          echo '=== bridge 220-570 ==='
+          sed -n '220,570p' "$BRIDGE"
+          echo '=== bridge helpers 1-220 ==='
+          sed -n '1,220p' "$BRIDGE"
+          echo '=== crypto full ==='
+          sed -n '1,320p' "$CRYPTO"
+          echo '=== Config path constant ==='
+          grep -nE 'FEED_LIST_ITEM_PATH|path' "$CONFIG" | head -80 || true
+          echo '=== security channel registration ==='
+          grep -RInE -C 8 'new MethodChannel.*qx/|setMethodCallHandler' /tmp/jadx-out/sources/P /tmp/jadx-out/sources/com/bycgti/xfc 2>/dev/null | head -600 || true
