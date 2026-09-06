@@ -26,3 +26,5 @@ jobs:
             -f ref=integration/mx-stage1-library-20260906 \
             -f publish=true
           echo "Dispatched MX App Preview for integration/mx-stage1-library-20260906"
+
+# retrigger: stage1 version bump to 1.14.6/86
