@@ -1,13 +1,11 @@
-name: Probe Miaoqu public API
+name: Probe Miaoqu Live API
 
 on:
   push:
     branches:
-      - main
+      - miaoqu-api-probe
     paths:
       - .github/workflows/probe-miaoqu-api.yml
-      - probes/miaoqu/**
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -15,29 +13,151 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
-      - name: Probe current chapter payload
+      - name: Probe endpoints
         shell: bash
         run: |
-          python3 - <<'PY'
-          import ssl, urllib.request
+          set +e
+          REPORT=/tmp/miaoqu-report.txt
+          : > "$REPORT"
+          log() { printf '%s\n' "$*" | tee -a "$REPORT"; }
+          runlog() { "$@" >>"$REPORT" 2>&1; return $?; }
 
-          ctx = ssl._create_unverified_context()
-          headers = {"User-Agent": "MangaApp/1.0", "Accept": "application/json"}
-          url = "https://apitong.zqykfz.cn/miaoqu46/13/13959/info.json"
-          print("CHAPTER_URL", url)
-          try:
-              req = urllib.request.Request(url, headers=headers)
-              with urllib.request.urlopen(req, timeout=20, context=ctx) as r:
-                  raw = r.read(500000)
-                  text = raw.decode("utf-8", "replace")
-                  print("CHAPTER_STATUS", r.status)
-                  print("CHAPTER_TYPE", r.headers.get("content-type"))
-                  print("CHAPTER_BYTES", len(raw))
-                  print("CHAPTER_BODY_BEGIN")
-                  print(text)
-                  print("CHAPTER_BODY_END")
-          except Exception as e:
-              print("CHAPTER_ERROR", type(e).__name__, str(e))
+          PRIMARY='https://apitong.zqykfz.cn/api/com.xinmiaoqu.app/index.json'
+          FALLBACK='https://apitong.trgfd.cn/api/com.xinmiaoqu.app/index.json'
+          UA='MangaApp/1.0'
+
+          log '=== fetch config ==='
+          runlog curl -fsSL --connect-timeout 10 --max-time 30 -A 'QingmanLslandApp/1.0' "$PRIMARY" -o /tmp/config.json
+          RC=$?
+          log "primary_rc=$RC"
+          if [ $RC -ne 0 ]; then
+            runlog curl -fsSL --connect-timeout 10 --max-time 30 -A 'QingmanLslandApp/1.0' "$FALLBACK" -o /tmp/config.json
+            log "fallback_rc=$?"
+          fi
+
+          if [ ! -s /tmp/config.json ]; then
+            log 'CONFIG_FETCH_FAILED'
+            exit 0
+          fi
+
+          log '=== config ==='
+          python3 - <<'PY' | tee -a "$REPORT"
+          import json
+          c=json.load(open('/tmp/config.json'))
+          a=c.get('apiUrl') or {}
+          print('version=',c.get('version'))
+          print('categories=',c.get('categories'))
+          for k in ('textUrl','otherUrl','coverImageUrl','mangaImageUrl','backupDomain','memberUrl'):
+              print(f'{k}={a.get(k)}')
           PY
+
+          TEXT_URL=$(jq -r '.apiUrl.textUrl // empty' /tmp/config.json)
+          OTHER_URL=$(jq -r '.apiUrl.otherUrl // empty' /tmp/config.json)
+          COVER_URL=$(jq -r '.apiUrl.coverImageUrl // empty' /tmp/config.json)
+
+          log '=== recommend ==='
+          REC_URL="${TEXT_URL%/}/api/com.xinmiaoqu.app/%E6%8E%A8%E8%8D%90.json"
+          log "recommend_url=$REC_URL"
+          runlog curl -fsSL --connect-timeout 10 --max-time 30 -A 'QingmanLslandApp/1.0' "$REC_URL" -o /tmp/recommend.json
+          log "recommend_rc=$?"
+          if [ -s /tmp/recommend.json ]; then
+            python3 - <<'PY' | tee -a "$REPORT"
+          import json
+          x=json.load(open('/tmp/recommend.json'))
+          print('recommend_type=',type(x).__name__)
+          print('recommend_prefix=',json.dumps(x,ensure_ascii=False)[:1500])
+          def walk(v):
+              if isinstance(v,dict):
+                  if 'manhuaid' in v and ('manhuaming' in v or 'title' in v):
+                      yield v
+                  for z in v.values(): yield from walk(z)
+              elif isinstance(v,list):
+                  for z in v: yield from walk(z)
+          items=list(walk(x))
+          print('manga_count_recursive=',len(items))
+          if items:
+              m=items[0]
+              print('sample_manga=',json.dumps(m,ensure_ascii=False))
+              open('/tmp/manga_id','w').write(str(m['manhuaid']))
+          PY
+          fi
+
+          log '=== search ==='
+          SEARCH_URL="${OTHER_URL%/}/sousuo?keyword=%E6%96%97%E7%BD%97"
+          log "search_url=$SEARCH_URL"
+          runlog curl -fsSL --connect-timeout 10 --max-time 30 -A 'QingmanLslandApp/1.0' "$SEARCH_URL" -o /tmp/search.json
+          log "search_rc=$?"
+          if [ -s /tmp/search.json ]; then
+            python3 - <<'PY' | tee -a "$REPORT"
+          import json
+          x=json.load(open('/tmp/search.json'))
+          print('search_prefix=',json.dumps(x,ensure_ascii=False)[:1500])
+          PY
+          fi
+
+          if [ -s /tmp/manga_id ]; then
+            MID=$(cat /tmp/manga_id)
+            BUCKET=$((MID / 1000))
+            CHAPTER_URL="${TEXT_URL%/}/miaoqu46/${BUCKET}/${MID}/info.json"
+            log '=== chapter ==='
+            log "chapter_url=$CHAPTER_URL"
+            runlog curl -fsSL --connect-timeout 10 --max-time 30 -A "$UA" -H 'Accept: application/json' "$CHAPTER_URL" -o /tmp/chapter.enc
+            log "chapter_rc=$?"
+            if [ -s /tmp/chapter.enc ]; then
+              printf 'encrypted_prefix=' | tee -a "$REPORT"
+              head -c 120 /tmp/chapter.enc | tee -a "$REPORT"; printf '\n' | tee -a "$REPORT"
+              node <<'NODE' | tee -a "$REPORT"
+          const fs=require('fs'), crypto=require('crypto');
+          try {
+            const s=fs.readFileSync('/tmp/chapter.enc','utf8').trim();
+            const raw=Buffer.from(s,'base64');
+            console.log('cipher_bytes=',raw.length);
+            if(raw.length < 29) throw new Error('cipher too short');
+            const iv=raw.subarray(0,12), body=raw.subarray(12,raw.length-16), tag=raw.subarray(raw.length-16);
+            const d=crypto.createDecipheriv('aes-128-gcm',Buffer.from('0000o9iu10pol777','utf8'),iv);
+            d.setAuthTag(tag);
+            const plain=Buffer.concat([d.update(body),d.final()]).toString('utf8');
+            fs.writeFileSync('/tmp/chapter.json',plain);
+            console.log('decrypted_prefix=',plain.slice(0,1800));
+          } catch(e) { console.log('decrypt_error=',String(e)); }
+          NODE
+            fi
+          fi
+
+          if [ -s /tmp/chapter.json ]; then
+            python3 - <<'PY' | tee -a "$REPORT"
+          import json
+          x=json.load(open('/tmp/chapter.json'))
+          chapters=x.get('chapters') or []
+          print('chapter_count=',len(chapters))
+          if chapters:
+              c=chapters[0]
+              print('sample_chapter=',json.dumps(c,ensure_ascii=False))
+              open('/tmp/chapter_id','w').write(str(c.get('chapterId')))
+              open('/tmp/page_count','w').write(str(c.get('pageCount')))
+          PY
+          fi
+
+          if [ -s /tmp/chapter_id ] && [ -s /tmp/manga_id ]; then
+            MID=$(cat /tmp/manga_id); CID=$(cat /tmp/chapter_id); BUCKET=$((MID / 1000))
+            log '=== pages ==='
+            for P in 0 1 2; do
+              URL="${COVER_URL%/}/tu/${BUCKET}/${MID}/${CID}/${P}.jpeg"
+              CODE=$(curl -sSL --connect-timeout 10 --max-time 30 -A "$UA" -o "/tmp/page${P}.bin" -w '%{http_code}' "$URL")
+              SIZE=$(wc -c < "/tmp/page${P}.bin" 2>/dev/null)
+              MAGIC=$(head -c 16 "/tmp/page${P}.bin" 2>/dev/null | xxd -p)
+              log "page=$P http=$CODE bytes=$SIZE magic=$MAGIC url=$URL"
+            done
+          fi
+
+          exit 0
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: miaoqu-live-api-report
+          path: /tmp/miaoqu-report.txt
+          if-no-files-found: error
