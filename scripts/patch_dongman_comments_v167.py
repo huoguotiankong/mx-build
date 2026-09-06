@@ -38,7 +38,7 @@ def patch_source(root: Path) -> None:
         )''',
         '''        val comments = root.toChapterComments()
         val returnedCount = (root.dataArray("bestList")?.size ?: 0) +
-            (root.dataArray("commentList")?.size ?: 0
+            (root.dataArray("commentList")?.size ?: 0)
         val topLevelCount = root.firstLong("count")
         val currentPage = page.coerceAtLeast(1)
         return CommentPage(
