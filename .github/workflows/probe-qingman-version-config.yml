@@ -1,0 +1,44 @@
+name: Inspect Qingman Public Version Config
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-version-config.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Print non-sensitive config structure
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,urllib.request,re,urllib.parse
+          u='https://bass8ycl.zermh.com/api/radio/api/config/version'
+          o=json.load(urllib.request.urlopen(u,timeout=20))
+          print('top_keys='+','.join(sorted(map(str,o.keys()))))
+          def walk(x,path='root',depth=0):
+              if depth>6:return
+              if isinstance(x,dict):
+                  for k,v in x.items():
+                      p=f'{path}.{k}'
+                      kl=str(k).lower()
+                      if any(s in kl for s in ('token','secret','password','sign','key','cert','cookie')):
+                          print(p+'=<redacted-field>'); continue
+                      if isinstance(v,(dict,list)): walk(v,p,depth+1)
+                      elif isinstance(v,(str,int,float,bool)) or v is None:
+                          s=str(v)
+                          if isinstance(v,str) and len(s)>400:s=s[:400]+'...'
+                          print(p+'='+s)
+              elif isinstance(x,list):
+                  print(path+f'.length={len(x)}')
+                  for i,v in enumerate(x[:8]): walk(v,f'{path}[{i}]',depth+1)
+          walk(o)
+          PY
