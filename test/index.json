@@ -339,19 +339,19 @@
         "name": "Qingman",
         "packageName": "eu.kanade.tachiyomi.extension.zh.qingman",
         "resources": {
-          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.qingman-v1.6.2.apk",
-          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.qingman-v106002.png"
+          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.qingman-v1.6.3.apk",
+          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.qingman-v106003.png"
         },
         "extensionLib": "1.6",
-        "versionCode": 106002,
-        "versionName": "1.6.2",
+        "versionCode": 106003,
+        "versionName": "1.6.3",
         "contentWarning": "SAFE",
         "sources": [
           {
             "id": 5091633172929638041,
             "name": "青漫",
             "language": "zh",
-            "homeUrl": "https://sf85sdq66h.qingman.mom",
+            "homeUrl": "https://www.qingman.app",
             "mirrorUrls": [],
             "message": null
           }
