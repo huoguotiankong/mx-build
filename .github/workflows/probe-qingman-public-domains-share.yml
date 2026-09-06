@@ -1,0 +1,156 @@
+name: Probe Qingman Public Domains And Share Endpoints
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-public-domains-share.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Probe alternate public domains
+        shell: bash
+        run: |
+          set -euo pipefail
+          UA='Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Mobile Safari/537.36'
+          mkdir -p /tmp/qm-domains
+          domains=(
+            'https://www.qingman.pro'
+            'https://www.qingman.xyz'
+            'https://www.qingman.my'
+            'https://www.qingman.dev'
+            'https://www.qingman.vip'
+          )
+          for base in "${domains[@]}"; do
+            host=$(python3 - "$base" <<'PY'
+          import sys,urllib.parse
+          print(urllib.parse.urlsplit(sys.argv[1]).hostname)
+          PY
+            )
+            for suffix in '/' '/comic/detail?comicId=1' '/comic/read?chapterId=1' '/share' '/comic/share'; do
+              key=$(printf '%s%s' "$host" "$suffix" | tr '/?=&:' '_')
+              out="/tmp/qm-domains/$key.html"
+              meta=$(curl -L --compressed --connect-timeout 8 --max-time 25 -A "$UA" -sS -o "$out" -w '%{http_code}\t%{url_effective}\t%{content_type}' "$base$suffix" || true)
+              title=$(python3 - "$out" <<'PY'
+          import html,re,sys
+          try:s=open(sys.argv[1],'r',encoding='utf-8',errors='replace').read()
+          except: s=''
+          m=re.search(r'<title[^>]*>(.*?)</title>',s,re.I|re.S)
+          t=re.sub(r'\s+',' ',re.sub(r'<[^>]+>',' ',html.unescape(m.group(1)))).strip() if m else ''
+          print(t[:180])
+          PY
+              )
+              echo "DOMAIN host=$host suffix=$suffix meta=$meta bytes=$(wc -c < "$out" 2>/dev/null || echo 0) title=$title"
+            done
+          done
+
+          echo '=== SAFE PUBLIC URL HINTS ==='
+          python3 - <<'PY'
+          from pathlib import Path
+          from urllib.parse import urljoin
+          import html,re
+          sensitive=re.compile(r'(?i)(token|secret|password|cookie|authorization|bearer|private|cert|p12)')
+          shown=set()
+          for p in Path('/tmp/qm-domains').glob('*.html'):
+              s=p.read_text('utf-8',errors='replace')
+              for u in re.findall(r'https?://[^\s"\'<>]+',s,re.I):
+                  u=html.unescape(u)
+                  if sensitive.search(u) or u in shown: continue
+                  shown.add(u)
+                  if any(k in u.lower() for k in ('qingman','comic','share','urlg','f37','pwpni','zermh','cdn','img')):
+                      print('URL',u[:700])
+          PY
+
+      - name: Prepare AOT analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+
+      - name: Restore analyzer cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+
+      - name: Scan share-related routes and fields
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/apk_url
+          import json, urllib.request, sys
+          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
+          a=o['data']['datas']['android']
+          print(a['downloadUrl'])
+          print('OFFICIAL_VERSION='+str(a.get('version','')), file=sys.stderr)
+          print('OFFICIAL_VERSION_CODE='+str(a.get('versionCode','')), file=sys.stderr)
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(head -1 /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          mkdir -p /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/apk-extract
+          cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter
+          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          lines=Path('/tmp/blutter-out/pp.txt').read_text('utf-8',errors='replace').splitlines()
+          entries=[]
+          for line in lines:
+              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s+(.*)$',line)
+              if m: entries.append((int(m.group(1),16),m.group(2)))
+          by={o:v for o,v in entries}
+          sensitive=re.compile(r'(?i)(token|secret|password|cookie|authorization|bearer|private|clientp12|certificate|proof|signature)')
+
+          def safe(v): return not sensitive.search(v)
+          print('=== API ROUTES CONTAINING SHARE ===')
+          share_api=[]
+          for off,val in entries:
+              low=val.lower()
+              if safe(val) and 'api/' in low and 'share' in low:
+                  share_api.append((off,val)); print(f'API_SHARE PP+0x{off:x} {val[:400]}')
+          print('API_SHARE_COUNT='+str(len(share_api)))
+
+          print('=== SHARE FIELD/METHOD STRINGS ===')
+          terms=('shareurl','share_url','sharelink','share_link','shareid','share_id','sharecomic','share_comic','share.invoke','sharetext','share_text','sharetitle','share_title','shareimage','share_image','officialurl','promotionurl','displayurl','targeturl','jumpurl','hosturl')
+          hits=[]
+          for off,val in entries:
+              low=val.lower()
+              if safe(val) and any(t in low for t in terms):
+                  hits.append((off,val)); print(f'SHARE PP+0x{off:x} {val[:420]}')
+          print('SHARE_STRING_COUNT='+str(len(hits)))
+
+          print('=== NEIGHBORHOODS ===')
+          for off,val in hits[:40]:
+              print(f'--- PP+0x{off:x} {val[:220]} ---')
+              for p in sorted(k for k in by if off-0x140 <= k <= off+0x200):
+                  v=by[p]; low=v.lower()
+                  if not safe(v): continue
+                  if any(x in low for x in ('api/','share','url','comic','chapter','id','title','cover','image','route','path','open','web','copy','download')):
+                      print(f'  PP+0x{p:x} {v[:360]}')
+
+          print('=== ALL SAFE API ROUTES AROUND SHARE FIELDS ===')
+          nearby=set()
+          hit_offsets=[o for o,_ in hits]
+          for off,val in entries:
+              if not safe(val) or 'api/' not in val.lower(): continue
+              if any(abs(off-h) <= 0x1000 for h in hit_offsets):
+                  if val not in nearby:
+                      nearby.add(val); print(f'NEAR_API PP+0x{off:x} {val[:420]}')
+          PY
