@@ -1,0 +1,105 @@
+name: Trace Qingman Public Share And H5 Routes
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-public-share.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+
+      - name: Restore analyzer cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+
+      - name: Trace public URL and share markers
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/apk_url
+          import json,urllib.request,sys
+          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
+          a=o['data']['datas']['android']
+          print(a['downloadUrl'])
+          print('OFFICIAL_VERSION='+str(a.get('version','')),file=sys.stderr)
+          print('OFFICIAL_CODE='+str(a.get('versionCode','')),file=sys.stderr)
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(head -1 /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          mkdir -p /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' 'assets/flutter_assets/*' -d /tmp/apk-extract
+          cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter
+          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re,urllib.parse
+          lines=Path('/tmp/blutter-out/pp.txt').read_text('utf-8',errors='replace').splitlines()
+          print('=== PUBLIC_URLS ===')
+          urls=[]
+          for line in lines:
+              m=re.search(r'String: "(.*?)"$',line)
+              if not m: continue
+              s=m.group(1)
+              for u in re.findall(r'https?://[^\s"<>]+',s):
+                  # redact query values but preserve host/path/key names
+                  try:
+                      p=urllib.parse.urlsplit(u)
+                      q=urllib.parse.parse_qsl(p.query,keep_blank_values=True)
+                      safeq='&'.join(f'{k}=<value>' for k,_ in q)
+                      su=urllib.parse.urlunsplit((p.scheme,p.netloc,p.path,safeq,''))
+                  except Exception:
+                      su=u.split('?',1)[0]
+                  if su not in urls: urls.append(su)
+          for u in urls[:300]: print('URL '+u)
+
+          print('=== SHARE_H5_MARKERS ===')
+          hits=[]
+          keys=('share','分享','h5','webview','web_url','weburl','shareurl','share_url','comicshare','comic_share','deeplink','deep_link','scheme','qingman.vip','qingman.dev','qingman.pro','qingman.xyz','qingman.my')
+          for line in lines:
+              low=line.lower()
+              if any(k.lower() in low for k in keys):
+                  # never emit credential-related lines
+                  if re.search(r'(?i)(clientp12|privatekey|certificate|password|secret|token)',line): continue
+                  t=re.sub(r'([A-Za-z0-9_-]{80,})','<opaque>',line)
+                  hits.append(t[:600])
+          seen=set()
+          for h in hits:
+              if h in seen: continue
+              seen.add(h); print(h)
+              if len(seen)>=500: break
+          print('marker_count='+str(len(seen)))
+
+          print('=== FLUTTER_ASSET_NAMES ===')
+          root=Path('/tmp/apk-extract/assets/flutter_assets')
+          if root.exists():
+              names=[]
+              for p in root.rglob('*'):
+                  if p.is_file():
+                      rel=str(p.relative_to(root))
+                      if re.search(r'(?i)(config|domain|url|share|web|h5|comic|route|env)',rel): names.append(rel)
+              for n in names[:300]: print('ASSET '+n)
+              print('asset_marker_count='+str(len(names)))
+          PY
