@@ -1,0 +1,213 @@
+name: MX Stage 3 Surface Static 1.14.9
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/mx-app-stage3-surface-static-1.14.9.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mx-app-stage3-surface-static-1-14-9
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Check required secrets
+        shell: bash
+        env:
+          MX_APP_SIGNING_BUNDLE: ${{ secrets.MX_APP_SIGNING_BUNDLE }}
+          MX_APP_PUBLISH_TOKEN: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_APP_SIGNING_BUNDLE" ]] || { echo "::error::Missing MX_APP_SIGNING_BUNDLE"; exit 1; }
+          [[ -n "$MX_APP_PUBLISH_TOKEN" ]] || { echo "::error::Missing MX_APP_PUBLISH_TOKEN"; exit 1; }
+
+      - name: Checkout isolated Stage 3 source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-app
+          ref: integration/mx-stage3-surface-1.14.9-20260906
+          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          path: source
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prepare immutable 1.14.9 build
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "SOURCE_BASE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          grep -q 'it.id == EH_SOURCE_ID' app/src/main/java/eu/kanade/domain/source/interactor/GetEnabledSources.kt
+          grep -q 'EHENTAI_EXT_SOURCES.forEach' app/src/main/java/eu/kanade/tachiyomi/source/AndroidSourceManager.kt
+          test -f app/src/main/java/eu/kanade/tachiyomi/source/online/all/EHentaiMxFeatureProvider.kt
+          test -f app/src/main/java/eu/kanade/tachiyomi/source/online/all/EHentaiCommentLikeProvider.kt
+          test -f app/src/main/java/eu/kanade/tachiyomi/source/online/all/EHentaiGalleryRatingProvider.kt
+          test -f app/src/main/java/eu/kanade/tachiyomi/source/online/all/EHentaiTagInteractionProvider.kt
+          sed -i -E '0,/versionCode = [0-9]+/s//versionCode = 89/' app/build.gradle.kts
+          sed -i -E '0,/versionName = "[^"]+"/s//versionName = "1.14.9"/' app/build.gradle.kts
+          grep -q 'versionCode = 89' app/build.gradle.kts
+          grep -q 'versionName = "1.14.9"' app/build.gradle.kts
+          git diff --check
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Format check and unit tests
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew spotlessCheck
+          ./gradlew testReleaseUnitTest
+
+      - name: Prepare stable signing key
+        shell: bash
+        env:
+          MX_APP_SIGNING_BUNDLE: ${{ secrets.MX_APP_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, json, os
+          from pathlib import Path
+          bundle=json.loads(os.environ['MX_APP_SIGNING_BUNDLE'])
+          required=('signingKey','alias','storePassword')
+          missing=[k for k in required if not bundle.get(k)]
+          if missing: raise SystemExit('Signing bundle missing required fields')
+          path=Path(os.environ['RUNNER_TEMP'])/'mx-app.jks'
+          path.write_bytes(base64.b64decode(bundle['signingKey']))
+          values={
+              'MX_KEYSTORE_PATH':str(path),
+              'MX_KEY_ALIAS':str(bundle['alias']),
+              'MX_KEYSTORE_PASSWORD':str(bundle['storePassword']),
+              'MX_KEY_PASSWORD':str(bundle['storePassword']),
+          }
+          with Path(os.environ['GITHUB_ENV']).open('a',encoding='utf-8') as f:
+              for name,value in values.items():
+                  print(f'::add-mask::{value}')
+                  f.write(f'{name}<<__MX_SIGNING_EOF__\n{value}\n__MX_SIGNING_EOF__\n')
+          PY
+
+      - name: Verify stable signing identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="c230be9c78bf5d28a101c2cb785923b899aa569ead15961309dea8bbcb34ec33"
+          actual="$(keytool -exportcert -alias "$MX_KEY_ALIAS" -keystore "$MX_KEYSTORE_PATH" -storepass "$MX_KEYSTORE_PASSWORD" | sha256sum | awk '{print $1}')"
+          [[ "$actual" == "$expected" ]] || { echo "::error::MX signing certificate mismatch"; exit 1; }
+
+      - name: Build signed Preview APK
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew assemblePreview \
+            -Pdisable-code-shrink \
+            --no-configuration-cache \
+            -Pandroid.injected.signing.store.file="$MX_KEYSTORE_PATH" \
+            -Pandroid.injected.signing.store.password="$MX_KEYSTORE_PASSWORD" \
+            -Pandroid.injected.signing.key.alias="$MX_KEY_ALIAS" \
+            -Pandroid.injected.signing.key.password="$MX_KEY_PASSWORD"
+
+      - name: Normalize and verify APK identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_cert="c230be9c78bf5d28a101c2cb785923b899aa569ead15961309dea8bbcb34ec33"
+          aapt_bin="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          found_arm64=0
+          while IFS= read -r apk; do
+            signed="${apk%.apk}.mx-signed.apk"
+            "$apksigner" sign \
+              --ks "$MX_KEYSTORE_PATH" \
+              --ks-key-alias "$MX_KEY_ALIAS" \
+              --ks-pass env:MX_KEYSTORE_PASSWORD \
+              --key-pass env:MX_KEY_PASSWORD \
+              --out "$signed" "$apk"
+            mv "$signed" "$apk"
+            badging="$("$aapt_bin" dump badging "$apk")"
+            package_name="$(printf '%s\n' "$badging" | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n 1)"
+            version_code="$(printf '%s\n' "$badging" | sed -n "s/^package:.*versionCode='\([^']*\)'.*/\1/p" | head -n 1)"
+            version_name="$(printf '%s\n' "$badging" | sed -n "s/^package:.*versionName='\([^']*\)'.*/\1/p" | head -n 1)"
+            app_label="$(printf '%s\n' "$badging" | sed -n "s/^application-label:'\([^']*\)'.*/\1/p" | head -n 1)"
+            [[ "$package_name" == "com.huoguotiankong.mx.beta" ]]
+            [[ "$version_code" == "89" ]]
+            [[ "$version_name" == 1.14.9-* ]]
+            [[ "$app_label" == "MX漫画" ]]
+            cert_output="$("$apksigner" verify --print-certs "$apk" 2>&1)"
+            normalized="$(printf '%s' "$cert_output" | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')"
+            [[ "$normalized" == *"$expected_cert"* ]]
+            case "$(basename "$apk")" in
+              *arm64-v8a*) found_arm64=1 ;;
+            esac
+          done < <(find source/app/build/outputs/apk/preview -maxdepth 1 -type f -name '*.apk' | sort)
+          [[ "$found_arm64" -eq 1 ]]
+
+      - name: Checkout publication target
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-app
+          ref: main
+          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          path: publisher
+          fetch-depth: 1
+
+      - name: Publish 1.14.9 APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd publisher
+          git switch --orphan mx-stage3-surface-1149-downloads
+          git rm -rf . || true
+          git clean -fdx
+          mkdir -p apks
+          found_arm64=0
+          while IFS= read -r apk; do
+            base="$(basename "$apk")"
+            case "$base" in
+              *arm64-v8a*)
+                found_arm64=1
+                cp "$apk" apks/MX-Manga-arm64-v8a-preview.apk
+                cp "$apk" apks/MX-Manga-arm64-v1.14.9-stage3-preview.apk
+                ;;
+              *armeabi-v7a*)
+                cp "$apk" apks/MX-Manga-armeabi-v7a-preview.apk
+                cp "$apk" apks/MX-Manga-armeabi-v7a-v1.14.9-stage3-preview.apk
+                ;;
+            esac
+          done < <(find ../source/app/build/outputs/apk/preview -maxdepth 1 -type f -name '*.apk' | sort)
+          [[ "$found_arm64" -eq 1 ]]
+          cat > README.md <<EOF
+          # MX漫画 Stage 3 Preview
+
+          - 版本：1.14.9 / versionCode 89
+          - ARM64：\`apks/MX-Manga-arm64-v1.14.9-stage3-preview.apk\`
+          - 兼容固定地址：\`apks/MX-Manga-arm64-v8a-preview.apk\`
+          - 源码基线：\`$SOURCE_BASE_SHA\`
+          - 构建：基于固定 Stage 3 源码，仅在构建时提升到 1.14.9/code89；不回写共享集成分支。
+          - 内容：Stage 1 + Stage 2 评论增强 + E-Hentai/ExHentai 增强；确保 E-Hentai 表站入口可见。
+          EOF
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md apks
+          git commit -m "Publish MX漫画 Stage 3 surface 1.14.9 ${SOURCE_BASE_SHA:0:7}"
+          git push --force origin HEAD:downloads
+
+      - name: Cleanup signing material
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/mx-app.jks"
