@@ -1,0 +1,28 @@
+name: Dispatch MX Stage1 Library Preview
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/dispatch-mx-stage1-library.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Dispatch isolated Stage 1 preview
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run mx-app-preview.yml \
+            --repo huoguotiankong/mx-build \
+            --ref main \
+            -f ref=integration/mx-stage1-library-20260906 \
+            -f publish=true
+          echo "Dispatched MX App Preview for integration/mx-stage1-library-20260906"
