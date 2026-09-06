@@ -1,4 +1,4 @@
-name: Map Qingman Request Route Getters
+name: Inspect Qingman Request Descriptor Metadata
 
 on:
   push:
@@ -32,7 +32,7 @@ jobs:
             /tmp/blutter/packages
           key: qingman-blutter-dart-3.12.2-arm64-v1
 
-      - name: Find route getter functions and GDT slot clues
+      - name: Inspect class/function metadata without secrets
         shell: bash
         run: |
           set -euo pipefail
@@ -53,85 +53,42 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import re
-
           sensitive=re.compile(r'(?i)(token|secret|password|cookie|authorization|bearer|private|clientp12|certificate|proof|signature|sign/key|k1a|k1b|k2a|k2b|k3a|k3b|seed)')
           def clean(s):
               if sensitive.search(s): return '<redacted-sensitive-line>'
-              return s[:800]
+              return s[:1000]
 
-          pp_lines=Path('/tmp/blutter-out/pp.txt').read_text('utf-8',errors='replace').splitlines()
-          pp={}
-          for line in pp_lines:
-              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s+(.*)$',line)
-              if m: pp[int(m.group(1),16)]=m.group(2)
+          for fname in ('objs.txt','pp.txt'):
+              p=Path('/tmp/blutter-out')/fname
+              lines=p.read_text('utf-8',errors='replace').splitlines()
+              print(f'=== {fname} target metadata ===')
+              terms=('txb','Asb','class id: 992','class id: 1114','fPa')
+              hits=[]
+              for i,s in enumerate(lines):
+                  if any(t.lower() in s.lower() for t in terms): hits.append(i)
+              print('hit_count='+str(len(hits)))
+              shown=set()
+              for i in hits[:120]:
+                  for n in range(max(0,i-35),min(len(lines),i+90)):
+                      if n in shown: continue
+                      shown.add(n)
+                      print(f'{fname}:{n+1}: {clean(lines[n])}')
 
-          routes=[
-              'api/comic/comics/v1/homeList',
-              'api/radio/api/config/getAdConfig',
-              'api/radio/api/config/homepage/interstitial',
-              'api/appapi/user/deregistration/cancel',
-              'api/radio/api/config/version',
-          ]
-          route_offsets={}
-          print('=== ROUTE PP OFFSETS ===')
-          for route in routes:
-              offs=[off for off,val in pp.items() if route in val]
-              route_offsets[route]=offs
-              print(route, [hex(x) for x in offs])
-
+          print('=== ASM methods returning route-like strings ===')
           asm=[]
           for p in Path('/tmp/blutter-out/asm').rglob('*.dart'):
               try: asm.append((p,p.read_text('utf-8',errors='replace').splitlines()))
               except Exception: pass
-
-          def bounds(lines,i):
-              s=i
-              while s>0 and '** addr:' not in lines[s]: s-=1
-              if '** addr:' not in lines[s]: s=max(0,i-60)
-              e=len(lines)
-              for j in range(s+1,len(lines)):
-                  if '** addr:' in lines[j]: e=j; break
-              return s,e
-
-          print('=== ROUTE REFERENCE FUNCTIONS ===')
-          emitted=set(); total=0
-          for route,offs in route_offsets.items():
-              for off in offs:
-                  patterns=(f'[pp+0x{off:x}]'.lower(), f'#0x{off:x}'.lower())
-                  hits=[]
-                  for p,lines in asm:
-                      for i,line in enumerate(lines):
-                          low=line.lower()
-                          if patterns[0] in low:
-                              hits.append((p,lines,i))
-                  print(f'ROUTE {route} PP+0x{off:x} asm_hits={len(hits)}')
-                  for p,lines,i in hits[:16]:
-                      print(f'HIT {p.name}:{i+1}: {clean(lines[i])}')
-                      s,e=bounds(lines,i); key=(str(p),s,e)
-                      if key in emitted: continue
-                      emitted.add(key)
-                      print(f'FUNCTION {p.name}:{s+1}-{e}')
-                      for n in range(s,min(e,s+360)):
-                          print(clean(lines[n])); total+=1
-                          if total>=2800: break
-                      if total>=2800: break
-                  if total>=2800: break
-              if total>=2800: break
-
-          print('=== GDT SLOT REFERENCES IN ASM ===')
-          for slot in ('0xbeba','0xdb15','0xdc93'):
-              hits=[]
-              for p,lines in asm:
-                  for i,line in enumerate(lines):
-                      if slot in line.lower(): hits.append((p,i,line))
-              print(f'SLOT {slot} hits={len(hits)}')
-              for p,i,line in hits[:120]: print(f'{p.name}:{i+1}: {clean(line)}')
-
-          print('=== TARGET REQUEST CLASS HEADERS ===')
-          for target in ('txb','Asb'):
-              for p,lines in asm:
-                  for i,line in enumerate(lines):
-                      if re.match(r'\s*class\s+'+target+r'\b',line):
-                          print(f'{target} {p.name}:{i+1}')
-                          for n in range(max(0,i-10),min(len(lines),i+70)): print(clean(lines[n]))
+          route_words=('api/comic/','api/radio/','api/appapi/')
+          count=0
+          for p,lines in asm:
+              for i,line in enumerate(lines):
+                  if not any(w in line for w in route_words): continue
+                  print(f'ROUTE_LINE {p.name}:{i+1}: {clean(line)}')
+                  for n in range(max(0,i-18),min(len(lines),i+35)):
+                      print(clean(lines[n]))
+                  count+=1
+                  if count>=120: break
+              if count>=120: break
+          print('ROUTE_FUNCTION_HITS='+str(count))
           PY
