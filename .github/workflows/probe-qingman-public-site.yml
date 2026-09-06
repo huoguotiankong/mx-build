@@ -1,0 +1,49 @@
+name: Inspect Qingman Public Site Routing
+
+on:
+  push:
+    paths:
+      - '.github/workflows/probe-qingman-public-site.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Print public redirects and referenced hosts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import re,urllib.request,urllib.parse
+          start='https://www.qingman.app/'
+          class H(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self,req,fp,code,msg,hdrs,newurl):
+                  print('redirect',code,req.full_url,'->',newurl)
+                  return super().redirect_request(req,fp,code,msg,hdrs,newurl)
+          op=urllib.request.build_opener(H())
+          req=urllib.request.Request(start,headers={'User-Agent':'Mozilla/5.0'})
+          try:
+              r=op.open(req,timeout=20); final=r.geturl(); body=r.read(500000).decode('utf-8','replace')
+              print('final=',final,'status=',getattr(r,'status',None),'bytes=',len(body))
+          except Exception as e:
+              print('fetch_error=',type(e).__name__,str(e)[:180]); raise
+          refs=set()
+          for s in re.findall(r'(?i)(?:https?:)?//[^\s"\'<>]+',body):
+              if s.startswith('//'): s='https:'+s
+              try: refs.add(urllib.parse.urlsplit(s).netloc.lower())
+              except Exception: pass
+          for s in re.findall(r'(?i)(?:src|href)=["\']([^"\']+)["\']',body):
+              u=urllib.parse.urljoin(final,s)
+              h=urllib.parse.urlsplit(u).netloc.lower()
+              if h: refs.add(h)
+          print('referenced_hosts=',','.join(sorted(refs)))
+          # Only print compact redirect-like JS targets, never arbitrary page data.
+          for pat in [r'(?i)location(?:\.href|\.replace)?\s*[=(]\s*["\']([^"\']+)',r'(?i)window\.location\s*=\s*["\']([^"\']+)']:
+              for x in re.findall(pat,body):
+                  print('js_target=',urllib.parse.urljoin(final,x)[:300])
+          PY
