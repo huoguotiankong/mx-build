@@ -41,9 +41,8 @@ jobs:
           if digest != expected:
               raise SystemExit('native security library changed; refuse fixed-layout extraction')
 
-          # The verified native build constructs bootstrapSign from a 33-byte
-          # internal prefix at this virtual address. Keep the bytes transient:
-          # never print or persist them.
+          # Verified current native build. The 33-byte internal material is
+          # extracted transiently and is never printed or persisted.
           prefix_va=0x17d1f
           with so.open('rb') as f:
               elf=ELFFile(f)
@@ -53,8 +52,8 @@ jobs:
                   if sva <= prefix_va and prefix_va+33 <= sva+ssize:
                       d=sec.data(); prefix=d[prefix_va-sva:prefix_va-sva+33]; break
           if prefix is None or len(prefix)!=33:
-              raise SystemExit('signature prefix bytes not found')
-          print('native_layout_verified=true prefix_len=33')
+              raise SystemExit('signature internal bytes not found')
+          print('native_layout_verified=true internal_len=33')
 
           endpoint='https://mu8xm4cx.zermh.com/bootstrap/domain'
           ts=str(int(time.time()*1000))
@@ -80,7 +79,9 @@ jobs:
 
           accepted=None
           for order in permutations(('timestamp','nonce','deviceId')):
-              sig=hashlib.sha256(prefix+b''.join(values[k].encode() for k in order)).hexdigest()
+              # Native bootstrapSign appends its internal 33-byte material
+              # after the three Java String arguments, then SHA-256 hashes it.
+              sig=hashlib.sha256(b''.join(values[k].encode() for k in order)+prefix).hexdigest()
               payload={'timestamp':ts,'nonce':nonce,'sign':sig,'deviceId':device}
               req=urllib.request.Request(endpoint,data=json.dumps(payload,separators=(',',':')).encode(),headers=headers,method='POST')
               try:
