@@ -67,7 +67,6 @@ jobs:
           grep -Fq 'id = 4940002032762570168' "$gradle"
           ! grep -Fq 'lang = "zh-Hans"' "$gradle"
 
-          # Restore all five official launcher densities from the current upstream source.
           target="$module/res"
           rm -rf "$target"/mipmap-mdpi "$target"/mipmap-hdpi "$target"/mipmap-xhdpi "$target"/mipmap-xxhdpi "$target"/mipmap-xxxhdpi
           for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
@@ -79,12 +78,12 @@ jobs:
             cp "$icon" "$dst/$(basename "$icon")"
           done
 
-          # Keep the same deterministic preference-API adaptation already used by the validated v1 build.
+          # Current androidx preference API accepts Context only for EditTextPreference.
+          # Only adapt plain Preference construction used by the source to the current framework.
           python3 - <<'PY'
           from pathlib import Path
           p = Path('dev/src/zh/dongmanmanhuaplus/src/eu/kanade/tachiyomi/extension/zh/dongmanmanhuaplus/DongmanManhuaPlus.kt')
           s = p.read_text('utf-8')
-          s = s.replace('EditTextPreference(screen.context).apply {', 'EditTextPreference(screen.context, null).apply {')
           s = s.replace('Preference(screen.context).apply {', 'Preference().apply {')
           s = s.replace('            isSelectable = false\n', '')
           p.write_text(s, 'utf-8')
