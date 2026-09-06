@@ -12,61 +12,38 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
-      - name: Inspect Qingman public route targets
+      - name: Inspect current Qingman APK public routes
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          import json, re, ssl, urllib.error, urllib.parse, urllib.request
-          ctx=ssl.create_default_context()
-          UA='Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140 Mobile Safari/537.36'
-          def fetch(url):
-              req=urllib.request.Request(url,headers={'Accept':'*/*','User-Agent':UA})
-              try:
-                  with urllib.request.urlopen(req,timeout=20,context=ctx) as r:
-                      return r.status,r.geturl(),dict(r.headers),r.read(1048576)
-              except urllib.error.HTTPError as e:
-                  return e.code,e.geturl(),dict(e.headers),e.read(1048576)
-          def html_summary(label,url):
-              try: status,final,h,raw=fetch(url)
-              except Exception as e: print(label,'transport_error',type(e).__name__,str(e)); return
-              txt=raw.decode('utf-8','replace')
-              urls=[]
-              pats=[r'https?://[^\"\'<>\\s]+',r'(?i)(?:location\.href|location\.replace|url)\s*[=:]\s*[\"\']([^\"\']+)']
-              for pat in pats:
-                  for m in re.findall(pat,txt):
-                      x=m if isinstance(m,str) else m[0]
-                      x=x.rstrip(');,]')
-                      if x not in urls: urls.append(x)
-              scripts=re.findall(r'<script[^>]+src=[\"\']([^\"\']+)',txt,re.I)
-              print('\n===',label,'===')
-              print('status=',status,'final=',final,'type=',h.get('Content-Type'),'bytes=',len(raw))
-              print('urls=',urls[:50])
-              print('scripts=',scripts[:50])
-              print('title=',(re.findall(r'<title[^>]*>(.*?)</title>',txt,re.I|re.S) or [''])[0][:200])
-          html_summary('official','https://www.qingman.app/')
-          html_summary('resolved landing','https://rx6vxp6wil2ra0cg.f37.top/')
-          cfg='https://bass8ycl.zermh.com/api/radio/api/config/version'
-          try:
-              status,final,h,raw=fetch(cfg)
-              o=json.loads(raw.decode('utf-8','replace'))
-              print('\n=== public radio config ===')
-              print('status=',status,'code=',o.get('code'),'msg=',o.get('msg'))
-              data=o.get('data')
-              # Public unauthenticated config only. Show key structure and URL/domain-like scalar values.
-              found=[]
-              def walk(v,path='data'):
-                  if isinstance(v,dict):
-                      for k,x in v.items(): walk(x,path+'.'+str(k))
-                  elif isinstance(v,list):
-                      for i,x in enumerate(v[:100]): walk(x,path+f'[{i}]')
-                  elif isinstance(v,(str,int,float,bool)):
-                      s=str(v)
-                      if 'http://' in s or 'https://' in s or re.search(r'(?i)(?:domain|host|url|api|version|android|app)',path):
-                          found.append((path,s[:500]))
-              walk(data)
-              print('public_config_fields=',found[:100])
-          except Exception as e: print('config_error',type(e).__name__,str(e))
+          CFG='https://bass8ycl.zermh.com/api/radio/api/config/version'
+          python3 - <<'PY' > /tmp/apk_url
+          import json, urllib.request
+          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
+          a=o['data']['datas']['android']
+          print(a['downloadUrl'])
+          print('VERSION='+str(a.get('version','')),file=open('/tmp/ver','w'))
+          print('VERSION_CODE='+str(a.get('versionCode','')),file=open('/tmp/vc','w'))
           PY
+          APK_URL="$(cat /tmp/apk_url)"
+          echo "current $(cat /tmp/ver) $(cat /tmp/vc)"
+          curl -fL --retry 2 --connect-timeout 20 --max-time 180 "$APK_URL" -o /tmp/qingman.apk
+          echo "apk_sha256=$(sha256sum /tmp/qingman.apk | cut -d' ' -f1)"
+          unzip -p /tmp/qingman.apk lib/arm64-v8a/libapp.so > /tmp/libapp.so
+          unzip -p /tmp/qingman.apk lib/arm64-v8a/libqx_security.so > /tmp/libqx_security.so || true
+          echo '=== current app public URL hosts ==='
+          strings -a /tmp/libapp.so \
+            | grep -Eo 'https?://[^[:space:]"'"'"'<>]+' \
+            | sed -E 's/[),;\]}]+$//' \
+            | grep -Ei 'qingman|zermh|dmzj|pwpni|urlg|comic' \
+            | sort -u | head -100 || true
+          echo '=== current app comic/bootstrap paths ==='
+          strings -a /tmp/libapp.so \
+            | grep -E '^(api/(comic|appapi|radio)/|https://[^ ]+/bootstrap/domain$|X-(Api-Guard|Device-Id|QM-App-Access|QM-Proof|QM-Proof-Version|QM-Request-Id|Register-Channel|Signature|Timestamp)$|bootstrap(Sign|Proof|Decrypt)$|buildHeaders$|initializeSignKeys$)' \
+            | sort -u | head -300 || true
+          echo '=== native public algorithm markers ==='
+          strings -a /tmp/libqx_security.so \
+            | grep -E '^(qm-(bootstrap|native)-proof-v[0-9]+\|android|bootstrap(Sign|Proof|Decrypt)|buildHeaders|initializeSignKeys|apiGuard|AES_|RSA_|sha256|hkdfSha256|md5Hex)$' \
+            | sort -u || true
