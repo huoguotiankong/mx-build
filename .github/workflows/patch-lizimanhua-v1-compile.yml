@@ -1,0 +1,70 @@
+name: Patch Lizi Manhua v1 Compile
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/patch-lizimanhua-v1-compile.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check write token
+        env:
+          MX_APP_PUBLISH_TOKEN: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_APP_PUBLISH_TOKEN" ]]
+
+      - name: Checkout Lizi branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: source/lizimanhua-v1
+          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          path: dev
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Apply compile and Spotless fixes
+        working-directory: dev
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/zh/lizimanhua/src/eu/kanade/tachiyomi/extension/zh/lizimanhua/LiziManhua.kt')
+          s = p.read_text('utf-8')
+          old = '''        val classes = (data?.get("cfg_comic_class") as? JsonArray)\n            ?.mapNotNull { it as? JsonObject }\n            .mapNotNull { obj ->\n'''
+          new = '''        val classes = (data?.get("cfg_comic_class") as? JsonArray)\n            ?.mapNotNull { it as? JsonObject }\n            .orEmpty()\n            .mapNotNull { obj ->\n'''
+          if old not in s:
+              raise SystemExit('nullable classes block not found')
+          s = s.replace(old, new, 1)
+
+          old = '''    private fun decryptAes256Ecb(encoded: String): String {\n        return try {\n            val encrypted = Base64.decode(encoded.trim(), Base64.DEFAULT)\n            val cipher = Cipher.getInstance("AES/ECB/PKCS5Padding")\n            cipher.init(\n                Cipher.DECRYPT_MODE,\n                SecretKeySpec(DISCOVERY_AES_KEY.toByteArray(StandardCharsets.UTF_8), "AES"),\n            )\n            String(cipher.doFinal(encrypted), StandardCharsets.UTF_8)\n        } catch (e: Exception) {\n            throw IOException("栗子漫画线路数据解密失败", e)\n        }\n    }\n'''
+          new = '''    private fun decryptAes256Ecb(encoded: String): String = try {\n        val encrypted = Base64.decode(encoded.trim(), Base64.DEFAULT)\n        val cipher = Cipher.getInstance("AES/ECB/PKCS5Padding")\n        cipher.init(\n            Cipher.DECRYPT_MODE,\n            SecretKeySpec(DISCOVERY_AES_KEY.toByteArray(StandardCharsets.UTF_8), "AES"),\n        )\n        String(cipher.doFinal(encrypted), StandardCharsets.UTF_8)\n    } catch (e: Exception) {\n        throw IOException("栗子漫画线路数据解密失败", e)\n    }\n'''
+          if old not in s:
+              raise SystemExit('decrypt block not found')
+          s = s.replace(old, new, 1)
+          p.write_text(s, 'utf-8')
+          PY
+          git diff --check
+          git diff -- src/zh/lizimanhua/src/eu/kanade/tachiyomi/extension/zh/lizimanhua/LiziManhua.kt
+
+      - name: Commit and push
+        working-directory: dev
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/zh/lizimanhua/src/eu/kanade/tachiyomi/extension/zh/lizimanhua/LiziManhua.kt
+          git commit -m 'fix(lizimanhua): fix nullable filter list and formatting'
+          git push origin HEAD:source/lizimanhua-v1
