@@ -30,7 +30,7 @@ jobs:
             /tmp/blutter/dartsdk
             /tmp/blutter/packages
           key: qingman-blutter-dart-3.12.2-arm64-v1
-      - name: Inspect guest helper regions
+      - name: Inspect guest activation and auth descriptor
         shell: bash
         run: |
           set -euo pipefail
@@ -53,7 +53,7 @@ jobs:
           from elftools.elf.elffile import ELFFile
           import re
 
-          sensitive=re.compile(r'(?i)(password|token|cookie|authorization|bearer|private|clientp12|certificate|proof|signature|p12|seed|k1a|k1b|k2a|k2b|k3a|k3b)')
+          sensitive=re.compile(r'(?i)(password|passwd|pwd|token|cookie|authorization|bearer|private|clientp12|certificate|proof|signature|p12|seed|k1a|k1b|k2a|k2b|k3a|k3b)')
           def safe(s): return '<redacted-sensitive-line>' if sensitive.search(s) else s[:620]
           pp={}
           for line in Path('/tmp/blutter-out/pp.txt').read_text('utf-8',errors='replace').splitlines():
@@ -81,22 +81,17 @@ jobs:
                   if ann or ins.mnemonic in ('bl','blr','ret','b','b.eq','b.ne','b.ls','b.hi','cbz','cbnz','tbz','tbnz') or ins.mnemonic.startswith('st'):
                       print(f'0x{ins.address:x} {ins.mnemonic:<7} {ins.op_str}{ann}')
 
-          dump('guest service local state',0xac1500,0xac1900)
-          dump('guest/auth init helpers',0xb12800,0xb12d20)
-          dump('startup guest service helpers',0xbbad80,0xbbaf80)
+          dump('guest local identity creation',0xac1630,0xac1840)
+          dump('guest activation helper',0xb11c80,0xb11e80)
+          dump('login request descriptor region',0xaaf1c0,0xaaf480)
+          dump('auth service startup',0xbba930,0xbbab40)
 
-          print('\n=== BLUTTER DECLARATIONS AROUND HELPER ADDRESSES ===')
-          targets=(0xac16c0,0xac1730,0xac17d4,0xb128e4,0xb12ab0,0xb12be0,0xbbadf4,0xbbae74)
-          for p in Path('/tmp/blutter-out/asm').rglob('*.dart'):
-              lines=p.read_text('utf-8',errors='replace').splitlines()
-              for i,s in enumerate(lines):
-                  m=re.search(r'\*\* addr: 0x([0-9a-fA-F]+), size: 0x([0-9a-fA-F]+)',s)
-                  if not m: continue
-                  st=int(m.group(1),16); sz=int(m.group(2),16)
-                  if any(st<=t<st+sz for t in targets) or any(abs(st-t)<=0x80 for t in targets):
-                      print(f'FILE={p.name} {s.strip()}')
-                      for j in range(max(0,i-5),min(len(lines),i+45)):
-                          z=lines[j]
-                          if sensitive.search(z): continue
-                          print(safe(z))
+          print('\n=== SAFE PP NEIGHBORHOODS ===')
+          for center in (0xb3b8,0xb3d0,0xb3d8,0xb3e0,0xb3e8,0x96d0,0x96d8,0x96e8,0x1d928):
+              print(f'-- center=0x{center:x} --')
+              for p in sorted(k for k in pp if center-0x100<=k<=center+0x140):
+                  v=pp[p]
+                  if sensitive.search(v): continue
+                  if any(x in v.lower() for x in ('guest','user','login','register','device','channel','identity','api/','http','string:','field <','typearguments')):
+                      print(f'PP+0x{p:x} {safe(v)}')
           PY
