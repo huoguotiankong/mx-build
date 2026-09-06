@@ -101,6 +101,31 @@
         ]
       },
       {
+        "name": "Dongman Manhua Plus",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.dongmanmanhuaplus",
+        "resources": {
+          "apkUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.dongmanmanhuaplus-v1.6.1.apk",
+          "iconUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/icon/eu.kanade.tachiyomi.extension.zh.dongmanmanhuaplus-v106001.png",
+          "jarUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.dongmanmanhuaplus-v1.6.1.jar"
+        },
+        "extensionLib": "1.6",
+        "versionCode": "106001",
+        "versionName": "1.6.1",
+        "contentWarning": "CONTENT_WARNING_SAFE",
+        "sources": [
+          {
+            "id": "4940002032762570168",
+            "name": "\u549a\u6f2b\u753b Plus",
+            "language": "zh-Hans",
+            "homeUrl": "https://m.dongmanmanhua.cn",
+            "mirrorUrls": [
+              "https://m.dongmanmanhua.cn",
+              "https://www.dongmanmanhua.cn"
+            ]
+          }
+        ]
+      },
+      {
         "name": "HaoDuoMan",
         "packageName": "eu.kanade.tachiyomi.extension.zh.haoduoman",
         "resources": {
