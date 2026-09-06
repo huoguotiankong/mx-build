@@ -1,0 +1,68 @@
+name: Inspect Qingman Exported IPC Surface
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-exported-ipc.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Download current official APK and inspect manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/apk_url
+          import json,urllib.request,sys
+          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
+          a=o['data']['datas']['android']
+          print(a['downloadUrl'])
+          print('OFFICIAL_VERSION='+str(a.get('version','')),file=sys.stderr)
+          print('OFFICIAL_VERSION_CODE='+str(a.get('versionCode','')),file=sys.stderr)
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(head -1 /tmp/apk_url)" -o /tmp/qingman.apk
+          AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -1)"
+          test -x "$AAPT"
+          echo '=== BADGING ==='
+          "$AAPT" dump badging /tmp/qingman.apk | grep -E '^(package:|application-label:|launchable-activity:|uses-permission:|uses-feature:|sdkVersion:|targetSdkVersion:)' | head -200 || true
+          echo '=== MANIFEST COMPONENTS / INTENT FILTERS ==='
+          "$AAPT" dump xmltree /tmp/qingman.apk AndroidManifest.xml > /tmp/manifest.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          lines=Path('/tmp/manifest.txt').read_text('utf-8',errors='replace').splitlines()
+          # Print compact component blocks that contain exported=true, authorities, intent-filter, VIEW/BROWSABLE, schemes/hosts, or custom permissions.
+          component_tags={'activity','activity-alias','service','receiver','provider'}
+          blocks=[]
+          i=0
+          while i<len(lines):
+              m=re.search(r'E: (activity|activity-alias|service|receiver|provider) ',lines[i])
+              if not m:
+                  i+=1; continue
+              tag=m.group(1); indent=len(lines[i])-len(lines[i].lstrip())
+              j=i+1
+              while j<len(lines):
+                  s=lines[j]
+                  if s.strip().startswith('E: ') and len(s)-len(s.lstrip())<=indent:
+                      break
+                  j+=1
+              block=lines[i:j]
+              text='\n'.join(block)
+              if any(k in text for k in ('android:exported','android:authorities','intent-filter','android.intent.action.VIEW','android.intent.category.BROWSABLE','android:scheme','android:host','android:path','android:permission')):
+                  blocks.append((tag,block))
+              i=j
+          for tag,block in blocks:
+              print('---',tag,'---')
+              for line in block:
+                  if any(k in line for k in ('android:name','android:exported','android:authorities','android:permission','android:grantUriPermissions','android:readPermission','android:writePermission','android.intent.action','android.intent.category','android:scheme','android:host','android:path','android:pathPrefix','android:pathPattern')) or 'E: intent-filter' in line or 'E: data' in line:
+                      print(line.strip())
+          PY
+          echo '=== STORAGE/PATH PROVIDER HINTS ==='
+          unzip -Z1 /tmp/qingman.apk | grep -Ei '(file_paths|provider_paths|paths\.xml|network_security_config|backup_rules)' | head -80 || true
