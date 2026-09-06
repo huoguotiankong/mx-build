@@ -21,10 +21,11 @@ jobs:
         run: |
           python -m pip install --quiet requests cryptography
           cat >/tmp/probe.py <<'PY'
-          import base64, json, re
+          import base64, json, re, urllib3
           from urllib.parse import quote, urljoin
           import requests
           from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+          urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
           CONFIGS = [
               'https://apitong.zqykfz.cn/api/com.xinmiaoqu.app/index.json',
@@ -36,7 +37,7 @@ jobs:
 
           def get(url):
               try:
-                  r=s.get(url,timeout=15,allow_redirects=True)
+                  r=s.get(url,timeout=15,allow_redirects=True,verify=False)
                   print('GET',url,'->',r.status_code,r.headers.get('content-type'),'len=',len(r.content),'final=',r.url)
                   return r
               except Exception as e:
@@ -79,7 +80,7 @@ jobs:
           for u in CONFIGS:
               r=get(u)
               if r is None or not r.ok: continue
-              print('CONFIG PREFIX',r.text[:2000].replace('\n',' '))
+              print('CONFIG PREFIX',r.text[:3000].replace('\n',' '))
               cfg=parse_json(r.content)
               if cfg is not None:
                   print('CONFIG STRUCTURE'); walk(cfg); break
@@ -106,16 +107,16 @@ jobs:
                       if obj is None:
                           plain=decrypt(r.content)
                           if plain is not None:
-                              print('CATEGORY DECRYPT OK',category,'len=',len(plain),'prefix=',plain[:1200])
+                              print('CATEGORY DECRYPT OK',category,'len=',len(plain),'prefix=',plain[:1600])
                               obj=parse_json(plain)
                       if obj is None:
-                          print('CATEGORY RAW',r.content[:800]); continue
+                          print('CATEGORY RAW',r.content[:1000]); continue
                       print('CATEGORY JSON',category); walk(obj)
                       ids=[]
                       def ids_in(x):
                           if isinstance(x,dict):
                               for k,v in x.items():
-                                  if k.lower() in ('id','mangaid','manga_id','comicid','comic_id','bookid','book_id'):
+                                  if k.lower() in ('id','mangaid','manga_id','comicid','comic_id','bookid','book_id','manhuaid'):
                                       try:
                                           n=int(v)
                                           if n>0: ids.append(n)
@@ -138,7 +139,7 @@ jobs:
                   if detail_obj is None:
                       plain=decrypt(r.content)
                       if plain is not None:
-                          print('DETAIL DECRYPT OK len=',len(plain),'prefix=',plain[:3000])
+                          print('DETAIL DECRYPT OK len=',len(plain),'prefix=',plain[:5000])
                           detail_obj=parse_json(plain)
                   if detail_obj is not None:
                       print('DETAIL STRUCTURE'); walk(detail_obj)
@@ -147,16 +148,15 @@ jobs:
               for kw in ('斗罗','恋爱'):
                   r=get(urljoin(other.rstrip('/')+'/', 'sousuo?keyword='+quote(kw,safe='')))
                   if r is not None and r.ok:
-                      print('SEARCH',kw,'PREFIX',r.text[:3000].replace('\n',' ')); break
+                      print('SEARCH',kw,'PREFIX',r.text[:5000].replace('\n',' ')); break
 
-          # Try to extract a chapter id/page count from decrypted detail for image-base validation.
           if detail_obj is not None and manga_id:
               chapter_ids=[]; page_counts=[]
               def collect(x):
                   if isinstance(x,dict):
                       for k,v in x.items():
                           kl=k.lower()
-                          if kl in ('chapterid','chapter_id','cid','id'):
+                          if kl in ('chapterid','chapter_id','cid'):
                               try:
                                   n=int(v)
                                   if n>0: chapter_ids.append(n)
