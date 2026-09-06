@@ -1,0 +1,56 @@
+name: Probe Mengman bootstrap variants
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-mengman-bootstrap-variants-v1.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Probe PNG response variants
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import urllib.request, urllib.error, struct, hashlib, time
+          base='https://static.yisix.cn/bootstrap/a1.png'
+          variants=[
+            ('plain',base,{}),
+            ('okhttp',base,{'User-Agent':'okhttp/4.12.0'}),
+            ('app',base,{'User-Agent':'okhttp/4.12.0','X-Package':'com.mengman.app','X-App-VersionCode':'101'}),
+            ('accept_png',base,{'User-Agent':'okhttp/4.12.0','Accept':'image/png'}),
+            ('no_cache',base+'?v='+str(int(time.time())),{'User-Agent':'okhttp/4.12.0','Cache-Control':'no-cache'}),
+            ('ts',base+'?_ts='+str(int(time.time()*1000)),{'User-Agent':'okhttp/4.12.0'}),
+          ]
+          def chunks(b):
+            if not b.startswith(b'\x89PNG\r\n\x1a\n'): return []
+            p=8; out=[]
+            while p+12<=len(b):
+              n=struct.unpack('>I',b[p:p+4])[0]
+              typ=b[p+4:p+8].decode('latin1')
+              out.append((typ,n))
+              p += 12+n
+              if typ=='IEND': break
+            return out
+          for name,url,h in variants:
+            print('\n===',name,url,h)
+            try:
+              with urllib.request.urlopen(urllib.request.Request(url,headers=h),timeout=15) as r:
+                b=r.read()
+                print('status',r.status,'len',len(b),'sha256',hashlib.sha256(b).hexdigest())
+                print('resp headers',dict(r.headers))
+                print('chunks',chunks(b))
+                for typ,n in chunks(b):
+                  if typ in ('tEXt','zTXt','iTXt'):
+                    print('TEXT CHUNK FOUND',typ,n)
+            except Exception as e:
+              print('ERROR',repr(e))
+          PY
