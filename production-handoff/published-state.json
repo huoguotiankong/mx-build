@@ -274,6 +274,17 @@
     "versionCode": 106002,
     "versionName": "1.6.2"
   },
+  "eu.kanade.tachiyomi.extension.zh.tencentcomics": {
+    "androidVersionCode": 208025,
+    "apk": "tachiyomi-zh.tencentcomics-v1.4.25.apk",
+    "apkSha256": "0793e3b9c11bdcddb6dbb4440f37f1dbb76656f1cb96e5b942ac729b63067164",
+    "jar": "tachiyomi-zh.tencentcomics-v1.4.25.jar",
+    "jarSha256": "e3cc6772f2ebe3ed4ec758fbbea7f4084c3dfe0a92e22fe0eded7cc099fbf115",
+    "module": "zh.tencentcomics",
+    "sourceHash": "78341cf49b45becb4035681972c84f6f2d8fefa3998cfbdd1aa1a21030c09500",
+    "versionCode": 104025,
+    "versionName": "1.4.25"
+  },
   "eu.kanade.tachiyomi.extension.zh.webtoons": {
     "androidVersionCode": 212002,
     "apk": "tachiyomi-zh.webtoons-v1.6.2.apk",

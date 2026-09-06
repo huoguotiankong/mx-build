@@ -632,6 +632,27 @@
         ]
       },
       {
+        "name": "Tencent Comics (ac.qq.com)",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.tencentcomics",
+        "resources": {
+          "apkUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.tencentcomics-v1.4.25.apk",
+          "iconUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/icon/eu.kanade.tachiyomi.extension.zh.tencentcomics-v104025.png",
+          "jarUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.tencentcomics-v1.4.25.jar"
+        },
+        "extensionLib": "1.4",
+        "versionCode": "104025",
+        "versionName": "1.4.25",
+        "contentWarning": "CONTENT_WARNING_MIXED",
+        "sources": [
+          {
+            "id": "6353436350537369479",
+            "name": "\u817e\u8baf\u52a8\u6f2b",
+            "language": "zh",
+            "homeUrl": "https://m.ac.qq.com"
+          }
+        ]
+      },
+      {
         "name": "Webtoons",
         "packageName": "eu.kanade.tachiyomi.extension.zh.webtoons",
         "resources": {
