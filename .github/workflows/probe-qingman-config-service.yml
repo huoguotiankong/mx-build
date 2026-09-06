@@ -1,0 +1,74 @@
+name: Trace Qingman AppConfig Service Singleton
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-config-service.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+      - name: Restore analyzer cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+      - name: Trace service/type metadata and initializers
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/apk_url
+          import json,urllib.request
+          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
+          print(o['data']['datas']['android']['downloadUrl'])
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(head -1 /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          mkdir -p /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/apk-extract
+          cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter
+          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
+
+          echo '=== OBJS / PP TYPE HINTS ==='
+          grep -RInE -C 12 'uEb|xjb|_nGd|QxAppConfig|initServices|Failed to load configs|Fetch configs failed|AppConfig' \
+            /tmp/blutter-out/objs.txt /tmp/blutter-out/pp.txt 2>/dev/null \
+            | grep -Eiv 'token|secret|password|cookie|authorization|bearer|private|clientp12|certificate|proof|signature|sign/key|k1a|k1b|k2a|k2b|k3a|k3b|seed' \
+            | head -4000 || true
+
+          echo '=== ASM HINTS ==='
+          grep -RInE -C 24 'uEb|xjb|_nGd|QxAppConfig|initServices|Failed to load configs|Fetch configs failed|AppConfig' \
+            /tmp/blutter-out/asm 2>/dev/null \
+            | grep -Eiv 'token|secret|password|cookie|authorization|bearer|private|clientp12|certificate|proof|signature|sign/key|k1a|k1b|k2a|k2b|k3a|k3b|seed' \
+            | head -8000 || true
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          pp=Path('/tmp/blutter-out/pp.txt').read_text('utf-8',errors='replace').splitlines()
+          print('=== SELECTED STATIC FIELDS / CLOSURES ===')
+          for line in pp:
+              low=line.lower()
+              if any(x in low for x in ('<ueb.', '[ueb]', ' of [ueb]', '<xjb.', ' of [xjb]', 'type: ueb', 'type: xjb', 'qxappconfig', 'initservices')):
+                  if re.search(r'(?i)(token|secret|password|cookie|authorization|bearer|private|clientp12|certificate|proof|signature|sign/key|k1a|k1b|k2a|k2b|k3a|k3b|seed)',line):
+                      continue
+                  print(line[:700])
+          PY
