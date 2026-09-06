@@ -43,43 +43,16 @@ jobs:
           unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/apk-extract
           cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
           cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          echo '=== current embedded domains ==='
+          strings /tmp/app-lib/libapp.so | grep -E 'https?://[^ ]+|[A-Za-z0-9.-]+\.qingman\.mom' | grep -E 'qingman|zermh|dmzj' | sort -u | head -120 || true
           cd /tmp/blutter
           python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1 || true
           tail -10 /tmp/blutter.log || true
           echo '=== bootstrap pool entries ==='
           grep -nE 'bootstrap: 原生签名失败|bootstrap/domain|apiDomain|appAccessToken|bootstrapProof|bootstrapSign|String: "nonce"' /tmp/blutter-out/pp.txt || true
-          echo '=== raw exact offset references ==='
-          grep -RInE -C 18 '0xbfd0|0xc000|0xc010|0xc030|0xc038|0xc090|0xc098|0xc0a0|0xc0a8|0xc138|0xc140' /tmp/blutter-out/asm | head -12000 || true
-          echo '=== PP reference forms ==='
-          grep -RInE -C 24 '\[PP[^]]*(bfd0|c000|c010|c030|c038|c090|c098|c0a0|c0a8|c138|c140)|\[x27[^]]*(bfd0|c000|c010|c030|c038|c090|c098|c0a0|c0a8|c138|c140)' /tmp/blutter-out/asm | head -12000 || true
-          echo '=== nearest bootstrap-containing assembly file/function blocks ==='
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-          wanted={'bfd0','c000','c010','c030','c038','c090','c098','c0a0','c0a8','c138','c140'}
-          hits=[]
-          for p in Path('/tmp/blutter-out/asm').rglob('*'):
-              if not p.is_file(): continue
-              lines=p.read_text(encoding='utf-8',errors='replace').splitlines()
-              for i,line in enumerate(lines):
-                  low=line.lower()
-                  if any(re.search(r'0x0*'+re.escape(o)+r'\b',low) for o in wanted):
-                      hits.append((p,i))
-          print('hit_count=',len(hits))
-          seen=set()
-          for p,i in hits[:120]:
-              lines=p.read_text(encoding='utf-8',errors='replace').splitlines()
-              start=max(0,i-100); end=min(len(lines),i+180)
-              # Blutter emits function headers as lines ending in ':' and usually includes an address/name.
-              for j in range(i,-1,-1):
-                  s=lines[j].strip()
-                  if j < i and s.endswith(':') and ('0x' in s or 'Function' in s or '::' in s):
-                      start=j; break
-                  if i-j>500: break
-              key=(str(p),start)
-              if key in seen: continue
-              seen.add(key)
-              print(f'\n--- {p}:{i+1} block_start={start+1} ---')
-              for k in range(start,end):
-                  print(f'{k+1:06d}: {lines[k]}')
-          PY
+          echo '=== asm PP syntax sample ==='
+          grep -RInE -m 40 'PP|\[x27' /tmp/blutter-out/asm | head -80 || true
+          echo '=== decimal pool offset references ==='
+          grep -RInE -C 30 '#(49104|49152|49168|49200|49208|49296|49304|49312|49320|49464|49472)\b|\[(PP|x27)[^]]*(49104|49152|49168|49200|49208|49296|49304|49312|49320|49464|49472)' /tmp/blutter-out/asm | head -16000 || true
+          echo '=== pp-index neighborhood references ==='
+          grep -RInE -C 36 '#0x(17fa|1800|1802|1806|1807|1812|1813|1814|1815|1827|1828)\b' /tmp/blutter-out/asm | head -16000 || true
