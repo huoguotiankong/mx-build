@@ -1,0 +1,148 @@
+name: Classify Qingman AppConfig URL Consumers
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-appconfig-type-consumers.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  classify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+
+      - name: Restore analyzer cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+
+      - name: Resolve field consumers and request factory
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/apk_url
+          import json,urllib.request,sys
+          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
+          a=o['data']['datas']['android']
+          print(a['downloadUrl'])
+          print('OFFICIAL_VERSION='+str(a.get('version','')),file=sys.stderr)
+          print('OFFICIAL_VERSION_CODE='+str(a.get('versionCode','')),file=sys.stderr)
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(head -1 /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          mkdir -p /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/apk-extract
+          cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter
+          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          root=Path('/tmp/blutter-out/asm')
+          files=[]
+          for p in root.rglob('*.dart'):
+              try: files.append((p,p.read_text('utf-8',errors='replace').splitlines()))
+              except Exception: pass
+
+          # Field offsets were previously mapped from the AppConfig JSON parser.
+          fields={
+              'baseImgUrl':'field_4b',
+              'freeUrl':'field_4f',
+              'customerUrl':'field_53',
+              'officialUrl':'field_57',
+              'promotionUrl':'field_5b',
+          }
+          sensitive=re.compile(r'(?i)(token|secret|password|cookie|authorization|bearer|private|clientp12|certificate|proof|signature|sign/key|p12|seed|k1a|k1b|k2a|k2b|k3a|k3b)')
+          interesting=re.compile(r'(?i)(uri|url|http|dio|request|image|network|launch|browser|webview|comic|chapter|cdn|host|domain|join|concat|interpol|list|map|elementat|first|where|scheme)')
+
+          def safe(s):
+              return '<redacted-line>' if sensitive.search(s) else s[:520]
+
+          def function_header(lines,idx):
+              # Blutter emits a method/function banner before each assembly block.
+              for j in range(idx,-1,-1):
+                  s=lines[j]
+                  if s.startswith('//') and ('0x' in s or 'Function' in s or '::' in s or '(' in s):
+                      return j,s
+                  if j < idx-180: break
+              return max(0,idx-20),'<header-not-found>'
+
+          print('=== APPCONFIG FIELD CONSUMERS ===')
+          for label,field in fields.items():
+              hits=[]
+              for p,lines in files:
+                  for i,s in enumerate(lines):
+                      if field in s and ('LoadField' in s or '->'+field in s or field+' ' in s):
+                          h,head=function_header(lines,i)
+                          key=(str(p),h)
+                          if key not in [(x[0],x[1]) for x in hits]: hits.append((str(p),h,i,head,lines))
+              print(f'FIELD {label} storage={field} UNIQUE_FUNCTIONS={len(hits)}')
+              for n,(ps,h,i,head,lines) in enumerate(hits[:20],1):
+                  print(f'  CONSUMER {n} file={Path(ps).name} line={i+1}')
+                  print('    HEADER '+safe(head))
+                  # Compact semantic window: load itself plus nearby lines relevant to value use.
+                  lo=max(h,i-35); hi=min(len(lines),i+70)
+                  emitted=0
+                  for k in range(lo,hi):
+                      s=lines[k]
+                      if k==i or interesting.search(s):
+                          print(f'    L{k+1}: '+safe(s))
+                          emitted+=1
+                          if emitted>=45: break
+
+          print('\n=== EXACT REQUEST-FACTORY / CLOSURE ADDRESS CONTEXTS ===')
+          targets=['0xb02b90','0xb09d44','0xb028dc']
+          for target in targets:
+              found=[]
+              for p,lines in files:
+                  for i,s in enumerate(lines):
+                      if target in s.lower(): found.append((p,lines,i))
+              print(f'TARGET {target} HITS={len(found)}')
+              for p,lines,i in found[:5]:
+                  h,head=function_header(lines,i)
+                  print(f'  FILE={p.name} LINE={i+1}')
+                  print('  HEADER '+safe(head))
+                  lo=max(h,i-55); hi=min(len(lines),i+110)
+                  count=0
+                  for k in range(lo,hi):
+                      s=lines[k]
+                      if k==i or interesting.search(s) or re.search(r'\b(bl|blr|ret|LoadField|StoreField|LoadClassId)\b',s):
+                          print(f'  L{k+1}: '+safe(s))
+                          count+=1
+                          if count>=100: break
+
+          print('\n=== CONFIG ROUTE STRING XREF CONTEXTS ===')
+          routes=['api/radio/api/config/getAdConfig','api/radio/api/config/homepage/interstitial']
+          for route in routes:
+              rh=[]
+              for p,lines in files:
+                  for i,s in enumerate(lines):
+                      if route in s:
+                          h,head=function_header(lines,i)
+                          rh.append((p,lines,i,h,head))
+              print(f'ROUTE {route} ASM_HITS={len(rh)}')
+              for p,lines,i,h,head in rh[:10]:
+                  print(f'  FILE={p.name} LINE={i+1} HEADER={safe(head)}')
+                  for k in range(max(h,i-25),min(len(lines),i+45)):
+                      s=lines[k]
+                      if k==i or interesting.search(s): print(f'  L{k+1}: '+safe(s))
+          PY
