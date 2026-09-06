@@ -118,6 +118,14 @@ jobs:
           mkdir -p "upstream/src/zh"
           cp -a "source/src/zh/$source_name" "upstream/src/zh/$source_name"
 
+      - name: Prepare Qingman bootstrap material
+        if: steps.target.outputs.source == 'qingman'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check pyelftools >/dev/null
+          python3 source/scripts/prepare_qingman_bootstrap.py --module upstream/src/zh/qingman
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
