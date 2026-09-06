@@ -1,0 +1,79 @@
+name: Diagnose Dongman web list pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/diagnose-dongman-web-v1.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Probe current web pages
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          urls=(
+            'https://m.dongmanmanhua.cn/dailySchedule'
+            'https://m.dongmanmanhua.cn/dailySchedule?sortOrder=UPDATE&webtoonCompleteType=ONGOING'
+            'https://www.dongmanmanhua.cn/dailySchedule'
+            'https://m.dongmanmanhua.cn/'
+          )
+          i=0
+          for url in "${urls[@]}"; do
+            i=$((i+1))
+            echo "=== probe $i: $url ==="
+            code=$(curl -L --compressed -A 'Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140 Mobile Safari/537.36' -H 'Accept-Language: zh-CN,zh;q=0.9' -H 'Referer: https://m.dongmanmanhua.cn/' -sS -o "out/$i.html" -w '%{http_code}' "$url" || true)
+            echo "http=$code bytes=$(wc -c < "out/$i.html")"
+          done
+
+      - name: Inspect document structure
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check beautifulsoup4 >/dev/null
+          python3 - <<'PY'
+          from bs4 import BeautifulSoup
+          from pathlib import Path
+          import re
+          selectors = [
+              'div#dailyList .daily_section li a',
+              'div.daily_lst.comp li a',
+              '.daily_section li a',
+              'div#dailyList li a',
+              'a[href*="list?titleNo="]',
+              'a[href*="titleNo="]',
+              'a[href*="episodeList"]',
+          ]
+          for p in sorted(Path('out').glob('*.html')):
+              text=p.read_text('utf-8', errors='replace')
+              soup=BeautifulSoup(text,'html.parser')
+              print(f'=== {p.name} title={soup.title.get_text(" ", strip=True) if soup.title else ""!r} ===')
+              print('markers:', {k:(k in text) for k in ['dailyList','daily_section','daily_lst','__NEXT_DATA__','__NUXT__','titleNo','webtoonCompleteType']})
+              for sel in selectors:
+                  nodes=soup.select(sel)
+                  print(f'{sel}: {len(nodes)}')
+              anchors=[]
+              for a in soup.select('a[href]'):
+                  href=a.get('href','')
+                  label=' '.join(a.stripped_strings)
+                  if 'titleNo' in href or '/list' in href or 'episodeList' in href:
+                      anchors.append((href,label[:80]))
+              print('sample title-like links:', anchors[:20])
+              scripts=[s.get('src','') for s in soup.select('script[src]')]
+              print('scripts:', scripts[:20])
+          PY
+
+      - name: Upload probe HTML
+        uses: actions/upload-artifact@v4
+        with:
+          name: dongman-web-probe
+          path: out
+          if-no-files-found: error
