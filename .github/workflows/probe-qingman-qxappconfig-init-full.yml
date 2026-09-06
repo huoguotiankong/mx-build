@@ -1,0 +1,112 @@
+name: Trace Qingman QxAppConfig InitServices Full
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-qxappconfig-init-full.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools python3-capstone cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+      - name: Restore analyzer cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+      - name: Trace initServices and AppConfig URL consumer
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/apk_url
+          import json,urllib.request,sys
+          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
+          a=o['data']['datas']['android']
+          print(a['downloadUrl'])
+          print('OFFICIAL_VERSION='+str(a.get('version','')),file=sys.stderr)
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(head -1 /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          mkdir -p /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/apk-extract
+          cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter
+          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
+
+          sensitive=re.compile(r'(?i)(token|secret|password|cookie|authorization|bearer|private|clientp12|certificate|proof|signature|sign/key|k1a|k1b|k2a|k2b|k3a|k3b|seed)')
+          pp={}
+          for line in Path('/tmp/blutter-out/pp.txt').read_text('utf-8',errors='replace').splitlines():
+              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s+(.*)$',line)
+              if m: pp[int(m.group(1),16)]=m.group(2)
+
+          with open('/tmp/app-lib/libapp.so','rb') as f:
+              elf=ELFFile(f); sec=elf.get_section_by_name('.text'); base=int(sec['sh_addr']); data=sec.data()
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.skipdata=True
+
+          def safe(v):
+              if not v: return ''
+              return '<redacted>' if sensitive.search(v) else v[:220]
+
+          def dump(name,start,end,full=False):
+              print(f'\n=== {name} {start:#x}-{end:#x} ===')
+              pending={}
+              for ins in md.disasm(data[start-base:end-base],start):
+                  pending={r:(b,t-1) for r,(b,t) in pending.items() if t>1}
+                  op=ins.op_str.lower(); ann=''
+                  m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
+                  if ins.mnemonic=='add' and m:
+                      pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),12)
+                  elif ins.mnemonic in ('ldr','ldur','ldrsw'):
+                      m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
+                      if m:
+                          br=m.group(2); disp=int(m.group(3),0) if m.group(3) else 0
+                          off=disp if br=='x27' else (pending[br][0]+disp if br in pending else None)
+                          if off is not None and off in pp:
+                              ann=f' ; PP+0x{off:x}={safe(pp[off])}'
+                  if full or ann or ins.mnemonic in ('bl','blr','ret','b','b.eq','b.ne','b.ls','b.hi','cbz','cbnz','tbz','tbnz'):
+                      print(f'{ins.address:#x} {ins.mnemonic:<7} {ins.op_str}{ann}')
+
+          # Exact startup target previously pinned between before/after initServices logs.
+          dump('QxAppConfig.initServices',0xbb9368,0xbb9b80)
+
+          # Function consuming freeUrl/baseImgUrl and packing runtime config object.
+          dump('srm AppConfig consumer',0xb532c4,0xb53c48)
+
+          # Transformation called with freeUrl; inspect enough code to identify whether it splits/parses/normalizes URLs.
+          dump('freeUrl transform',0x38b504,0x38b780)
+
+          # Type metadata for Kvb and all direct textual mentions / field descriptors.
+          print('\n=== Kvb / srm METADATA ===')
+          for root in ('/tmp/blutter-out/objs.txt','/tmp/blutter-out/pp.txt'):
+              lines=Path(root).read_text('utf-8',errors='replace').splitlines()
+              for i,line in enumerate(lines):
+                  low=line.lower()
+                  if 'kvb' in low or 'b532c4' in low or '38b504' in low:
+                      for n in range(max(0,i-8),min(len(lines),i+24)):
+                          s=lines[n]
+                          if sensitive.search(s): s='<redacted-sensitive-line>'
+                          print(f'{Path(root).name}:{n+1}: {s[:600]}')
+          PY
