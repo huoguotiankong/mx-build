@@ -209,6 +209,28 @@
         ]
       },
       {
+        "name": "Miaoqu Manhua Plus",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.miaoqumanhuaplus",
+        "resources": {
+          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.miaoqumanhuaplus-v1.6.2.apk",
+          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.miaoqumanhuaplus-v106002.png"
+        },
+        "extensionLib": "1.6",
+        "versionCode": 106002,
+        "versionName": "1.6.2",
+        "contentWarning": "SAFE",
+        "sources": [
+          {
+            "id": 4073761417982452876,
+            "name": "喵趣漫画 Plus",
+            "language": "zh",
+            "homeUrl": "https://www.miaoqu.me",
+            "mirrorUrls": [],
+            "message": null
+          }
+        ]
+      },
+      {
         "name": "MiHouTaoManga",
         "packageName": "eu.kanade.tachiyomi.extension.zh.mihoutao",
         "resources": {
