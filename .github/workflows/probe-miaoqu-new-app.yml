@@ -1,0 +1,75 @@
+name: Probe current Miaoqu app
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-miaoqu-new-app.yml'
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Download current app from live config
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --quiet requests
+          python - <<'PY'
+          import json, requests, urllib3
+          urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+          u='https://apitong.zqykfz.cn/api/com.xinmiaoqu.app/index.json'
+          r=requests.get(u,headers={'User-Agent':'QingManLSLand/1.0'},timeout=30,verify=False)
+          r.raise_for_status()
+          cfg=r.json(); api=cfg['apiurl']; apk=api['apkurl']
+          print('CONFIG_VERSION',cfg.get('banben'))
+          print('CONFIG_TIP',cfg.get('tishi'))
+          print('APK_URL',apk)
+          rr=requests.get(apk,timeout=90,verify=False)
+          rr.raise_for_status()
+          open('/tmp/miaoqu-current.apk','wb').write(rr.content)
+          print('APK_BYTES',len(rr.content))
+          PY
+          sha256sum /tmp/miaoqu-current.apk
+          file /tmp/miaoqu-current.apk
+          unzip -l /tmp/miaoqu-current.apk | head -n 100
+
+      - name: Inspect manifest and static strings
+        shell: bash
+        run: |
+          set -euo pipefail
+          bt="$(find "$ANDROID_HOME/build-tools" -maxdepth 1 -mindepth 1 -type d | sort -V | tail -n1)"
+          if [ -x "$bt/aapt2" ]; then
+            "$bt/aapt2" dump badging /tmp/miaoqu-current.apk || true
+          elif [ -x "$bt/aapt" ]; then
+            "$bt/aapt" dump badging /tmp/miaoqu-current.apk || true
+          fi
+          rm -rf /tmp/miaoqu-unzip && mkdir -p /tmp/miaoqu-unzip
+          unzip -q /tmp/miaoqu-current.apk -d /tmp/miaoqu-unzip
+          echo '=== DEX/LIB/ASSET SUMMARY ==='
+          find /tmp/miaoqu-unzip -maxdepth 2 -type f \( -name '*.dex' -o -name '*.so' -o -path '*/assets/*' \) -printf '%s %p\n' | sort -nr | head -n 80
+          echo '=== URL / API STRINGS ==='
+          find /tmp/miaoqu-unzip -type f \( -name '*.dex' -o -name '*.so' \) -print0 | xargs -0 strings -a 2>/dev/null | grep -Eio 'https?://[^ "<>]+' | sort -u | head -n 300 || true
+          echo '=== MIAOQU / API KEYWORDS ==='
+          find /tmp/miaoqu-unzip -type f \( -name '*.dex' -o -name '*.so' \) -print0 | xargs -0 strings -a 2>/dev/null | grep -Ei 'miaoqu|xinmiaoqu|qingman|sousuo|fenlei|chapter|comment|login|manga|manhua|zqykfz|trgfd' | sort -u | head -n 600 || true
+
+      - name: Decompile with jadx
+        shell: bash
+        run: |
+          set -euo pipefail
+          api='https://api.github.com/repos/skylot/jadx/releases/latest'
+          url="$(curl -fsSL "$api" | jq -r '.assets[] | select(.name | test("jadx-[0-9].*zip$")) | .browser_download_url' | head -n1)"
+          echo "JADX_URL=$url"
+          test -n "$url" -a "$url" != null
+          curl -fL --retry 3 -o /tmp/jadx.zip "$url"
+          unzip -q /tmp/jadx.zip -d /tmp/jadx
+          rm -rf /tmp/jadx-out
+          /tmp/jadx/bin/jadx --no-res --show-bad-code --deobf -d /tmp/jadx-out /tmp/miaoqu-current.apk || true
+          echo '=== DECOMPILED PACKAGE HITS ==='
+          grep -RInE 'com\.xinmiaoqu|miaoqu|zqykfz|trgfd|sousuo|fenlei|mangaInfo|manhua|chapter|comment|login' /tmp/jadx-out/sources 2>/dev/null | head -n 1200 || true
