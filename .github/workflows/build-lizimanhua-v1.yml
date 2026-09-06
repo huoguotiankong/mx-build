@@ -95,7 +95,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ./gradlew :src:zh:lizimanhua:spotlessCheck
+          ./gradlew :src:zh:lizimanhua:spotlessApply :src:zh:lizimanhua:spotlessCheck
 
       - name: Prepare stable signing key
         env:
