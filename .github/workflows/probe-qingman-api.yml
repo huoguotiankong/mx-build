@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Discover Qingman public web and config routes
+      - name: Inspect Qingman public route targets
         shell: bash
         run: |
           set -euo pipefail
@@ -22,44 +22,51 @@ jobs:
           import json, re, ssl, urllib.error, urllib.parse, urllib.request
           ctx=ssl.create_default_context()
           UA='Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140 Mobile Safari/537.36'
-          def get(label,url,method='GET',body=None,ctype=None):
-              h={'Accept':'*/*','User-Agent':UA}
-              if ctype:h['Content-Type']=ctype
-              r=urllib.request.Request(url,data=body,headers=h,method=method)
-              print('\n===',label,'===',method,url)
+          def fetch(url):
+              req=urllib.request.Request(url,headers={'Accept':'*/*','User-Agent':UA})
               try:
-                  with urllib.request.urlopen(r,timeout=20,context=ctx) as p:
-                      raw=p.read(524288); status=p.status; final=p.geturl(); heads=dict(p.headers)
+                  with urllib.request.urlopen(req,timeout=20,context=ctx) as r:
+                      return r.status,r.geturl(),dict(r.headers),r.read(1048576)
               except urllib.error.HTTPError as e:
-                  raw=e.read(524288); status=e.code; final=e.geturl(); heads=dict(e.headers)
-              except Exception as e:
-                  print('transport_error',type(e).__name__,str(e)); return
-              print('status=',status,'final=',final,'type=',heads.get('Content-Type'),'bytes=',len(raw))
+                  return e.code,e.geturl(),dict(e.headers),e.read(1048576)
+          def html_summary(label,url):
+              try: status,final,h,raw=fetch(url)
+              except Exception as e: print(label,'transport_error',type(e).__name__,str(e)); return
               txt=raw.decode('utf-8','replace')
-              try:
-                  o=json.loads(txt)
-                  safe={k:v for k,v in o.items() if k.lower() in {'code','status','msg','message','error','success','version','domain','host','url'}}
-                  if isinstance(o.get('data'),dict): safe['data_keys']=list(o['data'].keys())
-                  elif isinstance(o.get('data'),list): safe['data_len']=len(o['data'])
-                  print('json=',json.dumps(safe,ensure_ascii=False)[:4000])
-              except Exception:
-                  urls=[]
-                  for x in re.findall(r'https?://[^\"\'<>\\s]+',txt):
+              urls=[]
+              pats=[r'https?://[^\"\'<>\\s]+',r'(?i)(?:location\.href|location\.replace|url)\s*[=:]\s*[\"\']([^\"\']+)']
+              for pat in pats:
+                  for m in re.findall(pat,txt):
+                      x=m if isinstance(m,str) else m[0]
                       x=x.rstrip(');,]')
                       if x not in urls: urls.append(x)
-                  hosts=[]
-                  for x in urls:
-                      try:
-                          h=urllib.parse.urlparse(x).hostname
-                          if h and h not in hosts: hosts.append(h)
-                      except: pass
-                  scripts=re.findall(r'<script[^>]+src=[\"\']([^\"\']+)',txt,re.I)
-                  print('hosts=',hosts[:30])
-                  print('scripts=',scripts[:30])
-                  print('html_markers=',[s for s in ['安全管家','qingman','漫画','comic','api'] if s.lower() in txt.lower()])
-          get('official landing','https://www.qingman.app/')
+              scripts=re.findall(r'<script[^>]+src=[\"\']([^\"\']+)',txt,re.I)
+              print('\n===',label,'===')
+              print('status=',status,'final=',final,'type=',h.get('Content-Type'),'bytes=',len(raw))
+              print('urls=',urls[:50])
+              print('scripts=',scripts[:50])
+              print('title=',(re.findall(r'<title[^>]*>(.*?)</title>',txt,re.I|re.S) or [''])[0][:200])
+          html_summary('official','https://www.qingman.app/')
+          html_summary('resolved landing','https://rx6vxp6wil2ra0cg.f37.top/')
           cfg='https://bass8ycl.zermh.com/api/radio/api/config/version'
-          get('radio config GET',cfg)
-          get('radio config POST empty',cfg,'POST',b'{}','application/json')
-          get('radio config POST metadata',cfg,'POST',json.dumps({'appVersion':'4.4.3','platform':'android'}).encode(),'application/json')
+          try:
+              status,final,h,raw=fetch(cfg)
+              o=json.loads(raw.decode('utf-8','replace'))
+              print('\n=== public radio config ===')
+              print('status=',status,'code=',o.get('code'),'msg=',o.get('msg'))
+              data=o.get('data')
+              # Public unauthenticated config only. Show key structure and URL/domain-like scalar values.
+              found=[]
+              def walk(v,path='data'):
+                  if isinstance(v,dict):
+                      for k,x in v.items(): walk(x,path+'.'+str(k))
+                  elif isinstance(v,list):
+                      for i,x in enumerate(v[:100]): walk(x,path+f'[{i}]')
+                  elif isinstance(v,(str,int,float,bool)):
+                      s=str(v)
+                      if 'http://' in s or 'https://' in s or re.search(r'(?i)(?:domain|host|url|api|version|android|app)',path):
+                          found.append((path,s[:500]))
+              walk(data)
+              print('public_config_fields=',found[:100])
+          except Exception as e: print('config_error',type(e).__name__,str(e))
           PY
