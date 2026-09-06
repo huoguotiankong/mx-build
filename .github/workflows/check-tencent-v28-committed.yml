@@ -1,0 +1,93 @@
+name: Check committed Tencent v28 source
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/check-tencent-v28-committed.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Check private source token
+        shell: bash
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]]
+
+      - name: Checkout committed Tencent v28 branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: fix/tencent-v28-comment-emoji-tokens
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: dev
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify committed source markers
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dev
+          python3 scripts/validate_sources.py
+          git diff --check
+          grep -F 'versionCode = 28' src/zh/tencentcomics/build.gradle.kts
+          grep -F 'TENCENT_EMOJI_TOKEN' src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+          grep -F '68 to "😁"' src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+          grep -F '"鼓掌" to "👏"' src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+          grep -F 'removeAllQueryParameters("tp")' src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+          grep -F '当前开发版本：`versionCode = 28`' docs/sources/tencentcomics.md
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Checkout current Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Overlay Tencent extension
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf upstream/src/zh/tencentcomics
+          cp -a dev/src/zh/tencentcomics upstream/src/zh/tencentcomics
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Verify Spotless
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:tencentcomics:spotlessCheck
+
+      - name: Build debug and release
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:tencentcomics:assembleDebug :src:zh:tencentcomics:assembleRelease
+
+      - name: Lint release
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:tencentcomics:lintRelease
