@@ -1,0 +1,68 @@
+name: Discover Qingman Legacy APK Mirror Links
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-legacy-download-links.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Inspect mirror pages for APK links
+        shell: bash
+        run: |
+          set -u
+          mkdir -p /tmp/qmlegacy/pages
+          urls=(
+            'https://www.uzzf.com/ydapp/801633.html'
+            'https://www.lcks.com.cn/soft/4462.html'
+            'https://www.xyzs.com/app/72798.html'
+            'https://www.hackhome.com/soft/1316097.html'
+          )
+          i=0
+          for u in "${urls[@]}"; do
+            i=$((i+1)); f="/tmp/qmlegacy/pages/$i.html"; h="/tmp/qmlegacy/pages/$i.hdr"
+            meta=$(curl -L --compressed -A 'Mozilla/5.0 (Linux; Android 16)' --connect-timeout 10 --max-time 30 -sS -D "$h" -o "$f" -w '%{http_code} %{url_effective} %{content_type} %{size_download}' "$u" 2>/tmp/qmerr || true)
+            echo "PAGE[$i] $meta source=$u"
+          done
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re,html,urllib.parse
+          print('=== DISCOVERED_LINKS ===')
+          for p in sorted(Path('/tmp/qmlegacy/pages').glob('*.html')):
+              s=p.read_text('utf-8',errors='replace')
+              seen=[]
+              patterns=[
+                r'''(?:href|src|data-url|data-href|data-download|data-src|value)\s*=\s*["']([^"']+)["']''',
+                r'''https?://[^\s"'<>]+''',
+              ]
+              vals=[]
+              for pat in patterns:
+                  for m in re.finditer(pat,s,re.I):
+                      v=m.group(1) if m.lastindex else m.group(0)
+                      v=html.unescape(v).strip()
+                      if v and v not in vals: vals.append(v)
+              print('PAGE_FILE='+p.name)
+              for v in vals:
+                  low=v.lower()
+                  if any(k in low for k in ('.apk','download','downurl','down.php','down.html','qrcode','qr?','801633','4462','72798','1316097','qingman')):
+                      if len(v)>1000: v=v[:1000]+'...'
+                      print('CAND '+v)
+              # Also reveal script snippets around common download variables/functions.
+              count=0
+              for m in re.finditer(r'(?i)(downurl|downloadurl|apkurl|qrcode|down_url|download|\.apk)',s):
+                  lo=max(0,m.start()-220); hi=min(len(s),m.end()+420)
+                  ctx=re.sub(r'\s+',' ',s[lo:hi])
+                  print('CTX '+ctx[:900])
+                  count+=1
+                  if count>=60: break
+              print('context_count='+str(count))
+          PY
