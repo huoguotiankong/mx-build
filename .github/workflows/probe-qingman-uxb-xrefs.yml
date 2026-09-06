@@ -1,0 +1,148 @@
+name: Map Qingman AppConfig Xrefs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-uxb-xrefs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  xref:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools python3-capstone cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+      - name: Restore analyzer cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+      - name: Resolve PP xrefs to Blutter functions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/apk_url
+          import json,urllib.request
+          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
+          print(o['data']['datas']['android']['downloadUrl'])
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(head -1 /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          mkdir -p /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/apk-extract
+          cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter
+          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
+
+          python3 - <<'PY'
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
+          import re,bisect
+
+          sensitive=re.compile(r'(?i)(token|secret|password|cookie|authorization|bearer|private|clientp12|certificate|proof|signature|sign/key|p12|seed|k1a|k1b|k2a|k2b|k3a|k3b)')
+          def safe(s): return '<redacted-sensitive-line>' if sensitive.search(s) else s[:600]
+
+          pp={}
+          for line in Path('/tmp/blutter-out/pp.txt').read_text('utf-8',errors='replace').splitlines():
+              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s+(.*)$',line)
+              if m: pp[int(m.group(1),16)]=m.group(2)
+
+          wanted_names={
+              'type_uxb_nullable':'TypeArguments: <uxb?>',
+              'type_uxb':'Type: uxb',
+              'appconfig':'String: "AppConfig"',
+              'get_app_config_failed':'String: "Get app config failed: "',
+              'failed_load_configs':'String: "Failed to load configs: "',
+              'fetch_configs_failed':'String: "Fetch configs failed"',
+              'route_getAdConfig':'String: "api/radio/api/config/getAdConfig"',
+              'route_home_interstitial':'String: "api/radio/api/config/homepage/interstitial"',
+              'qxnet_field':'Field <uEb._nGd',
+          }
+          targets={}
+          for label,needle in wanted_names.items():
+              vals=[off for off,v in pp.items() if needle.lower() in v.lower()]
+              for off in vals: targets[off]=label
+              print(f'TARGET {label} offsets={[hex(x) for x in vals]}')
+
+          funcs=[]
+          for p in Path('/tmp/blutter-out/asm').rglob('*.dart'):
+              lines=p.read_text('utf-8',errors='replace').splitlines()
+              for i,s in enumerate(lines):
+                  m=re.search(r'\*\* addr: 0x([0-9a-fA-F]+), size: 0x([0-9a-fA-F]+)',s)
+                  if not m: continue
+                  start=int(m.group(1),16); size=int(m.group(2),16)
+                  decl=''
+                  for j in range(i-1,max(-1,i-8),-1):
+                      if lines[j].strip() and not lines[j].lstrip().startswith('//'):
+                          decl=lines[j].strip(); break
+                  funcs.append((start,start+size,p.name,decl,lines,i))
+          funcs.sort(key=lambda x:x[0]); starts=[f[0] for f in funcs]
+          def owner(addr):
+              k=bisect.bisect_right(starts,addr)-1
+              if k>=0 and funcs[k][0]<=addr<funcs[k][1]: return funcs[k]
+              return None
+
+          with open('/tmp/app-lib/libapp.so','rb') as f:
+              elf=ELFFile(f); sec=elf.get_section_by_name('.text'); base=int(sec['sh_addr']); data=sec.data()
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.skipdata=True
+          ins=list(md.disasm(data,base))
+
+          # Resolve pool-pointer loads, including add tmp, x27, #imm; ldr ..., [tmp,#disp].
+          pending={}; refs=[]
+          for it in ins:
+              pending={r:(b,n-1) for r,(b,n) in pending.items() if n>1}
+              op=it.op_str.lower()
+              m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
+              if it.mnemonic=='add' and m:
+                  pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),16); continue
+              if it.mnemonic in ('ldr','ldur','ldrsw'):
+                  m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
+                  if not m: continue
+                  br=m.group(2); disp=int(m.group(3),0) if m.group(3) else 0
+                  off=disp if br=='x27' else (pending[br][0]+disp if br in pending else None)
+                  if off in targets: refs.append((it.address,off,targets[off],it.mnemonic,it.op_str))
+
+          print('\n=== XREF OWNERS ===')
+          byfunc={}
+          for addr,off,label,mn,op in refs:
+              f=owner(addr)
+              key=(f[0],f[2],f[3]) if f else ('none','','')
+              byfunc.setdefault(key,[]).append((addr,off,label,mn,op,f))
+          for key,items in sorted(byfunc.items(),key=lambda kv:(str(kv[0][0]),kv[0][1])):
+              f=items[0][5]
+              if f:
+                  st,en,pn,decl,lines,marker=f
+                  print(f'FUNCTION 0x{st:x}-0x{en:x} file={pn} decl={safe(decl)}')
+              else:
+                  print('FUNCTION <unmapped>')
+              print('  MARKERS='+','.join(sorted(set(x[2] for x in items))))
+              for addr,off,label,mn,op,_ in items:
+                  print(f'  XREF 0x{addr:x} -> PP+0x{off:x} {label}: {mn} {op}')
+              if f:
+                  # Emit compact whole function semantics: calls, field/static loads, awaits, types and safe PP annotations.
+                  for s in lines[max(0,marker-4):min(len(lines),marker+220)]:
+                      if re.search(r'(?i)(LoadStaticField|LoadField|StoreField|Await|InitAsync|ReturnAsync|IsType|TypeArguments|call 0x|bl\s+#0x|PP\+0x)',s):
+                          print('  '+safe(s))
+
+          print('\n=== CO-OCCURRENCE SUMMARY ===')
+          for key,items in byfunc.items():
+              labs=sorted(set(x[2] for x in items))
+              if len(labs)>=2:
+                  f=items[0][5]
+                  print((f'0x{f[0]:x} {f[2]} {safe(f[3])}' if f else '<unmapped>')+' => '+','.join(labs))
+          PY
