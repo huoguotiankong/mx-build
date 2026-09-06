@@ -29,7 +29,7 @@ jobs:
             /tmp/blutter/dartsdk
             /tmp/blutter/packages
           key: qingman-blutter-dart-3.12.2-arm64-v1
-      - name: Identify bootstrap helpers
+      - name: Trace device-id implementation
         shell: bash
         run: |
           set -euo pipefail
@@ -46,14 +46,13 @@ jobs:
           cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
           cd /tmp/blutter
           python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
-          tail -10 /tmp/blutter.log || true
           test -s /tmp/blutter-out/pp.txt
 
-          echo '=== exact helper owners ==='
-          grep -RInE -C 45 'addr: 0xaad10c|addr: 0x515ed0|addr: 0x516058|addr: 0xaacea0' /tmp/blutter-out/asm 2>/dev/null | head -1800 || true
+          echo '=== device-id implementation contexts ==='
+          grep -RInE -C 90 'qm_device_id|uuid_|oaid:|default_device_id|getOaid|getUDID|getRawAndroidId' /tmp/blutter-out/asm 2>/dev/null | head -3600 || true
 
-          echo '=== device-id related symbols/strings ==='
-          grep -RInEi -C 5 'deviceId|device_id|androidId|android_id|identifier|uuid|shared.?preferences|secure.?storage|installation.?id|install.?id' /tmp/blutter-out/asm /tmp/blutter-out/objs.txt /tmp/blutter-out/pp.txt 2>/dev/null | head -2200 || true
+          echo '=== exact address contexts ==='
+          grep -RInE -C 80 '0xaad10c|0xaacea0|0xaad[0-9a-fA-F]{3}' /tmp/blutter-out/asm 2>/dev/null | head -3200 || true
 
-          echo '=== bootstrap random helper neighborhood ==='
-          grep -nEi -C 12 'Field <upb\._HYh|AnonymousClosure: \(0x516018\)|String: "0"|toRadixString|padLeft|Random|nextInt' /tmp/blutter-out/pp.txt | head -1200 || true
+          echo '=== bootstrap nonce helper contexts ==='
+          grep -RInE -C 100 '0x515ed0|0x516018|toRadixString|padLeft' /tmp/blutter-out/asm 2>/dev/null | head -2600 || true
