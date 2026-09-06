@@ -1,4 +1,4 @@
-name: Mengman Bootstrap Probe
+name: Mengman Static Probe
 
 on:
   push:
@@ -13,24 +13,44 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Fetch assets
+      - name: Fetch signed static data
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p /tmp/mengman-bootstrap
-          curl --fail --location --retry 3 --connect-timeout 10 --max-time 60 -o /tmp/mengman-bootstrap/a1.png https://static.yisix.cn/bootstrap/a1.png
-          curl --fail --location --retry 3 --connect-timeout 10 --max-time 60 -o /tmp/mengman-bootstrap/a2.png https://static.yisix.cn/bootstrap/a2.png
-          curl --fail --location --retry 3 --connect-timeout 10 --max-time 60 -o /tmp/mengman-bootstrap/domain.json https://static.yisix.cn/static/config/domain.json
-          file /tmp/mengman-bootstrap/*
-          sha256sum /tmp/mengman-bootstrap/*
-          wc -c /tmp/mengman-bootstrap/*
-          echo '--- domain.json ---'
-          cat /tmp/mengman-bootstrap/domain.json
+          mkdir -p /tmp/mengman-static
+          python3 - <<'PY'
+          import hashlib,time,urllib.request
+          base='https://static.yisix.cn'
+          seed='94e890e3a45ba392c0c519ed45190a4c'
+          paths=[
+            '/static/category/list.zip',
+            '/static/search/hot_comic.zip',
+            '/static/search/hot.zip',
+            '/static/ranking/comic/0/hot.zip',
+            '/static/ranking/comic/1/hot.zip',
+            '/static/ranking/comic/2/hot.zip',
+          ]
+          for path in paths:
+              ts=str(int(time.time()))
+              sign=hashlib.md5((seed+path+ts).encode()).hexdigest()
+              url=f'{base}{path}?ts={ts}&sign={sign}'
+              name=path.strip('/').replace('/','__')
+              try:
+                  req=urllib.request.Request(url,headers={'User-Agent':'okhttp/4.12.0'})
+                  with urllib.request.urlopen(req,timeout=30) as r:
+                      data=r.read()
+                      print(path,'status',r.status,'len',len(data),'type',r.headers.get('content-type'),'head',data[:32].hex())
+                      open('/tmp/mengman-static/'+name,'wb').write(data)
+              except Exception as e:
+                  print(path,'ERROR',repr(e))
+          PY
+          ls -lh /tmp/mengman-static
+          sha256sum /tmp/mengman-static/* || true
 
-      - name: Upload assets
+      - name: Upload static data
         uses: actions/upload-artifact@v4
         with:
-          name: mengman-bootstrap-assets
-          path: /tmp/mengman-bootstrap
+          name: mengman-static-data
+          path: /tmp/mengman-static
           if-no-files-found: error
           retention-days: 1
