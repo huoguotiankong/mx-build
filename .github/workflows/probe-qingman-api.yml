@@ -29,7 +29,7 @@ jobs:
             /tmp/blutter/dartsdk
             /tmp/blutter/packages
           key: qingman-blutter-dart-3.12.2-arm64-v1
-      - name: Trace bootstrap request shape
+      - name: Locate bootstrap AOT owner
         shell: bash
         run: |
           set -euo pipefail
@@ -45,10 +45,30 @@ jobs:
           cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
           cd /tmp/blutter
           python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1 || true
-          tail -20 /tmp/blutter.log || true
-          echo '=== request URL context ==='
-          grep -RInE -C 160 'mu8xm4cx.zermh.com/bootstrap/domain' /tmp/blutter-out/asm | head -24000 || true
-          echo '=== request field context ==='
-          grep -RInE -C 100 '"nonce"|"current_timestamp"|"timestamp"|"deviceId"|"device_id"|"Content-Type"' /tmp/blutter-out/asm | head -24000 || true
-          echo '=== response field context ==='
-          grep -RInE -C 100 '"apiDomain"|"body"|"code"|"msg"' /tmp/blutter-out/asm | head -24000 || true
+          tail -12 /tmp/blutter.log || true
+          echo '=== static field references ==='
+          grep -RInE -C 160 'LoadStaticField\(0x12f4\)|StoreStaticField\(0x12f4\)|upb' /tmp/blutter-out/asm | head -32000 || true
+          echo '=== nearby object-pool code addresses ==='
+          python3 - <<'PY'
+          import re
+          p='/tmp/blutter-out/pp.txt'
+          lines=open(p,encoding='utf-8',errors='replace').read().splitlines()
+          hits=[i for i,l in enumerate(lines) if 'bootstrap: 原生签名失败' in l or 'mu8xm4cx.zermh.com/bootstrap/domain' in l]
+          addrs=[]
+          for i in hits:
+              a=max(0,i-180); b=min(len(lines),i+180)
+              print('\n--- pool neighborhood',i+1,'---')
+              for l in lines[a:b]:
+                  if any(k in l for k in ('AnonymousClosure','Function:','Field <','bootstrap:','bootstrap/domain','nonce','apiDomain','Content-Type')):
+                      print(l)
+                  for m in re.findall(r'\(0x([0-9a-fA-F]+)\)',l):
+                      v='0x'+m
+                      if v not in addrs:addrs.append(v)
+          print('ADDRS='+'|'.join(addrs[:120]))
+          open('/tmp/addrs','w').write('|'.join(addrs[:120]))
+          PY
+          ADDRS="$(cat /tmp/addrs)"
+          if [ -n "$ADDRS" ]; then
+            echo '=== candidate address references ==='
+            grep -RInE -C 140 "$ADDRS" /tmp/blutter-out/asm | head -36000 || true
+          fi
