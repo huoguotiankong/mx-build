@@ -21,6 +21,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq python3-pyelftools python3-capstone cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
           git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+
       - name: Restore analyzer cache
         uses: actions/cache@v4
         with:
@@ -29,12 +30,13 @@ jobs:
             /tmp/blutter/dartsdk
             /tmp/blutter/packages
           key: qingman-blutter-dart-3.12.2-arm64-v1
-      - name: Trace device-id implementation
+
+      - name: Dump exact bootstrap helper functions
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY' > /tmp/apk_url
-          import json,urllib.request
+          import json, urllib.request
           o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
           print(o['data']['datas']['android']['downloadUrl'])
           PY
@@ -48,11 +50,63 @@ jobs:
           python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
           test -s /tmp/blutter-out/pp.txt
 
-          echo '=== device-id implementation contexts ==='
-          grep -RInE -C 90 'qm_device_id|uuid_|oaid:|default_device_id|getOaid|getUDID|getRawAndroidId' /tmp/blutter-out/asm 2>/dev/null | head -3600 || true
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
 
-          echo '=== exact address contexts ==='
-          grep -RInE -C 80 '0xaad10c|0xaacea0|0xaad[0-9a-fA-F]{3}' /tmp/blutter-out/asm 2>/dev/null | head -3200 || true
+          root=Path('/tmp/blutter-out/asm')
+          targets=['0x515ed0','0x516018','0xaad10c','0xaacea0']
 
-          echo '=== bootstrap nonce helper contexts ==='
-          grep -RInE -C 100 '0x515ed0|0x516018|toRadixString|padLeft' /tmp/blutter-out/asm 2>/dev/null | head -2600 || true
+          def dump_function(path, lines, idx):
+              start=idx
+              while start>0 and '** addr:' not in lines[start]:
+                  start-=1
+              if '** addr:' not in lines[start]:
+                  start=max(0,idx-80)
+              end=min(len(lines),start+1200)
+              for j in range(start+1,len(lines)):
+                  if j>start and '** addr:' in lines[j]:
+                      end=j
+                      break
+              print(f'\n===== {path.name} lines {start+1}-{end} =====')
+              for n in range(start,end):
+                  print(lines[n])
+
+          print('=== exact function starts ===')
+          found=set()
+          files=[]
+          for p in root.rglob('*'):
+              if not p.is_file():
+                  continue
+              try: lines=p.read_text(encoding='utf-8',errors='replace').splitlines()
+              except Exception: continue
+              files.append((p,lines))
+              for i,line in enumerate(lines):
+                  low=line.lower()
+                  for addr in targets:
+                      if f'** addr: {addr}' in low:
+                          key=(str(p),addr)
+                          if key not in found:
+                              found.add(key)
+                              print(f'FOUND {addr} in {p}')
+                              dump_function(p,lines,i)
+
+          print('\n=== call sites to helper addresses ===')
+          for p,lines in files:
+              hits=[]
+              for i,line in enumerate(lines):
+                  low=line.lower()
+                  if any(re.search(rf'\bbl\s+#?{re.escape(a)}\b',low) for a in targets):
+                      hits.append(i)
+              for i in hits[:20]:
+                  print(f'\n--- {p.name}:{i+1} ---')
+                  for n in range(max(0,i-35),min(len(lines),i+40)):
+                      print(lines[n])
+
+          print('\n=== bootstrap/device PP strings ===')
+          pp=Path('/tmp/blutter-out/pp.txt').read_text(encoding='utf-8',errors='replace').splitlines()
+          needles=['qm_device_id','uuid_','oaid:','default_device_id','getOaid','getUDID','getRawAndroidId','timestamp','nonce','bootstrapSign','bootstrapProof','bootstrapDecrypt']
+          for line in pp:
+              if any(n.lower() in line.lower() for n in needles):
+                  print(line)
+          PY
