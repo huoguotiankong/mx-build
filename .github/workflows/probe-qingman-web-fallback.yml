@@ -1,0 +1,59 @@
+name: Probe Qingman Web Fallback
+
+on:
+  push:
+    paths:
+      - '.github/workflows/probe-qingman-web-fallback.yml'
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Probe public Qingman web endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          UA='Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140.0 Mobile Safari/537.36'
+          probe() {
+            local label="$1" url="$2" out="$3"
+            echo "===== $label ====="
+            code=$(curl -L --compressed --connect-timeout 10 --max-time 30 -A "$UA" -sS -o "$out" -w '%{http_code}' "$url" || true)
+            echo "url=$url http=$code bytes=$(wc -c < "$out" 2>/dev/null || echo 0)"
+            file "$out" || true
+            head -c 1200 "$out" | tr '\000' ' ' || true
+            echo
+          }
+
+          probe home 'https://www.xydqyfw.com/' /tmp/qm-home.html
+          probe detail 'https://www.xydqyfw.com/newgszc/28106.html' /tmp/qm-detail.html
+
+          python3 - <<'PY'
+          import html, re
+          from pathlib import Path
+          from urllib.parse import urljoin
+
+          for name, path, base in [
+              ('home', '/tmp/qm-home.html', 'https://www.xydqyfw.com/'),
+              ('detail', '/tmp/qm-detail.html', 'https://www.xydqyfw.com/newgszc/28106.html'),
+          ]:
+              text = Path(path).read_text('utf-8', errors='ignore')
+              print(f'===== parsed {name} =====')
+              title = re.search(r'<title[^>]*>(.*?)</title>', text, re.I|re.S)
+              if title: print('title=', re.sub(r'\s+', ' ', html.unescape(title.group(1))).strip())
+              forms = re.findall(r'<form\b[^>]*?(?:action=["\']?([^"\' >]+))?[^>]*>', text, re.I)
+              print('forms=', forms[:20])
+              links=[]
+              for m in re.finditer(r'<a\b[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)</a>', text, re.I|re.S):
+                  href=urljoin(base, html.unescape(m.group(1)))
+                  label=re.sub(r'<[^>]+>', ' ', m.group(2))
+                  label=re.sub(r'\s+', ' ', html.unescape(label)).strip()
+                  links.append((label, href))
+              print('link_count=', len(links))
+              for label, href in links[:120]: print('LINK', repr(label[:60]), href)
+              scripts=re.findall(r'<script\b[^>]*src=["\']([^"\']+)', text, re.I)
+              for src in scripts: print('SCRIPT', urljoin(base, html.unescape(src)))
+              imgs=re.findall(r'<img\b[^>]*(?:src|data-src)=["\']([^"\']+)', text, re.I)
+              for src in imgs[:40]: print('IMG', urljoin(base, html.unescape(src)))
+          PY
