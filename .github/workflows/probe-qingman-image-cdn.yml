@@ -1,0 +1,41 @@
+name: Inspect Qingman Public Image CDN Samples
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-image-cdn.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe known public CDN URLs
+        shell: bash
+        run: |
+          set -u
+          urls=(
+            'https://img-qingman.dmzj.com/'
+            'https://img-qingman.dmzj.com/comic/1.jpg'
+            'https://img-qingman.dmzj.com/comic/2.jpg'
+            'https://img-qingman.dmzj.com/avatar/default01.png'
+            'https://img-qingman.dmzj.com/favicon.ico'
+          )
+          echo '=== CDN_RESULTS ==='
+          for u in "${urls[@]}"; do
+            tmp=$(mktemp)
+            hdr=$(mktemp)
+            code=$(curl -sSL --connect-timeout 8 --max-time 20 -D "$hdr" -o "$tmp" -w '%{http_code}' "$u" 2>/tmp/e || true)
+            bytes=$(wc -c < "$tmp" | tr -d ' ')
+            ctype=$(awk 'BEGIN{IGNORECASE=1}/^content-type:/{v=$0}END{sub(/^content-type:[ ]*/,"",v);gsub("\r", "", v);print v}' "$hdr")
+            server=$(awk 'BEGIN{IGNORECASE=1}/^server:/{v=$0}END{sub(/^server:[ ]*/,"",v);gsub("\r", "", v);print v}' "$hdr")
+            cache=$(awk 'BEGIN{IGNORECASE=1}/^(x-cache|cf-cache-status):/{v=$0}END{gsub("\r", "", v);print v}' "$hdr")
+            sha=$(sha256sum "$tmp" | cut -c1-16)
+            printf 'url=%s code=%s bytes=%s ctype=%s server=%s cache=%s sha16=%s\n' "$u" "$code" "$bytes" "$ctype" "$server" "$cache" "$sha"
+            rm -f "$tmp" "$hdr"
+          done
