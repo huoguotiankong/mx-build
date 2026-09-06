@@ -1,0 +1,72 @@
+name: Inspect Qingman iOS Install Links
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-ios-install.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Inspect public install page and manifests
+        shell: bash
+        run: |
+          set -euo pipefail
+          UA='Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1'
+          curl -L --compressed --connect-timeout 10 --max-time 30 -A "$UA" -sS https://ios.qingman.vip/ -o /tmp/ios.html
+          echo "PAGE http_bytes=$(wc -c < /tmp/ios.html)"
+          python3 - <<'PY'
+          from pathlib import Path
+          from urllib.parse import urljoin,urlsplit,unquote
+          import html,re
+
+          base='https://ios.qingman.vip/'
+          s=Path('/tmp/ios.html').read_text('utf-8',errors='replace')
+          urls=[]
+          for pat in [r'https?://[^\s"\'<>]+',r'(?:href|src)=["\']([^"\']+)["\']']:
+              for m in re.findall(pat,s,re.I):
+                  u=html.unescape(m)
+                  if u.startswith(('javascript:','#','data:')): continue
+                  u=urljoin(base,u)
+                  if u not in urls: urls.append(u)
+          print('TITLE',re.sub(r'<[^>]+>',' ',re.search(r'<title[^>]*>(.*?)</title>',s,re.I|re.S).group(1)).strip() if re.search(r'<title[^>]*>(.*?)</title>',s,re.I|re.S) else '')
+          for u in urls:
+              low=u.lower()
+              if any(x in low for x in ('itms-services','manifest','plist','.ipa','download','install','qingman','pwpni','urlg.cc')):
+                  print('URL',u[:700])
+          Path('/tmp/candidates.txt').write_text('\n'.join(urls),'utf-8')
+          PY
+
+          echo '=== RESOLVE ITMS/MANIFEST CANDIDATES ==='
+          python3 - <<'PY'
+          from pathlib import Path
+          from urllib.parse import urlsplit,parse_qs,unquote
+          import re,subprocess
+          urls=Path('/tmp/candidates.txt').read_text('utf-8').splitlines()
+          cands=[]
+          for u in urls:
+              low=u.lower()
+              if 'itms-services' in low:
+                  q=parse_qs(urlsplit(u).query)
+                  for x in q.get('url',[]): cands.append(unquote(x))
+              if '.plist' in low or 'manifest' in low: cands.append(u)
+          seen=[]
+          for u in cands:
+              if u not in seen: seen.append(u)
+          for i,u in enumerate(seen[:12]):
+              out=f'/tmp/m{i}'
+              p=subprocess.run(['curl','-L','--compressed','--connect-timeout','8','--max-time','25','-sS','-o',out,'-w','%{http_code} %{content_type} %{url_effective}',u],capture_output=True,text=True)
+              print('MANIFEST',p.stdout.strip(),'source='+u)
+              try:
+                  b=Path(out).read_text('utf-8',errors='replace')
+              except Exception: continue
+              for z in re.findall(r'https?://[^\s<>&"\']+',b,re.I):
+                  if '.ipa' in z.lower() or 'qingman' in z.lower() or 'pwpni' in z.lower(): print('  LINK',z[:700])
+          PY
