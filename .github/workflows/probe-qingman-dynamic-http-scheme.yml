@@ -38,7 +38,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq python3-pyelftools python3-cryptography >/dev/null
           python3 - <<'PY'
-          import base64,hashlib,json,time,urllib.request,uuid
+          import base64,hashlib,json,time,urllib.request,uuid,os
           from cryptography.hazmat.primitives.ciphers.aead import AESGCM
           from elftools.elf.elffile import ELFFile
           SO='/tmp/qm-native/libqx_security.so'
@@ -71,41 +71,72 @@ jobs:
           with urllib.request.urlopen(req,timeout=20) as r: resp=json.load(r)
           enc=resp['data']; payload=base64.urlsafe_b64decode(enc+'='*((4-len(enc)%4)%4))
           obj=json.loads(AESGCM(aes_key).decrypt(payload[:12],payload[12:],(ts+'|'+nonce).encode()))
-          domain=str(obj.get('apiDomain','')).strip()
-          if not domain: raise RuntimeError('bootstrap returned no apiDomain')
+          domain=str(obj.get('apiDomain','')).strip(); access=str(obj.get('appAccessToken','')).strip()
+          if not domain or not access: raise RuntimeError('bootstrap missing required fields')
           from urllib.parse import urlsplit
           host=urlsplit(domain if '://' in domain else 'https://'+domain).hostname
           if not host: raise RuntimeError('invalid apiDomain')
           open('/tmp/qm_dynamic_host','w').write(host+'\n')
+          open('/tmp/qm_app_access','w').write(access)
+          open('/tmp/qm_device_id','w').write(did)
+          os.chmod('/tmp/qm_app_access',0o600); os.chmod('/tmp/qm_device_id',0o600)
           print('bootstrap_ok=true')
           print('dynamic_host='+host)
           print('sensitive_bootstrap_fields_logged=false')
           PY
 
-      - name: Probe plain HTTP without following redirects
+      - name: Probe plain HTTP application gate
         shell: bash
         run: |
           set -euo pipefail
           host=$(cat /tmp/qm_dynamic_host)
-          echo "=== PLAIN_HTTP_PROBES host=$host ==="
+          access=$(cat /tmp/qm_app_access)
+          did=$(cat /tmp/qm_device_id)
+          echo "=== PLAIN_HTTP_APPLICATION_GATE host=$host ==="
           paths=(
-            '/'
             '/api/comic/categories/list'
             '/api/comic/comics/v1/homeList?page=1&pageNum=1&pageSize=20'
             '/api/comic/comics/homerecentUpdates?page=1&pageNum=1&pageSize=20'
+            '/api/radio/api/config/getAdConfig'
+            '/api/comic/comics/sign/key'
           )
           for path in "${paths[@]}"; do
-            hdr=$(mktemp); body=$(mktemp); err=$(mktemp)
-            code=$(curl -sS --max-redirs 0 --connect-timeout 8 --max-time 15 \
-              -H 'Accept: application/json, text/plain, */*' \
-              -H 'User-Agent: qingman/4.4.5 (Android)' \
-              -H 'appVersion: 4.4.5' -H 'platform: android' \
-              -D "$hdr" -o "$body" -w '%{http_code}' "http://$host$path" 2>"$err" || true)
-            bytes=$(wc -c < "$body" | tr -d ' ')
-            location=$(awk 'BEGIN{IGNORECASE=1}/^location:/{v=$0}END{sub(/^location:[ ]*/,"",v);gsub("\r", "", v);print v}' "$hdr")
-            ctype=$(awk 'BEGIN{IGNORECASE=1}/^content-type:/{v=$0}END{sub(/^content-type:[ ]*/,"",v);gsub("\r", "", v);print v}' "$hdr")
-            server=$(awk 'BEGIN{IGNORECASE=1}/^server:/{v=$0}END{sub(/^server:[ ]*/,"",v);gsub("\r", "", v);print v}' "$hdr")
-            errtext=$(tr '\n' ' ' < "$err" | cut -c1-220)
-            printf 'path=%s http=%s bytes=%s location=%s ctype=%s server=%s err=%s\n' "$path" "$code" "$bytes" "$location" "$ctype" "$server" "$errtext"
-            rm -f "$hdr" "$body" "$err"
+            for variant in basic device app_access both; do
+              body=$(mktemp); hdr=$(mktemp); err=$(mktemp)
+              args=(-H 'Accept: application/json, text/plain, */*' -H 'User-Agent: qingman/4.4.5 (Android)' -H 'appVersion: 4.4.5' -H 'platform: android')
+              case "$variant" in
+                device) args+=(-H "X-Device-Id: $did") ;;
+                app_access) args+=(-H "X-QM-App-Access: $access") ;;
+                both) args+=(-H "X-Device-Id: $did" -H "X-QM-App-Access: $access") ;;
+              esac
+              code=$(curl -sS --max-redirs 0 --connect-timeout 8 --max-time 15 "${args[@]}" -D "$hdr" -o "$body" -w '%{http_code}' "http://$host$path" 2>"$err" || true)
+              bytes=$(wc -c < "$body" | tr -d ' ')
+              summary=$(python3 - "$body" <<'PY'
+          import json,sys,re
+          raw=open(sys.argv[1],'rb').read(65536)
+          text=raw.decode('utf-8','replace')
+          try:
+              o=json.loads(text)
+              if isinstance(o,dict):
+                  sensitive=re.compile(r'(?i)(token|secret|password|cookie|authorization|bearer|private|certificate|proof|signature|sign|key|seed)')
+                  out={}
+                  for k in ('code','msg','message','status','success'):
+                      if k in o and not sensitive.search(k): out[k]=o[k]
+                  out['topLevelKeys']=[k for k in o.keys() if not sensitive.search(str(k))][:30]
+                  if 'data' in o:
+                      d=o['data']
+                      out['dataType']=type(d).__name__
+                      if isinstance(d,list): out['dataCount']=len(d)
+                      elif isinstance(d,dict): out['dataKeys']=[k for k in d.keys() if not sensitive.search(str(k))][:30]
+                  print(json.dumps(out,ensure_ascii=False,separators=(',',':')))
+              else: print(json.dumps({'type':type(o).__name__},separators=(',',':')))
+          except Exception:
+              print('non_json:'+re.sub(r'\s+',' ',text[:180]))
+          PY
+          )
+              errtext=$(tr '\n' ' ' < "$err" | cut -c1-180)
+              printf 'path=%s variant=%s http=%s bytes=%s summary=%s err=%s\n' "$path" "$variant" "$code" "$bytes" "$summary" "$errtext"
+              rm -f "$body" "$hdr" "$err"
+            done
           done
+          rm -f /tmp/qm_app_access /tmp/qm_device_id
