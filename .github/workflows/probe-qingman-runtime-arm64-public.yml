@@ -1,0 +1,86 @@
+name: Probe Qingman Runtime Public Hosts ARM64
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-runtime-arm64-public.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime:
+    runs-on: macos-14
+    timeout-minutes: 15
+    steps:
+      - name: Resolve current official APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "HOST_ARCH=$(uname -m)"
+          python3 - <<'PY' > /tmp/apk_url
+          import json, urllib.request
+          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
+          a=o['data']['datas']['android']
+          print(a['downloadUrl'])
+          print('version='+str(a.get('version','')), file=__import__('sys').stderr)
+          print('versionCode='+str(a.get('versionCode','')), file=__import__('sys').stderr)
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(head -1 /tmp/apk_url)" -o /tmp/qingman.apk
+          AAPT="$(find "${ANDROID_HOME}"/build-tools -type f -name aapt | sort -V | tail -1)"
+          QM_PKG="$("$AAPT" dump badging /tmp/qingman.apk | sed -n "s/package: name='\([^']*\)'.*/\1/p" | head -1)"
+          test -n "$QM_PKG"
+          echo "QM_PKG=$QM_PKG" >> "$GITHUB_ENV"
+          echo '=== APK ABIs ==='
+          unzip -Z1 /tmp/qingman.apk | sed -n 's#^lib/\([^/]*\)/.*#\1#p' | sort -u
+
+      - name: Run official app and capture only public host/config clues
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: arm64-v8a
+          profile: pixel_6
+          disable-animations: true
+          emulator-boot-timeout: 600
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-metrics
+          script: |
+            set -u
+            echo "runtime_host_arch=$(uname -m)"
+            adb wait-for-device
+            echo "device_abi=$(adb shell getprop ro.product.cpu.abi)"
+            adb install -r /tmp/qingman.apk
+            adb logcat -c
+            rm -f /tmp/qm_dns.log
+            sudo tcpdump -i pktap,all -nn -l '(udp port 53 or tcp port 53)' > /tmp/qm_dns.log 2>&1 &
+            TCPPID=$!
+            adb shell am force-stop "$QM_PKG" || true
+            adb shell monkey -p "$QM_PKG" -c android.intent.category.LAUNCHER 1 >/tmp/monkey.log 2>&1 || true
+            echo '=== MONKEY ==='
+            tail -40 /tmp/monkey.log || true
+            sleep 45
+            sudo kill "$TCPPID" >/dev/null 2>&1 || true
+            sleep 2
+            echo '=== APP PROCESS ==='
+            adb shell pidof "$QM_PKG" || true
+            echo '=== SAFE RUNTIME DOMAIN LOGS ==='
+            adb logcat -d -v brief \
+              | grep -Ei 'bootstrap:|apiDomain|baseImgUrl|freeUrl|customerUrl|officialUrl|promotionUrl|comic.*(host|domain|url)|image.*(host|domain|url)' \
+              | sed -E 's/(token|access|proof|signature|sign|password|cookie|authorization)[=:][^ ]+/\1=<redacted>/Ig' \
+              | grep -Eiv 'clientp12|privatekey|certificate|keystore' \
+              | tail -300 || true
+            echo '=== DNS HOSTNAMES ==='
+            python3 - <<'PY'
+            import re
+            try:s=open('/tmp/qm_dns.log','r',encoding='utf-8',errors='replace').read()
+            except:s=''
+            names=set()
+            for x in re.findall(r'(?i)\b(?:[a-z0-9-]+\.)+[a-z]{2,}\b',s):
+                x=x.rstrip('.').lower()
+                if any(k in x for k in ('qingman','zermh','mhxiaomidi','dmzj','pwpni','urlg','f37','comic','manhua','img','cdn')):
+                    names.add(x)
+            for x in sorted(names): print(x)
+            PY
+            echo '=== LOGCAT HOSTNAMES ==='
+            adb logcat -d -v brief | grep -Eio '([a-z0-9-]+\.)+[a-z]{2,}' | grep -Ei 'qingman|zermh|mhxiaomidi|dmzj|pwpni|urlg|f37|comic|manhua|img|cdn' | sort -u | head -300 || true
