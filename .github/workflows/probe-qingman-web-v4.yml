@@ -1,0 +1,109 @@
+name: Probe Qingman Web V4
+
+on:
+  push:
+    paths:
+      - '.github/workflows/probe-qingman-web-v4.yml'
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Inspect Qingman metadata, chapters and images
+        shell: bash
+        run: |
+          set -euo pipefail
+          UA='Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Mobile Safari/537.36'
+          BASE='https://www.xydqyfw.com'
+          mkdir -p /tmp/qm4
+          fetch() {
+            local name="$1" url="$2" out="/tmp/qm4/$1.html"
+            code=$(curl -L --compressed --connect-timeout 10 --max-time 30 -A "$UA" -sS -o "$out" -w '%{http_code}' "$url" || true)
+            echo "FETCH $name http=$code bytes=$(wc -c < "$out" 2>/dev/null || echo 0)"
+          }
+          fetch detail "$BASE/newgszc/28106.html"
+          fetch chapters "$BASE/chapterList/index/28106"
+          fetch reader "$BASE/newgszx/779594.html"
+          for n in top update new; do
+            fetch "$n" "$BASE/custom/$n"
+            fetch "${n}2a" "$BASE/custom/$n/page/2"
+            fetch "${n}2b" "$BASE/custom/$n/2"
+          done
+
+          python3 - <<'PY'
+          import html,re
+          from pathlib import Path
+          from urllib.parse import urljoin,urlparse
+          BASE='https://www.xydqyfw.com'
+          def clean(s): return re.sub(r'<[^>]+>',' ',html.unescape(s or '')).replace('\xa0',' ').strip()
+          def compact(s): return re.sub(r'\s+',' ',clean(s)).strip()
+          def body(name): return Path(f'/tmp/qm4/{name}.html').read_text('utf-8',errors='ignore')
+
+          d=body('detail')
+          print('===== DETAIL META =====')
+          m=re.search(r'<div[^>]+id=["\']MangaHistoryStorage["\'][^>]*>',d,re.I)
+          print('HISTORY',m.group(0) if m else '')
+          for tag in ['h1','h2','h3','p','span','a','div']:
+            found=0
+            for mm in re.finditer(fr'<{tag}\b([^>]*)>(.*?)</{tag}>',d,re.I|re.S):
+              t=compact(mm.group(2))
+              if t and any(k in t for k in ['漫画：','作者','故事：','状态','连载','完结','简介','内容介绍','末世收割者','国产漫画','热血','科幻','穿越','新作']):
+                print(tag.upper(),repr(t[:260]),'ATTR',compact(mm.group(1))[:260]); found+=1
+                if found>=40: break
+          for mm in re.finditer(r'<meta\b([^>]+)>',d,re.I):
+            a=mm.group(1)
+            if re.search(r'name=["\'](?:description|keywords)["\']',a,re.I): print('META',compact(a))
+
+          print('===== CHAPTER LIST =====')
+          c=body('chapters')
+          links=[]
+          for mm in re.finditer(r'<a\b([^>]*)href=["\']([^"\']*/newgszx/[^"\']+)["\']([^>]*)>(.*?)</a>',c,re.I|re.S):
+            href=urljoin(BASE,html.unescape(mm.group(2))); t=compact(mm.group(4))
+            if href not in [x[0] for x in links]: links.append((href,t,compact(mm.group(1)+' '+mm.group(3))))
+          print('CHAPTER_UNIQUE',len(links))
+          for x in links[:15]: print('CH',x)
+          if len(links)>15:
+            print('...LAST...')
+            for x in links[-10:]: print('CH',x)
+          for mm in re.finditer(r'(.{0,400}<span[^>]*class=["\'][^"\']*chaptertitle[^"\']*["\'][^>]*>.*?</span>.{0,500})',c,re.I|re.S):
+            print('CHSNIP',compact(mm.group(1))[:1000])
+            if mm.start()>15000: break
+
+          print('===== CUSTOM PAGINATION =====')
+          for n in ['top','top2a','top2b','update','update2a','update2b','new','new2a','new2b']:
+            s=body(n)
+            title=compact(re.search(r'<title[^>]*>(.*?)</title>',s,re.I|re.S).group(1)) if re.search(r'<title[^>]*>(.*?)</title>',s,re.I|re.S) else ''
+            cards=[]
+            for mm in re.finditer(r'<a\b[^>]*href=["\'](/newgszc/[^"\']+)["\'][^>]*>(.*?)</a>',s,re.I|re.S):
+              inner=mm.group(2); tm=re.search(r'<h3[^>]*class=["\'][^"\']*cardtitle[^"\']*["\'][^>]*>(.*?)</h3>',inner,re.I|re.S)
+              if tm: cards.append((mm.group(1),compact(tm.group(1))))
+            pagers=[]
+            for mm in re.finditer(r'<a\b[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)</a>',s,re.I|re.S):
+              t=compact(mm.group(2))
+              if t in ['2','3','下一页','下一頁']: pagers.append((t,mm.group(1)))
+            print(n,'TITLE',title,'COUNT',len(cards),'FIRST',cards[:3],'PAGER',pagers[:10])
+
+          print('===== READER URLS =====')
+          r=body('reader')
+          urls=[]; pat=re.compile(r'^/attachment/comic/imgs/[^/]+/[^/]+/\d+\.(?:jpe?g|png|webp)$',re.I)
+          for mm in re.finditer(r'<img\b[^>]*src=["\']([^"\']+)["\']',r,re.I):
+            u=urljoin(BASE,html.unescape(mm.group(1)))
+            if pat.match(urlparse(u).path) and u not in urls: urls.append(u)
+          print('READER_UNIQUE',len(urls))
+          if urls:
+            for i in [0,len(urls)//2,len(urls)-1]: print('TESTURL',i,urls[i])
+          Path('/tmp/qm4/urls.txt').write_text('\n'.join(urls))
+          PY
+
+          mapfile -t imgs < /tmp/qm4/urls.txt
+          count=${#imgs[@]}
+          if (( count > 0 )); then
+            for i in 0 $((count/2)) $((count-1)); do
+              u="${imgs[$i]}"
+              c0=$(curl -L --compressed --connect-timeout 10 --max-time 30 -A "$UA" -sS -o "/tmp/qm4/i${i}a" -w '%{http_code}' "$u" || true)
+              c1=$(curl -L --compressed --connect-timeout 10 --max-time 30 -A "$UA" -e "$BASE/newgszx/779594.html" -sS -o "/tmp/qm4/i${i}b" -w '%{http_code}' "$u" || true)
+              echo "IMGTEST idx=$i no_ref=$c0 no_ref_bytes=$(wc -c < /tmp/qm4/i${i}a 2>/dev/null || echo 0) with_ref=$c1 with_ref_bytes=$(wc -c < /tmp/qm4/i${i}b 2>/dev/null || echo 0) url=$u"
+            done
+          fi
