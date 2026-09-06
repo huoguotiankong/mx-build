@@ -1,0 +1,159 @@
+name: Map Qingman Login Request And Session Model
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-login-model.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools python3-capstone cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+
+      - name: Restore analyzer cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+
+      - name: Inspect login model and persistence statically
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/apk_url
+          import json,urllib.request
+          a=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))['data']['datas']['android']
+          print(a['downloadUrl'])
+          print('OFFICIAL_VERSION='+str(a.get('version','')),file=__import__('sys').stderr)
+          print('OFFICIAL_VERSION_CODE='+str(a.get('versionCode','')),file=__import__('sys').stderr)
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          mkdir -p /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/apk-extract
+          cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter
+          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
+
+          python3 - <<'PY'
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
+          import re
+
+          # Never print arbitrary credential-like values. Exact identifier names are allowed below.
+          allow_ids={
+              'userName','username','password','passWord','pwd','deviceId','loginType','type','platform','android',
+              'email','phone','mobile','userId','uid','memberId','user_info','qm_user_id','qm_auth_token',
+              'qm_is_guest','qm_identity_type','code','msg','data','result','accessToken','refreshToken',
+              'appVersion','deviceModel','mobileOs','appCode','clientIp','userPlatform','X-Register-Channel',
+          }
+          deny=re.compile(r'(?i)(clientp12|private|certificate|keystore|bootstrapproof|bootstrapsign|k1a|k1b|k2a|k2b|k3a|k3b|secret)')
+          pp={}
+          for line in Path('/tmp/blutter-out/pp.txt').read_text('utf-8',errors='replace').splitlines():
+              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s+(.*)$',line)
+              if m: pp[int(m.group(1),16)]=m.group(2)
+
+          print('=== ALLOWLISTED AUTH IDENTIFIERS ===')
+          for off,val in sorted(pp.items()):
+              if deny.search(val): continue
+              m=re.fullmatch(r'String: "([^"]*)"',val)
+              if m and m.group(1) in allow_ids:
+                  print(f'PP+0x{off:x} {m.group(1)}')
+          for off,val in sorted(pp.items()):
+              if 'api/appapi/user/f9384dh/login' in val or 'api/appapi/user/f9384dh/register' in val:
+                  print(f'ROUTE PP+0x{off:x} {val[:180]}')
+
+          print('\n=== TARGET TYPE METADATA ===')
+          type_names=('ftb','JEb','wmb','Ppb','hqb','kqb','Opb')
+          for root in ('/tmp/blutter-out/objs.txt','/tmp/blutter-out/pp.txt'):
+              lines=Path(root).read_text('utf-8',errors='replace').splitlines()
+              shown=set()
+              for i,line in enumerate(lines):
+                  if not any(re.search(r'\b'+re.escape(t)+r'\b',line) for t in type_names): continue
+                  for n in range(max(0,i-5),min(len(lines),i+12)):
+                      if n in shown: continue
+                      shown.add(n)
+                      s=lines[n]
+                      if deny.search(s): continue
+                      if any(x in s for x in ('Type','class ','Field <','Function','Closure','AnonymousClosure','offset:')):
+                          print(f'{Path(root).name}:{n+1}: {s[:500]}')
+
+          with open('/tmp/app-lib/libapp.so','rb') as f:
+              elf=ELFFile(f); sec=elf.get_section_by_name('.text'); base=int(sec['sh_addr']); data=sec.data()
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.skipdata=True
+
+          def ann_value(v):
+              if deny.search(v): return '<redacted-sensitive-entry>'
+              m=re.fullmatch(r'String: "([^"]*)"',v)
+              if m:
+                  s=m.group(1)
+                  if s in allow_ids or s.startswith('api/appapi/user/f9384dh/'):
+                      return v
+                  return '<string-omitted>'
+              if any(x in v for x in ('Type','Field <','Closure','AnonymousClosure','Function')):
+                  return v[:240]
+              return '<entry-omitted>'
+
+          def dump(title,start,end):
+              print(f'\n=== {title} {start:#x}-{end:#x} ===')
+              pending={}
+              for ins in md.disasm(data[start-base:end-base],start):
+                  pending={r:(b,n-1) for r,(b,n) in pending.items() if n>1}
+                  op=ins.op_str.lower(); ann=''
+                  m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
+                  if ins.mnemonic=='add' and m:
+                      pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),24)
+                  elif ins.mnemonic in ('ldr','ldur','ldrsw'):
+                      m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
+                      if m:
+                          br=m.group(2); disp=int(m.group(3),0) if m.group(3) else 0
+                          off=disp if br=='x27' else (pending[br][0]+disp if br in pending else None)
+                          if off is not None and off in pp:
+                              av=ann_value(pp[off])
+                              if av!='<entry-omitted>' and av!='<string-omitted>': ann=f' ; PP+0x{off:x}={av}'
+                  if ann or ins.mnemonic in ('bl','blr','ret','b','b.eq','b.ne','b.ls','b.hi','cbz','cbnz','tbz','tbnz') or ins.mnemonic.startswith('st'):
+                      print(f'0x{ins.address:x} {ins.mnemonic:<7} {ins.op_str}{ann}')
+
+          # Current 4.4.5 addresses identified by earlier auth traces.
+          dump('login async request',0xaaf3a4,0xaaf680)
+          dump('login request helper',0xaaf5ec,0xaaf900)
+          dump('auth persistence helper A',0xb128e4,0xb12a80)
+          dump('auth persistence helper B',0xb12ab0,0xb12d20)
+          dump('auth finalization helper',0xb12f34,0xb13120)
+
+          print('\n=== BLUTTER DECLARATIONS AROUND TARGETS ===')
+          targets=(0xaaf3a4,0xaaf5ec,0xb128e4,0xb12ab0,0xb12be0,0xb12f34)
+          for p in Path('/tmp/blutter-out/asm').rglob('*.dart'):
+              lines=p.read_text('utf-8',errors='replace').splitlines()
+              for i,s in enumerate(lines):
+                  m=re.search(r'\*\* addr: 0x([0-9a-fA-F]+), size: 0x([0-9a-fA-F]+)',s)
+                  if not m: continue
+                  st=int(m.group(1),16); sz=int(m.group(2),16)
+                  if any(st<=t<st+sz for t in targets) or any(abs(st-t)<=0x40 for t in targets):
+                      print(f'FILE={p.name} {s.strip()}')
+                      for j in range(max(0,i-5),min(len(lines),i+24)):
+                          z=lines[j]
+                          if deny.search(z): continue
+                          # Print declarations and structural operations, omit arbitrary literals.
+                          if j<i or any(x in z for x in ('SetupParameters','LoadField','StoreField','LoadStaticField','TypeArguments','call 0x','Await','InitAsync','ReturnAsync')):
+                              z=re.sub(r'"[^"]*"','"<literal-omitted>"',z)
+                              print(z[:500])
+          PY
