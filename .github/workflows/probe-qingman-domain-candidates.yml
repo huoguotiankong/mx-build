@@ -18,6 +18,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          echo 'live-domain-probe=2026-09-06'
           python3 - <<'PY'
           import json,urllib.request,ssl,socket
           from concurrent.futures import ThreadPoolExecutor,as_completed
@@ -62,7 +63,6 @@ jobs:
               fs=[ex.submit(probe,h) for h in sorted(hosts)[:120]]
               for f in as_completed(fs):
                   h,code,b=f.result()
-                  # Only report potentially useful hosts plus old baseline; keep log compact.
                   if code not in (404,'ERR') or h=='sf85sdq66h.qingman.mom':
                       interesting.append((h,code,b))
           print('=== interesting ===')
