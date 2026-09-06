@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Narrow public bootstrap request shape without valid credentials
+      - name: Test public bootstrap field formats without valid credentials
         shell: bash
         run: |
           set -euo pipefail
@@ -33,16 +33,17 @@ jobs:
           PY
             rm -f "$tmp"
           }
-          BASE=(-X POST -H 'Content-Type: application/json' -H 'Accept: application/json')
-          TS=$(date +%s%3N)
-          NONCE='00000000000000000000000000000000'
-          DID='00000000-0000-4000-8000-000000000000'
-          RID='00000000000000000000000000000000'
-          SIG='invalid-signature'
-          probe 'nonce+sign' "${BASE[@]}" --data "{\"nonce\":\"$NONCE\",\"sign\":\"$SIG\"}"
-          probe 'timestamp+nonce+sign' "${BASE[@]}" --data "{\"timestamp\":\"$TS\",\"nonce\":\"$NONCE\",\"sign\":\"$SIG\"}"
-          probe 'deviceId+nonce+sign' "${BASE[@]}" --data "{\"deviceId\":\"$DID\",\"nonce\":\"$NONCE\",\"sign\":\"$SIG\"}"
-          probe 'timestamp+deviceId+nonce+sign' "${BASE[@]}" --data "{\"timestamp\":\"$TS\",\"deviceId\":\"$DID\",\"nonce\":\"$NONCE\",\"sign\":\"$SIG\"}"
-          probe 'nonce+sign with security headers' "${BASE[@]}" \
-            -H "X-Timestamp: $TS" -H "X-Device-Id: $DID" -H "X-QM-Request-Id: $RID" -H "X-Signature: $SIG" \
-            --data "{\"nonce\":\"$NONCE\",\"sign\":\"$SIG\"}"
+          BASE=(-X POST -H 'Content-Type: application/json' -H 'Accept: application/json' -H 'User-Agent: qingman/4.4.5 (Android)')
+          TS13=$(date +%s%3N)
+          TS10=$(date +%s)
+          NONCE32='00000000000000000000000000000000'
+          NONCE16='0000000000000000'
+          DID32='00000000000000000000000000000000'
+          DIDUUID='00000000-0000-4000-8000-000000000000'
+          SIG64='0000000000000000000000000000000000000000000000000000000000000000'
+          probe 'nonce32+sign64' "${BASE[@]}" --data "{\"nonce\":\"$NONCE32\",\"sign\":\"$SIG64\"}"
+          probe 'nonce16+sign64' "${BASE[@]}" --data "{\"nonce\":\"$NONCE16\",\"sign\":\"$SIG64\"}"
+          probe 'ts13+nonce32+sign64' "${BASE[@]}" --data "{\"timestamp\":\"$TS13\",\"nonce\":\"$NONCE32\",\"sign\":\"$SIG64\"}"
+          probe 'ts10+nonce32+sign64' "${BASE[@]}" --data "{\"timestamp\":\"$TS10\",\"nonce\":\"$NONCE32\",\"sign\":\"$SIG64\"}"
+          probe 'device32+ts13+nonce32+sign64' "${BASE[@]}" --data "{\"deviceId\":\"$DID32\",\"timestamp\":\"$TS13\",\"nonce\":\"$NONCE32\",\"sign\":\"$SIG64\"}"
+          probe 'deviceUuid+ts13+nonce32+sign64' "${BASE[@]}" --data "{\"deviceId\":\"$DIDUUID\",\"timestamp\":\"$TS13\",\"nonce\":\"$NONCE32\",\"sign\":\"$SIG64\"}"
