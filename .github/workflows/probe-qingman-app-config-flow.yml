@@ -1,0 +1,171 @@
+name: Trace Qingman App Config URL Field Flow
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-app-config-flow.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools python3-capstone cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+
+      - name: Restore analyzer cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+
+      - name: Resolve AppConfig object-pool references
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/apk_url
+          import json,urllib.request,sys
+          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
+          a=o['data']['datas']['android']
+          print(a['downloadUrl'])
+          print('OFFICIAL_VERSION='+str(a.get('version','')),file=sys.stderr)
+          print('OFFICIAL_VERSION_CODE='+str(a.get('versionCode','')),file=sys.stderr)
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(head -1 /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          mkdir -p /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/apk-extract
+          cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter
+          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
+
+          pp_lines=Path('/tmp/blutter-out/pp.txt').read_text('utf-8',errors='replace').splitlines()
+          pp={}
+          for line in pp_lines:
+              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s+(.*)$',line)
+              if m: pp[int(m.group(1),16)]=m.group(2)
+
+          targets={
+              'app_config':0x1eae8,
+              'base_img_url':0x1eba0,
+              'free_url':0x1eba8,
+              'customer_url':0x1ebb0,
+              'official_url':0x1ebb8,
+              'promotion_url':0x1ebc0,
+              'get_app_config_failed':0x1ec38,
+              'get_ad_config':0x2e6f8,
+              'homepage_interstitial':0x2bfc8,
+              'version_endpoint':0x1ef98,
+          }
+
+          print('=== TARGETS ===')
+          for name,off in targets.items():
+              print(f'TARGET {name}=PP+0x{off:x} value={pp.get(off,"<missing>")[:260]}')
+
+          lib='/tmp/app-lib/libapp.so'
+          with open(lib,'rb') as f:
+              elf=ELFFile(f)
+              sec=elf.get_section_by_name('.text')
+              if sec is None:
+                  sec=max((s for s in elf.iter_sections() if int(s['sh_flags']) & 0x4),key=lambda s:int(s['sh_size']))
+              text_va=int(sec['sh_addr'])
+              text=sec.data()
+
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
+          md.skipdata=True
+          target_offsets=set(targets.values())
+          pending={}
+          hits=[]
+
+          # Dart AOT frequently materializes PP-relative addresses as either direct
+          # ldr/ldur [x27,#imm] or add tmp,x27,#imm{,lsl#12} followed by a load.
+          for ins in md.disasm(text,text_va):
+              if ins.mnemonic.startswith('.'):
+                  pending.clear(); continue
+              pending={r:(base,ttl-1) for r,(base,ttl) in pending.items() if ttl>1}
+              op=ins.op_str.lower()
+              m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
+              if ins.mnemonic=='add' and m:
+                  pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),12)
+                  continue
+              if ins.mnemonic in ('ldr','ldur','ldrsw'):
+                  m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
+                  if not m: continue
+                  base_reg=m.group(2)
+                  disp=int(m.group(3),0) if m.group(3) else 0
+                  off=disp if base_reg=='x27' else (pending[base_reg][0]+disp if base_reg in pending else None)
+                  if off in target_offsets:
+                      hits.append((int(ins.address),off,ins.mnemonic,ins.op_str))
+
+          rev={v:k for k,v in targets.items()}
+          print('=== RESOLVED LOAD REFERENCES ===')
+          print('HIT_COUNT='+str(len(hits)))
+          for addr,off,mn,op in hits:
+              print(f'REF {rev[off]} PP+0x{off:x} at=0x{addr:x} ins={mn} {op}')
+
+          # Map each hit to the nearest Blutter-emitted function by address marker.
+          funcs=[]
+          for path in Path('/tmp/blutter-out/asm').rglob('*.dart'):
+              try: lines=path.read_text('utf-8',errors='replace').splitlines()
+              except Exception: continue
+              for i,line in enumerate(lines):
+                  m=re.search(r'\*\* addr:\s*(0x[0-9a-fA-F]+),\s*size:\s*(0x[0-9a-fA-F]+)',line)
+                  if not m: continue
+                  start=int(m.group(1),16); size=int(m.group(2),16)
+                  funcs.append((start,start+size,path,i,lines))
+          funcs.sort(key=lambda x:x[0])
+
+          sensitive=re.compile(r'(?i)(token|secret|password|cookie|authorization|bearer|private|clientp12|certificate|proof|signature|sign/key)')
+          emitted=set(); dumped=0
+          print('=== FUNCTION WINDOWS ===')
+          for addr,off,_,_ in hits:
+              owner=None
+              for item in funcs:
+                  if item[0] <= addr < item[1]: owner=item; break
+              if owner is None:
+                  print(f'NO_FUNCTION ref={rev[off]} addr=0x{addr:x}')
+                  continue
+              start,end,path,idx,lines=owner
+              key=(str(path),start,end)
+              if key in emitted: continue
+              emitted.add(key)
+              print(f'FUNCTION file={path.name} addr=0x{start:x}-0x{end:x} trigger={rev[off]} ref=0x{addr:x}')
+              # Dump only lines containing route/config/URL/control-flow clues, plus a
+              # short surrounding context around the reference address.
+              ref_index=None
+              addr_hex=f'0x{addr:x}'
+              for n in range(idx,min(len(lines),idx+1800)):
+                  if addr_hex in lines[n].lower(): ref_index=n; break
+                  if n>idx and '** addr:' in lines[n]: break
+              lo=max(idx,(ref_index or idx)-90); hi=min(len(lines),(ref_index or idx)+150)
+              for n in range(lo,hi):
+                  s=lines[n]
+                  if sensitive.search(s):
+                      s=re.sub(r'"[^"]*"','"<redacted>"',s)
+                  if len(s)>420: s=s[:420]+'...'
+                  print(s)
+                  dumped+=1
+                  if dumped>=1800: break
+              if dumped>=1800: break
+          print('DUMPED_LINES='+str(dumped))
+          PY
