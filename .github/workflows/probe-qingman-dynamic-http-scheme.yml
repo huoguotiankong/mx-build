@@ -66,12 +66,13 @@ jobs:
           print('bootstrap_ok=true'); print('dynamic_host='+host); print('sensitive_bootstrap_fields_logged=false')
           PY
 
-      - name: Resolve reader type and test first page
+      - name: Probe cache detail readonly route
         shell: bash
         run: |
           set -euo pipefail
           host=$(cat /tmp/qm_dynamic_host); access=$(cat /tmp/qm_app_access); did=$(cat /tmp/qm_device_id); comic='1965626277746577408'
           common=(-H 'Accept: application/json, text/plain, */*' -H 'User-Agent: qingman/4.4.5 (Android)' -H 'appVersion: 4.4.5' -H 'platform: android' -H "X-Device-Id: $did" -H "X-QM-App-Access: $access")
+
           chap=$(mktemp)
           curl -sS --connect-timeout 8 --max-time 25 "${common[@]}" -o "$chap" "http://$host/api/comic/chapter/ie84hfh8/homelist/$comic?comicId=$comic"
           python3 - "$chap" <<'PY'
@@ -83,22 +84,25 @@ jobs:
                   if cid and name and not found: found.append((str(cid),str(name)))
                   for v in x.values(): w(v)
               elif isinstance(x,list):
-                  for v in x: w(v)
-          w(o)
-          print('chapter_list_code='+str(o.get('code')),'first_chapter_name='+(found[0][1] if found else ''))
+                  for v in x:w(v)
+          w(o); print('chapter_list_code='+str(o.get('code')),'chapter='+(found[0][1] if found else ''))
           if found: open('/tmp/qm_chapter_id','w').write(found[0][0])
           PY
           rm -f "$chap"
           chapter=$(cat /tmp/qm_chapter_id)
 
-          parse() {
+          summarize() {
             python3 - "$1" "$2" "$3" <<'PY'
-          import json,sys,urllib.parse,os
-          o=json.load(open(sys.argv[1])); urls=[]
+          import json,sys,urllib.parse,os,re
+          raw=open(sys.argv[1],'rb').read(1048576); text=raw.decode('utf-8','replace')
+          try: o=json.loads(text)
+          except Exception:
+              print(sys.argv[3]+'_http='+sys.argv[2]+' non_json='+re.sub(r'\s+',' ',text[:160])); raise SystemExit
+          urls=[]
           def w(x):
               if isinstance(x,dict):
                   for k,v in x.items():
-                      if k in ('pageUrls','pageUrl','imageUrl','url'):
+                      if k in ('pageUrls','pageUrl','imageUrl','url','picList'):
                           if isinstance(v,str) and v.startswith(('http://','https://')): urls.append(v)
                           elif isinstance(v,list):
                               for q in v:
@@ -110,20 +114,29 @@ jobs:
               elif isinstance(x,list):
                   for v in x:w(v)
           w(o); urls=list(dict.fromkeys(urls)); hosts=sorted(set(urllib.parse.urlsplit(u).hostname or '' for u in urls)); schemes=sorted(set(urllib.parse.urlsplit(u).scheme for u in urls))
-          print('type='+sys.argv[3],'http='+sys.argv[2],'code='+str(o.get('code')),'msg='+str(o.get('msg')),'pages='+str(len(urls)),'schemes='+','.join(schemes),'hosts='+','.join(hosts[:8]))
+          print(sys.argv[3]+'_http='+sys.argv[2],'code='+str(o.get('code')),'msg='+str(o.get('msg')),'pages='+str(len(urls)),'schemes='+','.join(schemes),'hosts='+','.join(hosts[:8]))
           if urls and not os.path.exists('/tmp/qm_first_page'): open('/tmp/qm_first_page','w').write(urls[0])
           PY
           }
 
-          for type in 0 1 2 3; do
-            out=$(mktemp); err=$(mktemp)
-            code=$(curl -sS --connect-timeout 8 --max-time 25 -X POST "${common[@]}" -H 'Content-Type: application/json' --data '{}' -o "$out" -w '%{http_code}' "http://$host/api/comic/chapter/ie84hfh8/detail?comicId=$comic&chapterId=$chapter&type=$type" 2>"$err" || true)
-            parse "$out" "$code" "$type"
-            rm -f "$out" "$err"
+          echo '=== CACHE_DETAIL_MATRIX ==='
+          for method in GET POST; do
+            for type in 0 1 2 3; do
+              out=$(mktemp); err=$(mktemp)
+              url="http://$host/api/comic/chapter/ie84hfh8/cache/detail?comicId=$comic&chapterId=$chapter&type=$type"
+              if [[ "$method" == POST ]]; then
+                code=$(curl -sS --connect-timeout 8 --max-time 25 -X POST "${common[@]}" -H 'Content-Type: application/json' --data '{}' -o "$out" -w '%{http_code}' "$url" 2>"$err" || true)
+              else
+                code=$(curl -sS --connect-timeout 8 --max-time 25 "${common[@]}" -o "$out" -w '%{http_code}' "$url" 2>"$err" || true)
+              fi
+              summarize "$out" "$code" "cache_${method}_${type}"
+              rm -f "$out" "$err"
+            done
           done
 
           if [[ -s /tmp/qm_first_page ]]; then
-            page=$(cat /tmp/qm_first_page); echo '=== FIRST_PAGE ==='
+            echo '=== FIRST_PAGE_TRANSPORT ==='
+            page=$(cat /tmp/qm_first_page)
             for mode in direct plain; do
               u="$page"; [[ "$mode" == plain ]] && u=$(python3 -c 'import sys,urllib.parse;x=urllib.parse.urlsplit(sys.argv[1]);print(urllib.parse.urlunsplit(("http",x.netloc,x.path,x.query,x.fragment)))' "$page")
               hdr=$(mktemp); body=$(mktemp); err=$(mktemp)
