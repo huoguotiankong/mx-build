@@ -1,0 +1,423 @@
+name: Build Dongman Manhua Plus v1.6.3 list fix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/build-dongmanmanhuaplus-v3-listfix.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-dongmanmanhuaplus-v3-listfix
+  cancel-in-progress: false
+
+jobs:
+  build-and-stage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check required secrets
+        shell: bash
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          test -n "$MX_PRIVATE_READ_TOKEN"
+          test -n "$MANGA_SIGNING_BUNDLE"
+
+      - name: Checkout build repo
+        uses: actions/checkout@v5
+        with:
+          ref: main
+          path: helper
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Checkout exact private source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: c2a9e3cf359d8fca94eaade7bbe7de28047bccb9
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: dev
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout verified Keiyoushi baseline
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          ref: 064c1a0e8c58be4b36c21444c3d3df6840636950
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prepare source and official icons
+        shell: bash
+        run: |
+          set -euo pipefail
+          module='dev/src/zh/dongmanmanhuaplus'
+          grep -Fq 'versionCode = 3' "$module/build.gradle.kts"
+          grep -Fq 'lang = "zh"' "$module/build.gradle.kts"
+          grep -Fq 'id = 4940002032762570168' "$module/build.gradle.kts"
+          grep -Fq 'a.ranking_list_items' "$module/src/eu/kanade/tachiyomi/extension/zh/dongmanmanhuaplus/DongmanManhuaPlus.kt"
+          grep -Fq 'a.updatePage_lst_item[data-week=' "$module/src/eu/kanade/tachiyomi/extension/zh/dongmanmanhuaplus/DongmanManhuaPlus.kt"
+
+          target="$module/res"
+          for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            src="upstream/src/zh/dongmanmanhua/res/mipmap-$density"
+            dst="$target/mipmap-$density"
+            rm -rf "$dst"
+            mkdir -p "$dst"
+            icon="$(find "$src" -maxdepth 1 -type f -name 'ic_launcher.*' | head -n1)"
+            test -n "$icon"
+            cp "$icon" "$dst/$(basename "$icon")"
+          done
+
+          # Current androidx preference compatibility in this framework.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('dev/src/zh/dongmanmanhuaplus/src/eu/kanade/tachiyomi/extension/zh/dongmanmanhuaplus/DongmanManhuaPlus.kt')
+          s = p.read_text('utf-8')
+          s = s.replace('\n        Preference(screen.context).apply {', '\n        Preference().apply {')
+          s = s.replace('            isSelectable = false\n', '')
+          p.write_text(s, 'utf-8')
+          PY
+
+          python3 dev/scripts/validate_sources.py
+          git -C dev diff --check
+
+          rm -rf upstream/src/zh/dongmanmanhuaplus
+          cp -a "$module" upstream/src/zh/dongmanmanhuaplus
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Format source
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:dongmanmanhuaplus:spotlessApply
+          ./gradlew :src:zh:dongmanmanhuaplus:spotlessCheck
+
+      - name: Sync formatted module
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dev/src/zh/dongmanmanhuaplus
+          rsync -a --exclude build/ upstream/src/zh/dongmanmanhuaplus/ dev/src/zh/dongmanmanhuaplus/
+          python3 dev/scripts/validate_sources.py
+          git -C dev diff --check
+
+      - name: Prepare stable signing key
+        shell: bash
+        env:
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, json, os
+          from pathlib import Path
+          b=json.loads(os.environ['MANGA_SIGNING_BUNDLE'])
+          Path('upstream/signingkey.jks').write_bytes(base64.b64decode(b['signingKey']))
+          with Path(os.environ['GITHUB_ENV']).open('a', encoding='utf-8') as f:
+              for out,key in [('ALIAS','alias'),('KEY_STORE_PASSWORD','storePassword'),('KEY_PASSWORD','keyPassword')]:
+                  v=str(b[key]); print(f'::add-mask::{v}'); f.write(f'{out}<<EOF_SIGN\n{v}\nEOF_SIGN\n')
+          PY
+
+      - name: Verify stable signing identity
+        id: signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620'
+          actual="$(keytool -exportcert -alias "$ALIAS" -keystore upstream/signingkey.jks -storepass "$KEY_STORE_PASSWORD" | sha256sum | awk '{print $1}' | tr '[:upper:]' '[:lower:]')"
+          test "$actual" = "$expected"
+          echo "fingerprint=$actual" >> "$GITHUB_OUTPUT"
+
+      - name: Build Debug Release and Lint
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:dongmanmanhuaplus:assembleDebug :src:zh:dongmanmanhuaplus:assembleRelease :src:zh:dongmanmanhuaplus:lintRelease
+
+      - name: Verify release metadata signature and MX ABI
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="$(find upstream/src/zh/dongmanmanhuaplus -path '*/build/outputs/apk/release/*.apk' -type f | head -n1)"
+          jar="$(find upstream/src/zh/dongmanmanhuaplus -path '*/build/outputs/jar/release/*.jar' -type f | head -n1)"
+          info="$(find upstream/src/zh/dongmanmanhuaplus -path '*/build/keiyoushi-source-info.json' -type f | head -n1)"
+          test -f "$apk"; test -f "$jar"; test -f "$info"
+          test "$(basename "$apk")" = 'tachiyomi-zh.dongmanmanhuaplus-v1.6.3.apk'
+          test "$(basename "$jar")" = 'tachiyomi-zh.dongmanmanhuaplus-v1.6.3.jar'
+
+          apksigner="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n1)"
+          cert="$("$apksigner" verify --print-certs "$apk" 2>&1 | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')"
+          [[ "$cert" == *'1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620'* ]]
+          jarsigner -verify "$jar" >/dev/null
+
+          INFO="$info" python3 - <<'PY'
+          import json, os
+          d=json.load(open(os.environ['INFO'], encoding='utf-8'))
+          assert int(d['versionCode']) == 106003, d
+          assert d['versionName'] == '1.6.3', d
+          s=d['sources'][0]
+          assert s['lang']=='zh', s
+          assert int(s['id'])==4940002032762570168, s
+          print('verified metadata:', d['versionName'], d['versionCode'], s['lang'], s['id'])
+          PY
+
+          rm -rf /tmp/dongmanplus-dex && mkdir -p /tmp/dongmanplus-dex
+          unzip -qq "$apk" 'classes*.dex' -d /tmp/dongmanplus-dex
+          strings /tmp/dongmanplus-dex/classes*.dex > /tmp/dongmanplus-strings.txt
+          grep -Fq 'eu/kanade/tachiyomi/source/mx/CommentSource' /tmp/dongmanplus-strings.txt
+          grep -Fq 'eu/kanade/tachiyomi/source/mx/AccountSource' /tmp/dongmanplus-strings.txt
+          grep -Fq 'eu/kanade/tachiyomi/source/mx/ChapterContentReplacementSource' /tmp/dongmanplus-strings.txt
+          grep -Fq 'ranking_list_items' /tmp/dongmanplus-strings.txt
+          grep -Fq 'updatePage_lst_item' /tmp/dongmanplus-strings.txt
+
+      - name: Validate current live list-page DOM
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check beautifulsoup4 >/dev/null
+          ua='Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140 Mobile Safari/537.36'
+          curl -L --compressed -A "$ua" -H 'Accept-Language: zh-CN,zh;q=0.9' -sSf 'https://m.dongmanmanhua.cn/' -o /tmp/home.html
+          curl -L --compressed -A "$ua" -H 'Accept-Language: zh-CN,zh;q=0.9' -sSf 'https://m.dongmanmanhua.cn/dailySchedule?sortOrder=UPDATE&webtoonCompleteType=ONGOING' -o /tmp/daily.html
+          python3 - <<'PY'
+          from bs4 import BeautifulSoup
+          from datetime import datetime
+          home=BeautifulSoup(open('/tmp/home.html', encoding='utf-8').read(), 'html.parser')
+          daily=BeautifulSoup(open('/tmp/daily.html', encoding='utf-8').read(), 'html.parser')
+          ranking=home.select("a.ranking_list_items[href*='title_no=']")
+          week=['MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY','SUNDAY'][datetime.utcnow().weekday()]
+          updates=daily.select(f"a.updatePage_lst_item[data-week={week}]")
+          assert len(ranking) >= 5, len(ranking)
+          assert len(updates) >= 1, (week, len(updates))
+          for node in (ranking[0], updates[0]):
+              title=node.select_one('p.subj, .subj, .title, ._items_name_t')
+              image=node.select_one('img')
+              assert title and title.get_text(' ', strip=True), node
+              assert image and (image.get('src') or image.get('data-src') or image.get('data-url')), node
+              assert 'title_no=' in node.get('href',''), node.get('href')
+          print('live DOM verified: ranking=', len(ranking), 'updates=', len(updates), 'week=', week)
+          PY
+
+      - name: Checkout extension staging
+        uses: actions/checkout@v5
+        with:
+          ref: extension-staging
+          path: staging
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Generate test-store v1.6.3 snapshot
+        shell: bash
+        env:
+          SIGNING_FINGERPRINT: ${{ steps.signing.outputs.fingerprint }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' 'zh/dongmanmanhuaplus' > targets.txt
+          python3 dev/scripts/publish_test_repo.py \
+            --targets targets.txt \
+            --upstream-root upstream \
+            --source-root dev \
+            --repo-dir staging/test \
+            --owner huoguotiankong \
+            --repository mx-repo \
+            --signing-key "$SIGNING_FINGERPRINT"
+          python3 - <<'PY'
+          import json
+          p='eu.kanade.tachiyomi.extension.zh.dongmanmanhuaplus'
+          d=json.load(open('staging/test/index.json', encoding='utf-8'))
+          e=[x for x in d['extensionList']['extensions'] if x['packageName']==p][0]
+          assert e['versionName']=='1.6.3', e
+          assert int(e['versionCode'])==106003, e
+          assert e['sources'][0]['language']=='zh', e
+          assert int(e['sources'][0]['id'])==4940002032762570168, e
+          print('test index verified:', e['versionName'], e['versionCode'], e['sources'][0]['language'])
+          PY
+
+      - name: Checkout formal distribution snapshot
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-repo
+          ref: repo
+          path: prodrepo
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Generate formal v1.6.3 snapshot preserving current repository semantics
+        shell: bash
+        env:
+          SIGNING_FINGERPRINT: ${{ steps.signing.outputs.fingerprint }}
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check protobuf >/dev/null
+          apk="$(find upstream/src/zh/dongmanmanhuaplus -path '*/build/outputs/apk/release/*.apk' -type f | head -n1)"
+          jar="$(find upstream/src/zh/dongmanmanhuaplus -path '*/build/outputs/jar/release/*.jar' -type f | head -n1)"
+          cp "$apk" prodrepo/tachiyomi-zh.dongmanmanhuaplus-v1.6.3.apk
+          cp "$jar" prodrepo/tachiyomi-zh.dongmanmanhuaplus-v1.6.3.jar
+          mkdir -p prodrepo/icon
+          icon="$(find dev/src/zh/dongmanmanhuaplus/res/mipmap-xhdpi -maxdepth 1 -type f -name 'ic_launcher.*' | head -n1)"
+          test -n "$icon"
+          cp "$icon" prodrepo/icon/eu.kanade.tachiyomi.extension.zh.dongmanmanhuaplus-v106003.png
+
+          SIGNING_FINGERPRINT="$SIGNING_FINGERPRINT" python3 - <<'PY'
+          import gzip, hashlib, json, os, sys
+          from pathlib import Path
+          from google.protobuf import json_format
+          sys.path.insert(0, str(Path('upstream/.github/scripts').resolve()))
+          import index_pb2
+
+          root=Path('prodrepo')
+          pkg='eu.kanade.tachiyomi.extension.zh.dongmanmanhuaplus'
+          apk='tachiyomi-zh.dongmanmanhuaplus-v1.6.3.apk'
+          jar='tachiyomi-zh.dongmanmanhuaplus-v1.6.3.jar'
+          icon=f'icon/{pkg}-v106003.png'
+          apk_url=f'https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/{apk}'
+          jar_url=f'https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/{jar}'
+          icon_url=f'https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/{icon}'
+
+          def update_proto(base):
+              path=root/f'{base}.json'
+              msg=json_format.Parse(path.read_text('utf-8'), index_pb2.Index())
+              matches=[e for e in msg.extensionList.extensions if e.packageName==pkg]
+              assert len(matches)==1, len(matches)
+              e=matches[0]
+              e.name='Dongman Manhua Plus'
+              e.extensionLib='1.6'
+              e.versionCode=106003
+              e.versionName='1.6.3'
+              e.resources.apkUrl=apk_url
+              e.resources.jarUrl=jar_url
+              e.resources.iconUrl=icon_url
+              del e.sources[:]
+              s=e.sources.add()
+              s.id=4940002032762570168
+              s.name='咚漫画 Plus'
+              s.language='zh'
+              s.homeUrl='https://m.dongmanmanhua.cn'
+              s.mirrorUrls.extend(['https://m.dongmanmanhua.cn','https://www.dongmanmanhua.cn'])
+              text=json_format.MessageToJson(msg, always_print_fields_with_no_presence=False, preserving_proto_field_name=True)
+              path.write_text(text, 'utf-8')
+              (root/f'{base}.pb').write_bytes(gzip.compress(msg.SerializeToString(deterministic=True), mtime=0))
+
+          update_proto('index')
+          update_proto('index-android')
+
+          for name in ['index.min.json','index-android.min.json']:
+              p=root/name
+              data=json.loads(p.read_text('utf-8'))
+              matches=[e for e in data if e.get('pkg')==pkg]
+              assert len(matches)==1, len(matches)
+              e=matches[0]
+              e.update({
+                  'name':'Dongman Manhua Plus',
+                  'apk':apk,
+                  'lang':'zh',
+                  'code':106003,
+                  'version':'1.6.3',
+                  'nsfw':0,
+                  'sources':[{'name':'咚漫画 Plus','lang':'zh','id':'4940002032762570168','baseUrl':'https://m.dongmanmanhua.cn'}],
+              })
+              p.write_text(json.dumps(data, ensure_ascii=False, indent=2)+'\n', 'utf-8')
+
+          state_path=root/'published-state.json'
+          state=json.loads(state_path.read_text('utf-8'))
+          def sha(p): return hashlib.sha256((root/p).read_bytes()).hexdigest()
+          module=Path('dev/src/zh/dongmanmanhuaplus')
+          h=hashlib.sha256()
+          for p in sorted(x for x in module.rglob('*') if x.is_file() and 'build' not in x.parts):
+              rel=p.relative_to(module).as_posix().encode()
+              h.update(rel); h.update(b'\0'); h.update(p.read_bytes()); h.update(b'\0')
+          state[pkg]={
+              'module':'zh.dongmanmanhuaplus',
+              'versionCode':106003,
+              'androidVersionCode':106003,
+              'versionName':'1.6.3',
+              'sourceHash':h.hexdigest(),
+              'apk':apk,
+              'apkSha256':sha(apk),
+              'jar':jar,
+              'jarSha256':sha(jar),
+          }
+          state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2)+'\n', 'utf-8')
+
+          repo_json=root/'repo.json'
+          if repo_json.exists():
+              r=json.loads(repo_json.read_text('utf-8'))
+              # Keep existing structure but guarantee the signing identity remains current.
+              if isinstance(r.get('meta'), dict): r['meta']['signingKeyFingerprint']=os.environ['SIGNING_FINGERPRINT']
+              repo_json.write_text(json.dumps(r, ensure_ascii=False, indent=2)+'\n', 'utf-8')
+
+          for base in ['index','index-android']:
+              d=json.loads((root/f'{base}.json').read_text('utf-8'))
+              e=[x for x in d['extensionList']['extensions'] if x['packageName']==pkg][0]
+              assert e['versionName']=='1.6.3', e
+              assert int(e['versionCode'])==106003, e
+              assert e['sources'][0]['language']=='zh', e
+          print('formal indexes verified at v1.6.3 / 106003 / zh')
+          PY
+
+      - name: Export production handoff and save both stores
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/production-handoff"
+          rm -rf "$out"; mkdir -p "$out"
+          cd prodrepo
+          git status --porcelain=v1 | while IFS= read -r line; do
+            rel="${line:3}"
+            test -n "$rel" || continue
+            if test -f "$rel"; then
+              mkdir -p "$out/$(dirname "$rel")"
+              cp -a "$rel" "$out/$rel"
+            fi
+          done
+          printf '%s\n' 'c2a9e3cf359d8fca94eaade7bbe7de28047bccb9' > "$out/SOURCE_SHA.txt"
+          test -f "$out/tachiyomi-zh.dongmanmanhuaplus-v1.6.3.apk"
+          test -f "$out/tachiyomi-zh.dongmanmanhuaplus-v1.6.3.jar"
+          test -f "$out/index.json"
+          test -f "$out/index.pb"
+          cd ..
+
+          rm -rf staging/production-handoff
+          mkdir -p staging/production-handoff
+          cp -a "$out/." staging/production-handoff/
+          git -C staging config user.name 'github-actions[bot]'
+          git -C staging config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C staging add test production-handoff
+          git -C staging diff --cached --check
+          if git -C staging diff --cached --quiet; then
+            echo 'Dongman v1.6.3 staging already current'
+          else
+            git -C staging commit -m 'Stage Dongman Manhua Plus v1.6.3 list fix'
+            git -C staging pull --rebase origin extension-staging
+            git -C staging push origin HEAD:extension-staging
+          fi
+
+      - name: Upload signed APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: dongmanmanhuaplus-v1.6.3-signed-apk
+          path: upstream/src/zh/dongmanmanhuaplus/**/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Cleanup signing material
+        if: always()
+        run: rm -f upstream/signingkey.jks
