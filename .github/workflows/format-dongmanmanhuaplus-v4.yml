@@ -23,15 +23,15 @@ jobs:
           set -euo pipefail
           test -n "$MX_PRIVATE_READ_TOKEN"
 
-      - name: Checkout exact private source
+      - name: Checkout private source main
         uses: actions/checkout@v5
         with:
           repository: huoguotiankong/mx-dev
-          ref: c254d96478e3268216980384384dd2f2c9172859
+          ref: main
           token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
           path: dev
-          fetch-depth: 1
-          persist-credentials: false
+          fetch-depth: 0
+          persist-credentials: true
 
       - name: Checkout current Keiyoushi framework
         uses: actions/checkout@v5
@@ -46,10 +46,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -f dev/src/zh/dongmanmanhuaplus/build.gradle.kts
-          grep -Fq 'versionCode = 4' dev/src/zh/dongmanmanhuaplus/build.gradle.kts
+          module='dev/src/zh/dongmanmanhuaplus'
+          test -f "$module/build.gradle.kts"
+          grep -Fq 'versionCode = 4' "$module/build.gradle.kts"
+          grep -Fq 'M_genre-page_' "$module/src/eu/kanade/tachiyomi/extension/zh/dongmanmanhuaplus/DongmanManhuaPlus.kt"
+          grep -Fq '#_episodeList li[data-episode-no]' "$module/src/eu/kanade/tachiyomi/extension/zh/dongmanmanhuaplus/DongmanManhuaPlus.kt"
           rm -rf upstream/src/zh/dongmanmanhuaplus
-          cp -a dev/src/zh/dongmanmanhuaplus upstream/src/zh/dongmanmanhuaplus
+          cp -a "$module" upstream/src/zh/dongmanmanhuaplus
 
       - name: Set up Java
         uses: actions/setup-java@v5
@@ -68,17 +71,22 @@ jobs:
           ./gradlew :src:zh:dongmanmanhuaplus:spotlessApply
           ./gradlew :src:zh:dongmanmanhuaplus:spotlessCheck
 
-      - name: Verify only formatting changed
+      - name: Copy formatting back and commit
         shell: bash
         run: |
           set -euo pipefail
-          diff -ru --exclude=build dev/src/zh/dongmanmanhuaplus upstream/src/zh/dongmanmanhuaplus > formatting.diff || true
-          test -s formatting.diff
-          sed -n '1,240p' formatting.diff
-
-      - name: Upload formatted module
-        uses: actions/upload-artifact@v4
-        with:
-          name: dongmanmanhuaplus-v4-formatted
-          path: upstream/src/zh/dongmanmanhuaplus
-          if-no-files-found: error
+          rm -rf dev/src/zh/dongmanmanhuaplus
+          rsync -a --exclude build/ upstream/src/zh/dongmanmanhuaplus/ dev/src/zh/dongmanmanhuaplus/
+          python3 dev/scripts/validate_sources.py
+          git -C dev diff --check
+          changed="$(git -C dev status --short -- src/zh/dongmanmanhuaplus)"
+          if [[ -z "$changed" ]]; then
+            echo 'No formatting changes to commit'
+            exit 0
+          fi
+          git -C dev config user.name 'github-actions[bot]'
+          git -C dev config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C dev add src/zh/dongmanmanhuaplus
+          git -C dev commit -m 'style(dongmanmanhuaplus): apply Keiyoushi formatting'
+          git -C dev pull --rebase origin main
+          git -C dev push origin HEAD:main
