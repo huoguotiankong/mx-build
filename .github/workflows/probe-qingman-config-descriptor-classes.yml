@@ -1,0 +1,103 @@
+name: Identify Qingman Config Request Descriptor Classes
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-config-descriptor-classes.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+      - name: Restore analyzer cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+      - name: Identify allocation-tag classes and constructors
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/apk_url
+          import json,urllib.request
+          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
+          print(o['data']['datas']['android']['downloadUrl'])
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(head -1 /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          mkdir -p /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/apk-extract
+          cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter
+          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          sensitive=re.compile(r'(?i)(token|secret|password|cookie|authorization|bearer|private|clientp12|certificate|proof|signature|sign/key|k1a|k1b|k2a|k2b|k3a|k3b|seed)')
+          # Allocation tags in b02b90 and b028d0 are 0x3e021c and 0x45a21c.
+          # Their upper bits correspond to class ids 0x3e0 (992) and 0x45a (1114);
+          # print matching class metadata plus nearby related classes/functions.
+          ids=(992,1114)
+          objs=Path('/tmp/blutter-out/objs.txt').read_text('utf-8',errors='replace').splitlines()
+          print('=== CLASS ID MATCHES ===')
+          names=[]
+          for i,line in enumerate(objs):
+              m=re.search(r'class id:\s*(\d+),\s*size:\s*(0x[0-9a-fA-F]+)',line)
+              if not m or int(m.group(1)) not in ids: continue
+              print(f'MATCH line={i+1} {line}')
+              for n in range(i,min(len(objs),i+45)):
+                  z=objs[n]
+                  if sensitive.search(z): z='<redacted-sensitive-line>'
+                  print(z[:700])
+                  cm=re.match(r'class\s+([A-Za-z0-9_$]+)',z.strip())
+                  if cm: names.append(cm.group(1))
+          print('CLASS_NAMES='+','.join(names))
+
+          print('=== ASM FUNCTIONS FOR MATCHED CLASSES / CONSTRUCTOR 0x3ea090 ===')
+          needles=[x.lower() for x in names] + ['0x3ea090','0xb02b90','0xb028d0']
+          total=0
+          for p in Path('/tmp/blutter-out/asm').rglob('*.dart'):
+              try: lines=p.read_text('utf-8',errors='replace').splitlines()
+              except Exception: continue
+              idxs=[i for i,s in enumerate(lines) if any(n in s.lower() for n in needles)]
+              if not idxs: continue
+              print('FILE',p.name)
+              emitted=set()
+              for i in idxs:
+                  start=i
+                  while start>0 and '** addr:' not in lines[start]: start-=1
+                  if '** addr:' not in lines[start]: start=max(0,i-50)
+                  end=len(lines)
+                  for j in range(start+1,len(lines)):
+                      if '** addr:' in lines[j]: end=j; break
+                  if (start,end) in emitted: continue
+                  emitted.add((start,end))
+                  print(f'FUNCTION lines={start+1}-{end} hit={i+1}')
+                  for n in range(start,min(end,start+900)):
+                      z=lines[n]
+                      if sensitive.search(z): z=re.sub(r'"[^"]*"','"<redacted>"',z)
+                      if len(z)>500: z=z[:500]+'...'
+                      print(z)
+                      total+=1
+                      if total>=2600: break
+                  if total>=2600: break
+              if total>=2600: break
+          print('PRINTED_LINES='+str(total))
+          PY
