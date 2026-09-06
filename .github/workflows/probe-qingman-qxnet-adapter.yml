@@ -1,0 +1,91 @@
+name: Trace Qingman QxNet Adapter Methods
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-qxnet-adapter.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+      - name: Restore analyzer cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+      - name: Trace QxNet adapter
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/apk_url
+          import json,urllib.request
+          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
+          print(o['data']['datas']['android']['downloadUrl'])
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(head -1 /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          mkdir -p /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/apk-extract
+          cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter
+          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          sensitive=re.compile(r'(?i)(token|secret|password|cookie|authorization|bearer|private|clientp12|certificate|proof|signature|sign/key|k1a|k1b|k2a|k2b|k3a|k3b|seed)')
+          targets=('class uEb','<uEb._nGd','0x3b6174','0x540ef8','[uEb]',' uEb extends ','uEb::','uEb.')
+          print('=== UEb CLASS/METHOD METADATA ===')
+          for root in ('/tmp/blutter-out/objs.txt','/tmp/blutter-out/pp.txt'):
+              lines=Path(root).read_text('utf-8',errors='replace').splitlines()
+              hitidx=[i for i,s in enumerate(lines) if any(t.lower() in s.lower() for t in targets)]
+              shown=set()
+              for i in hitidx[:120]:
+                  for n in range(max(0,i-18),min(len(lines),i+55)):
+                      if n in shown: continue
+                      shown.add(n)
+                      s=lines[n]
+                      if sensitive.search(s): s='<redacted-sensitive-line>'
+                      print(f'{Path(root).name}:{n+1}: {s[:700]}')
+
+          print('=== UEb ASM FUNCTIONS ===')
+          for p in Path('/tmp/blutter-out/asm').rglob('*.dart'):
+              lines=p.read_text('utf-8',errors='replace').splitlines()
+              hitidx=[i for i,s in enumerate(lines) if any(t.lower() in s.lower() for t in ('class ueb','0x3b6174','0x540ef8','<ueb._ngd',' ueb.','[ueb]'))]
+              if not hitidx: continue
+              print('FILE',p.name)
+              emitted=[]
+              for i in hitidx:
+                  start=i
+                  while start>0 and '** addr:' not in lines[start]: start-=1
+                  if '** addr:' not in lines[start]: start=max(0,i-60)
+                  end=len(lines)
+                  for j in range(start+1,len(lines)):
+                      if '** addr:' in lines[j]: end=j; break
+                  if (start,end) in emitted: continue
+                  emitted.append((start,end))
+                  print(f'FUNCTION lines={start+1}-{end} hit={i+1}')
+                  for n in range(start,min(end,start+700)):
+                      s=lines[n]
+                      if sensitive.search(s): s=re.sub(r'"[^"]*"','"<redacted>"',s)
+                      if len(s)>500: s=s[:500]+'...'
+                      print(s)
+          PY
