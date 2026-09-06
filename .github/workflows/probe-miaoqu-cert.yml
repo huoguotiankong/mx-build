@@ -1,0 +1,30 @@
+name: Probe Miaoqu TLS certificate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-miaoqu-cert.yml'
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Inspect certificate chains
+        shell: bash
+        run: |
+          set -euo pipefail
+          for host in apitong.zqykfz.cn api.zqykfz.cn tong.zqykfz.cn; do
+            echo "=== $host ==="
+            openssl s_client -connect "$host:443" -servername "$host" -showcerts </dev/null 2>&1 | tee "/tmp/$host.txt" || true
+            awk '/-----BEGIN CERTIFICATE-----/{n++; fn=sprintf("/tmp/%s-%d.pem", ENVIRON["HOST"], n)} fn{print > fn} /-----END CERTIFICATE-----/{fn=""}' HOST="$host" "/tmp/$host.txt" || true
+            csplit -s -f "/tmp/${host}-cert-" -b '%02d.pem' "/tmp/$host.txt" '/-----BEGIN CERTIFICATE-----/' '{*}' || true
+            for cert in /tmp/${host}-cert-*.pem; do
+              grep -q 'BEGIN CERTIFICATE' "$cert" || continue
+              echo "-- $(basename "$cert") --"
+              openssl x509 -in "$cert" -noout -subject -issuer -serial -fingerprint -sha256 || true
+              openssl x509 -in "$cert" -pubkey -noout | openssl pkey -pubin -outform DER 2>/dev/null | openssl dgst -sha256 || true
+            done
+          done
