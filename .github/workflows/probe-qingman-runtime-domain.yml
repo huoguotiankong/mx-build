@@ -38,10 +38,12 @@ jobs:
           api-level: 35
           arch: x86_64
           profile: pixel_6
-          disable-animations: true
-          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: false
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-metrics
           script: |
             set -eu
+            adb wait-for-device
+            adb shell getprop sys.boot_completed
             adb install -r /tmp/qingman.apk
             PKG="$(adb shell pm list packages -3 | sed -n 's/^package://p' | tr -d '\r' | head -1)"
             echo "package=$PKG"
@@ -49,8 +51,8 @@ jobs:
             adb logcat -c
             adb shell am force-stop "$PKG" || true
             adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 >/tmp/monkey.log 2>&1 || true
-            cat /tmp/monkey.log | tail -30
-            sleep 70
+            tail -30 /tmp/monkey.log || true
+            sleep 50
             echo '=== safe bootstrap runtime lines ==='
             adb logcat -d -v brief \
               | grep -E 'bootstrap: (code=|apiDomain 已应用|apiDomain 解析失败|下发失败|原生签名失败|proof 生成失败|解密失败|命中风控|未下发 appAccessToken|appAccessToken 已应用)' \
