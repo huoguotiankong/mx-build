@@ -1,0 +1,110 @@
+name: Probe Qingman API
+
+on:
+  push:
+    paths:
+      - '.github/workflows/probe-qingman-api.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Probe Qingman public API contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import ssl
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          BASE = 'https://sf85sdq66h.qingman.mom'
+          BOOTSTRAP = 'https://mu8xm4cx.zermh.com/bootstrap/domain'
+          COMMON = {
+              'Accept': 'application/json, text/plain, */*',
+              'User-Agent': 'qingman/4.4.3 (Android)',
+              'appVersion': '4.4.3',
+              'platform': 'android',
+          }
+          SENSITIVE = {'token','accesstoken','appaccesstoken','accesskey','tradekey','key','secret','signature','sign','proof','apiguard'}
+
+          def safe_scalar(key, value):
+              k = key.lower().replace('_','').replace('-','')
+              if any(s in k for s in SENSITIVE):
+                  return '<redacted>'
+              if isinstance(value, str) and len(value) > 200:
+                  return value[:200] + '…'
+              return value
+
+          def summarize(value, depth=0, key='root'):
+              if depth > 4:
+                  return '<depth-limit>'
+              if isinstance(value, dict):
+                  out = {'__keys__': list(value.keys())}
+                  for k, v in value.items():
+                      lk = k.lower()
+                      if isinstance(v, (dict, list)):
+                          out[k] = summarize(v, depth + 1, k)
+                      elif lk in {'code','status','msg','message','error','success','total','totalpages','pagenum','pagesize','domain','host','baseurl','apiurl','url'}:
+                          out[k] = safe_scalar(k, v)
+                  return out
+              if isinstance(value, list):
+                  out = {'__len__': len(value)}
+                  if value:
+                      out['first'] = summarize(value[0], depth + 1, key)
+                  return out
+              return safe_scalar(key, value)
+
+          def request(label, method, url, data=None, extra_headers=None):
+              headers = dict(COMMON)
+              if extra_headers:
+                  headers.update(extra_headers)
+              body = None
+              if data is not None:
+                  if isinstance(data, dict):
+                      body = json.dumps(data, ensure_ascii=False).encode()
+                      headers['Content-Type'] = 'application/json'
+                  else:
+                      body = data
+              req = urllib.request.Request(url, data=body, headers=headers, method=method)
+              print(f'\n=== {label} ===')
+              print(method, url)
+              try:
+                  with urllib.request.urlopen(req, timeout=20, context=ssl.create_default_context()) as resp:
+                      raw = resp.read(1024 * 1024)
+                      status = resp.status
+                      ctype = resp.headers.get('content-type')
+              except urllib.error.HTTPError as e:
+                  raw = e.read(1024 * 1024)
+                  status = e.code
+                  ctype = e.headers.get('content-type')
+              except Exception as e:
+                  print('transport_error=', type(e).__name__, str(e))
+                  return
+              print('status=', status, 'content_type=', ctype, 'bytes=', len(raw))
+              text = raw.decode('utf-8', errors='replace')
+              try:
+                  obj = json.loads(text)
+                  print('json_summary=', json.dumps(summarize(obj), ensure_ascii=False, indent=2)[:12000])
+              except Exception:
+                  print('body_prefix=', repr(text[:1000]))
+
+          request('bootstrap GET', 'GET', BOOTSTRAP)
+          request('sign key GET', 'GET', BASE + '/api/comic/comics/sign/key')
+          request('sign key POST json', 'POST', BASE + '/api/comic/comics/sign/key', {})
+
+          q = urllib.parse.urlencode({'page':'1','pageNum':'1','pageSize':'20'})
+          request('home GET', 'GET', BASE + '/api/comic/comics/v1/homeList?' + q)
+          request('home POST json', 'POST', BASE + '/api/comic/comics/v1/homeList', {'page':1,'pageNum':1,'pageSize':20})
+          request('recent GET', 'GET', BASE + '/api/comic/comics/homerecentUpdates?' + q)
+          request('recent POST json', 'POST', BASE + '/api/comic/comics/homerecentUpdates', {'page':1,'pageNum':1,'pageSize':20})
+          request('category list GET', 'GET', BASE + '/api/comic/categories/list')
+          request('category list POST', 'POST', BASE + '/api/comic/categories/list', {})
+          PY
