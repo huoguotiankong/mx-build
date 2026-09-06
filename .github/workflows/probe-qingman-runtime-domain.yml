@@ -1,0 +1,56 @@
+name: Probe Qingman Runtime Domain
+
+on:
+  push:
+    paths:
+      - '.github/workflows/probe-qingman-runtime-domain.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Resolve current official APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/apk_url
+          import json, urllib.request
+          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
+          a=o['data']['datas']['android']
+          print(a['downloadUrl'])
+          print('version='+str(a.get('version','')))
+          print('versionCode='+str(a.get('versionCode','')))
+          PY
+          head -1 /tmp/apk_url > /tmp/url
+          tail -2 /tmp/apk_url
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/url)" -o /tmp/qingman.apk
+          echo "apk_sha256=$(sha256sum /tmp/qingman.apk | cut -d' ' -f1)"
+      - name: Run official app and capture safe bootstrap status
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: |
+            set -euo pipefail
+            adb install -r /tmp/qingman.apk
+            PKG="$(aapt dump badging /tmp/qingman.apk | sed -n "s/package: name='\([^']*\)'.*/\1/p")"
+            ACT="$(aapt dump badging /tmp/qingman.apk | sed -n "s/launchable-activity: name='\([^']*\)'.*/\1/p")"
+            echo "package=$PKG"
+            echo "activity=$ACT"
+            adb logcat -c
+            adb shell am force-stop "$PKG" || true
+            adb shell am start -n "$PKG/$ACT"
+            sleep 50
+            echo '=== safe bootstrap runtime lines ==='
+            adb logcat -d -v brief \
+              | grep -E 'bootstrap: (code=|apiDomain 已应用|apiDomain 解析失败|下发失败|原生签名失败|proof 生成失败|解密失败|命中风控)' \
+              | sed -E 's/(token|access|proof|signature|sign)[=:][^ ]+/\1=<redacted>/Ig' \
+              | tail -120 || true
