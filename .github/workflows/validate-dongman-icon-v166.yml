@@ -1,0 +1,74 @@
+name: Validate Dongman icon v1.6.6
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/validate-dongman-icon-v166.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout mx-dev source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: 28df22b415a0171af957630c030eee2f287fc256
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          persist-credentials: false
+
+      - name: Checkout current Keiyoushi
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Overlay Dongman module
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf upstream/src/zh/dongmanmanhuaplus
+          cp -a source/src/zh/dongmanmanhuaplus upstream/src/zh/dongmanmanhuaplus
+          test -f upstream/src/zh/dongmanmanhua/res/mipmap-mdpi/ic_launcher.png
+          test -f upstream/src/zh/dongmanmanhua/res/mipmap-hdpi/ic_launcher.png
+          test -f upstream/src/zh/dongmanmanhua/res/mipmap-xhdpi/ic_launcher.png
+          test -f upstream/src/zh/dongmanmanhua/res/mipmap-xxhdpi/ic_launcher.png
+          test -f upstream/src/zh/dongmanmanhua/res/mipmap-xxxhdpi/ic_launcher.png
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Build Release
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew \
+            :src:zh:dongmanmanhuaplus:spotlessCheck \
+            :src:zh:dongmanmanhuaplus:assembleRelease
+
+      - name: Verify packaged launcher icon
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="$(find src/zh/dongmanmanhuaplus -path '*/build/outputs/apk/release/*.apk' -type f | head -n 1)"
+          test -f "$apk"
+          aapt2="$(find "$ANDROID_HOME/build-tools" -type f -name aapt2 | sort -V | tail -n 1)"
+          test -x "$aapt2"
+          "$aapt2" dump resources "$apk" | grep -F 'mipmap/ic_launcher'
+          unzip -l "$apk" | grep -E 'res/.*/ic_launcher.*\.png' | tee /tmp/icon-files.txt
+          test "$(wc -l < /tmp/icon-files.txt)" -ge 5
+          grep -Fq 'versionCode = 6' ../source/src/zh/dongmanmanhuaplus/build.gradle.kts
