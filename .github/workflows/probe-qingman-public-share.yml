@@ -32,7 +32,7 @@ jobs:
             /tmp/blutter/packages
           key: qingman-blutter-dart-3.12.2-arm64-v1
 
-      - name: Trace public URL and share markers
+      - name: Download current official APK robustly
         shell: bash
         run: |
           set -euo pipefail
@@ -44,7 +44,22 @@ jobs:
           print('OFFICIAL_VERSION='+str(a.get('version','')),file=sys.stderr)
           print('OFFICIAL_CODE='+str(a.get('versionCode','')),file=sys.stderr)
           PY
-          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(head -1 /tmp/apk_url)" -o /tmp/qingman.apk
+          url="$(head -1 /tmp/apk_url)"
+          ok=0
+          for attempt in 1 2 3 4 5; do
+            rm -f /tmp/qingman.apk /tmp/qm-headers
+            meta=$(curl -L --compressed -A 'Mozilla/5.0 (Linux; Android 16)' --connect-timeout 20 --max-time 240 --retry 2 --retry-all-errors -sS -D /tmp/qm-headers -o /tmp/qingman.apk -w '%{http_code} %{size_download} %{content_type}' "$url" || true)
+            echo "download_attempt=$attempt meta=$meta"
+            if unzip -tq /tmp/qingman.apk >/dev/null 2>&1; then ok=1; break; fi
+            sleep 2
+          done
+          test "$ok" = 1
+          echo "apk_bytes=$(wc -c < /tmp/qingman.apk)"
+
+      - name: Trace public URL share and local bridge markers
+        shell: bash
+        run: |
+          set -euo pipefail
           rm -rf /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
           mkdir -p /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
           unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/apk-extract
@@ -73,23 +88,23 @@ jobs:
                   except Exception:
                       su=u.split('?',1)[0]
                   if su not in urls: urls.append(su)
-          for u in urls[:300]: print('URL '+u)
+          for u in urls[:320]: print('URL '+u)
 
-          print('=== SHARE_H5_MARKERS ===')
-          hits=[]
-          keys=('share','分享','h5','webview','web_url','weburl','shareurl','share_url','comicshare','comic_share','deeplink','deep_link','scheme','qingman.vip','qingman.dev','qingman.pro','qingman.xyz','qingman.my')
-          for line in lines:
-              low=line.lower()
-              if any(k.lower() in low for k in keys):
-                  if re.search(r'(?i)(clientp12|privatekey|certificate|password|secret|token)',line): continue
-                  t=re.sub(r'([A-Za-z0-9_-]{80,})','<opaque>',line)
-                  hits.append(t[:600])
-          seen=set()
-          for h in hits:
-              if h in seen: continue
-              seen.add(h); print(h)
-              if len(seen)>=500: break
-          print('marker_count='+str(len(seen)))
+          def emit(title,keys,limit=500):
+              print('=== '+title+' ===')
+              seen=set()
+              for line in lines:
+                  low=line.lower()
+                  if not any(k.lower() in low for k in keys): continue
+                  if re.search(r'(?i)(clientp12|privatekey|certificate|password|secret|token|authorization|cookie)',line): continue
+                  t=re.sub(r'([A-Za-z0-9_-]{80,})','<opaque>',line)[:650]
+                  if t in seen: continue
+                  seen.add(t); print(t)
+                  if len(seen)>=limit: break
+              print('marker_count='+str(len(seen)))
+
+          emit('SHARE_H5_MARKERS',('share','分享','h5','webview','web_url','weburl','shareurl','share_url','comicshare','comic_share','deeplink','deep_link','scheme','qingman.vip','qingman.dev','qingman.pro','qingman.xyz','qingman.my','qingman.app'))
+          emit('LOCAL_BRIDGE_MARKERS',('127.0.0.1','localhost','0.0.0.0','httpserver','serversocket','loopback','methodchannel','eventchannel','basicmessagechannel','content://','fileprovider','intent://','broadcast','startservice','bindservice'))
 
           print('=== FLUTTER_ASSET_NAMES ===')
           ap=Path('/tmp/asset_names')
