@@ -1,0 +1,120 @@
+name: Probe Qingman Web V3
+
+on:
+  push:
+    paths:
+      - '.github/workflows/probe-qingman-web-v3.yml'
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Inspect Qingman metadata, pagination and image access
+        shell: bash
+        run: |
+          set -euo pipefail
+          UA='Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Mobile Safari/537.36'
+          BASE='https://www.xydqyfw.com'
+          mkdir -p /tmp/qm3
+          fetch() {
+            local name="$1" url="$2"
+            local out="/tmp/qm3/$name.html"
+            code=$(curl -L --compressed --connect-timeout 10 --max-time 30 -A "$UA" -sS -o "$out" -w '%{http_code}' "$url" || true)
+            echo "FETCH $name http=$code bytes=$(wc -c < "$out" 2>/dev/null || echo 0) final=$(curl -L -A "$UA" -sS -o /dev/null -w '%{url_effective}' "$url" || true)"
+          }
+
+          fetch detail "$BASE/newgszc/28106.html"
+          fetch chapters "$BASE/chapterList/index/28106"
+          fetch reader "$BASE/newgszx/779594.html"
+          fetch top "$BASE/custom/top"
+          fetch top2a "$BASE/custom/top/page/2"
+          fetch top2b "$BASE/custom/top/2"
+          fetch update "$BASE/custom/update"
+          fetch update2a "$BASE/custom/update/page/2"
+          fetch update2b "$BASE/custom/update/2"
+          fetch new "$BASE/custom/new"
+          fetch new2a "$BASE/custom/new/page/2"
+          fetch new2b "$BASE/custom/new/2"
+
+          python3 - <<'PY'
+          from bs4 import BeautifulSoup
+          from pathlib import Path
+          from urllib.parse import urljoin, urlparse
+          import re
+
+          BASE='https://www.xydqyfw.com'
+          def text(el):
+              return ' '.join(el.stripped_strings) if el else ''
+
+          detail=BeautifulSoup(Path('/tmp/qm3/detail.html').read_text('utf-8',errors='ignore'),'html.parser')
+          print('===== DETAIL META =====')
+          hist=detail.select_one('#MangaHistoryStorage')
+          print('history=', dict(hist.attrs) if hist else None)
+          for sel in ['h1','main h1','main h2','main h3','main p','main span','main a']:
+              vals=[]
+              for e in detail.select(sel):
+                  t=text(e)
+                  if t and any(k in t for k in ['末世收割者','漫画：','作者','故事：','状态','連載','连载','完结','简介','內容','内容','更新','国产漫画','热血','科幻','穿越','新作']):
+                      vals.append((t[:220], e.name, e.get('class'), e.get('href')))
+              if vals:
+                  print('SEL',sel)
+                  for v in vals[:80]: print(' ',v)
+          for meta in detail.select('meta[name=description],meta[name=keywords]'):
+              print('META',meta.get('name'),meta.get('content'))
+
+          print('===== CHAPTER LIST =====')
+          chapters=BeautifulSoup(Path('/tmp/qm3/chapters.html').read_text('utf-8',errors='ignore'),'html.parser')
+          items=[]
+          for a in chapters.select('a[href*="/newgszx/"]'):
+              href=a.get('href','')
+              t=text(a)
+              if href and t:
+                  items.append((href,t,a.get('class'),text(a.parent),a.parent.get('class') if a.parent else None))
+          print('chapter_links=',len(items))
+          seen=set()
+          for x in items:
+              if x[0] in seen: continue
+              seen.add(x[0]); print(' CH',x)
+          print('unique=',len(seen))
+          for e in chapters.select('.chaptertitle')[:30]:
+              print('TITLE_NODE',text(e),'parent=',e.parent.name,e.parent.get('class'),'gp=',e.parent.parent.name if e.parent and e.parent.parent else None,e.parent.parent.get('class') if e.parent and e.parent.parent else None)
+
+          print('===== CUSTOM PAGINATION =====')
+          for name in ['top','top2a','top2b','update','update2a','update2b','new','new2a','new2b']:
+              soup=BeautifulSoup(Path(f'/tmp/qm3/{name}.html').read_text('utf-8',errors='ignore'),'html.parser')
+              title=text(soup.title)
+              cards=[]
+              for a in soup.select('div.cardlist a[href^="/newgszc/"]'):
+                  t=text(a.select_one('.cardtitle')) or text(a)
+                  if t: cards.append((a.get('href'),t))
+              p=[(text(a),a.get('href')) for a in soup.select('a') if text(a) in ['下一页','下一頁','2','3']]
+              print(name,'title=',title,'cards=',cards[:3],'count=',len(cards),'pager=',p[:10])
+
+          print('===== READER URLS =====')
+          reader=BeautifulSoup(Path('/tmp/qm3/reader.html').read_text('utf-8',errors='ignore'),'html.parser')
+          urls=[]
+          pat=re.compile(r'^/attachment/comic/imgs/[^/]+/[^/]+/\d+\.(?:jpe?g|png|webp)$',re.I)
+          for img in reader.select('img[src]'):
+              u=urljoin(BASE,img.get('src'))
+              if pat.match(urlparse(u).path) and u not in urls: urls.append(u)
+          print('count=',len(urls))
+          for i in [0,len(urls)//2,len(urls)-1]:
+              if urls: print('TESTURL',i,urls[i])
+          Path('/tmp/qm3/reader_urls.txt').write_text('\n'.join(urls))
+          PY
+
+          mapfile -t imgs < /tmp/qm3/reader_urls.txt
+          count=${#imgs[@]}
+          echo "reader_unique=$count"
+          if (( count > 0 )); then
+            idxs=(0 $((count/2)) $((count-1)))
+            for i in "${idxs[@]}"; do
+              u="${imgs[$i]}"
+              echo "===== IMG $i ====="
+              c0=$(curl -L --compressed --connect-timeout 10 --max-time 30 -A "$UA" -sS -o "/tmp/qm3/img-$i-none" -w '%{http_code}' "$u" || true)
+              c1=$(curl -L --compressed --connect-timeout 10 --max-time 30 -A "$UA" -e "$BASE/newgszx/779594.html" -sS -o "/tmp/qm3/img-$i-ref" -w '%{http_code}' "$u" || true)
+              echo "none=$c0 bytes=$(wc -c < "/tmp/qm3/img-$i-none" 2>/dev/null || echo 0) referer=$c1 bytes=$(wc -c < "/tmp/qm3/img-$i-ref" 2>/dev/null || echo 0) url=$u"
+            done
+          fi
