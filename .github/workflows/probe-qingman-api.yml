@@ -19,7 +19,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq python3-pyelftools python3-capstone cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          sudo apt-get install -y -qq python3-pyelftools cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
           git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
 
       - name: Restore analyzer cache
@@ -31,7 +31,7 @@ jobs:
             /tmp/blutter/packages
           key: qingman-blutter-dart-3.12.2-arm64-v1
 
-      - name: Trace bootstrap helpers from PP offsets
+      - name: Trace high-level bootstrap and domain flow
         shell: bash
         run: |
           set -euo pipefail
@@ -50,90 +50,87 @@ jobs:
           python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
           test -s /tmp/blutter-out/pp.txt
 
-          echo '=== ASM object-pool syntax samples ==='
-          grep -RniE '\bpp\b|\[x27|x27,' /tmp/blutter-out/asm | head -160 || true
-          echo '=== ASM raw bootstrap PP-offset candidates ==='
-          grep -RniE '0?xc140|0?xc138|0?xc0b8|0?xc000|0?x90a8|0?x90b0|0?x90b8|0?x90c0|0?x90d0|0?x96a8|0?x96c8|0?x8e38|49472|49464|49336|49152|37032|36408' /tmp/blutter-out/asm | head -400 || true
-
           python3 - <<'PY'
           from pathlib import Path
           import re
 
           root=Path('/tmp/blutter-out/asm')
-          pp_targets={
-              'qm_device_id':0x90a8,
-              'uuid_':0x90b0,
-              'oaid:':0x90b8,
-              'default_device_id':0x90c0,
-              'getOaid':0x90d0,
-              'getUDID':0x96a8,
-              'getRawAndroidId':0x96c8,
-              'nonce':0xc000,
-              'bootstrapDecrypt':0xc0b8,
-              'bootstrapProof':0xc138,
-              'bootstrapSign':0xc140,
-              'timestamp':0x8e38,
-          }
+          needles=[
+              'https://mu8xm4cx.zermh.com/bootstrap/domain',
+              'apiDomain',
+              'bootstrap: code=',
+              'apiDomain 已应用',
+              'apiDomain 解析失败',
+              'bootstrap: 下发失败',
+              'bootstrap: 原生签名失败',
+              'proof 生成失败',
+              'bootstrap: 解密失败',
+              '未下发 appAccessToken',
+              'appAccessToken 已应用',
+              'appAccessToken',
+              'App bootstrap: before _initAppEnv',
+              'App bootstrap: after _initAppEnv',
+          ]
 
           files=[]
-          for p in root.rglob('*'):
-              if p.is_file():
-                  try: files.append((p,p.read_text(encoding='utf-8',errors='replace').splitlines()))
-                  except Exception: pass
+          for p in root.rglob('*.dart'):
+              try:
+                  files.append((p,p.read_text(encoding='utf-8',errors='replace').splitlines()))
+              except Exception:
+                  pass
 
-          def bounds(lines,idx):
+          def function_bounds(lines,idx):
               s=idx
-              while s>0 and '** addr:' not in lines[s]: s-=1
-              if '** addr:' not in lines[s]: s=max(0,idx-120)
-              e=min(len(lines),s+1800)
+              while s>0 and '** addr:' not in lines[s]:
+                  s-=1
+              if '** addr:' not in lines[s]:
+                  s=max(0,idx-180)
+              e=len(lines)
               for j in range(s+1,len(lines)):
                   if '** addr:' in lines[j]:
-                      e=j; break
+                      e=j
+                      break
               return s,e
 
-          # Accept common Blutter renderings: [pp+0xc140], [pp, #0xc140],
-          # x27-based object-pool addressing, and decimal immediates/comments.
-          dumped=set()
-          for label,off in pp_targets.items():
-              hx=f'{off:x}'
-              dec=str(off)
-              pats=[
-                  re.compile(rf'\[\s*pp\s*\+\s*0x{hx}\s*\]',re.I),
-                  re.compile(rf'\[\s*pp\s*,\s*#?0x{hx}\s*\]',re.I),
-                  re.compile(rf'\b0x{hx}\b',re.I),
-                  re.compile(rf'(?<!\d){dec}(?!\d)'),
-              ]
-              print(f'\n### TARGET {label} pp+0x{hx} dec={dec}')
-              hits=[]
-              for p,lines in files:
-                  for i,line in enumerate(lines):
-                      if any(rx.search(line) for rx in pats):
-                          hits.append((p,i,line))
-              print(f'RAW_HITS={len(hits)}')
-              for p,i,line in hits[:20]:
-                  print(f'RAW {p.name}:{i+1}: {line}')
-              # Dump only candidates that look like object-pool/PP loads or whose
-              # immediate equals the target offset; avoid flooding logs.
-              selected=[]
-              for p,i,line in hits:
-                  low=line.lower()
-                  if 'pp' in low or 'x27' in low or 'ldr' in low or 'add' in low:
-                      selected.append((p,i,line))
-              print(f'SELECTED={len(selected)}')
-              for p,i,line in selected[:8]:
-                  s,e=bounds(lines,i)
-                  key=(str(p),s,e)
-                  print(f'HIT {label} {p.name}:{i+1} function={lines[s].strip()} ref={line.strip()}')
-                  if key in dumped: continue
-                  dumped.add(key)
-                  print(f'===== BEGIN {p.name}:{s+1}-{e} =====')
-                  for n in range(s,min(e,s+700)):
-                      print(lines[n])
-                  print(f'===== END {p.name} =====')
+          hits=[]
+          for p,lines in files:
+              for i,line in enumerate(lines):
+                  for needle in needles:
+                      if needle.lower() in line.lower():
+                          hits.append((needle,p,i,line))
 
-          print('\n### PP target lines')
+          print('=== HIGH LEVEL STRING HITS ===')
+          print('hit_count=',len(hits))
+          for needle,p,i,line in hits:
+              print(f'{needle} -> {p.name}:{i+1}: {line.strip()}')
+
+          print('\n=== ENCLOSING FUNCTIONS ===')
+          dumped=set()
+          for needle,p,i,line in hits:
+              lines=p.read_text(encoding='utf-8',errors='replace').splitlines()
+              s,e=function_bounds(lines,i)
+              key=(str(p),s,e)
+              if key in dumped:
+                  continue
+              dumped.add(key)
+              print(f'\n===== FUNCTION {p.name}:{s+1}-{e} trigger={needle} =====')
+              for n in range(s,min(e,s+1100)):
+                  text=lines[n]
+                  # Redact any accidentally inlined token/proof/signature values; field names stay visible.
+                  text=re.sub(r'(?i)((?:token|proof|signature|secret|sign|key)\s*[=:]\s*)[^ ]+',r'\1<redacted>',text)
+                  print(text)
+              print('===== END FUNCTION =====')
+
+          print('\n=== DOMAIN / FALLBACK RELATED OBJECT POOL ===')
           pp=Path('/tmp/blutter-out/pp.txt').read_text(encoding='utf-8',errors='replace').splitlines()
+          pool_needles=['apiDomain','baseUrl','baseURL','fallback','domain','bootstrap','qingman.mom','zermh.com','appAccessToken']
+          count=0
           for line in pp:
-              if any(f'[pp+0x{off:x}]' in line.lower() for off in pp_targets.values()):
-                  print(line)
+              if any(x.lower() in line.lower() for x in pool_needles):
+                  safe=re.sub(r'(?i)((?:token|proof|signature|secret|sign|key)[^\"]*\"?)[:=]?[^\"]*',r'\1<redacted>',line)
+                  print(safe[:1200])
+                  count+=1
+                  if count>=300:
+                      break
+          print('pool_matches=',count)
           PY
