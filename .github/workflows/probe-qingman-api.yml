@@ -31,7 +31,7 @@ jobs:
             /tmp/blutter/packages
           key: qingman-blutter-dart-3.12.2-arm64-v1
 
-      - name: Dump exact bootstrap helper functions
+      - name: Trace bootstrap helpers from PP offsets
         shell: bash
         run: |
           set -euo pipefail
@@ -55,58 +55,62 @@ jobs:
           import re
 
           root=Path('/tmp/blutter-out/asm')
-          targets=['0x515ed0','0x516018','0xaad10c','0xaacea0']
+          pp_targets={
+              'qm_device_id':'0x90a8',
+              'uuid_':'0x90b0',
+              'oaid:':'0x90b8',
+              'default_device_id':'0x90c0',
+              'getOaid':'0x90d0',
+              'getUDID':'0x96a8',
+              'getRawAndroidId':'0x96c8',
+              'nonce':'0xc000',
+              'bootstrapDecrypt':'0xc0b8',
+              'bootstrapProof':'0xc138',
+              'bootstrapSign':'0xc140',
+              'timestamp':'0x8e38',
+          }
 
-          def dump_function(path, lines, idx):
-              start=idx
-              while start>0 and '** addr:' not in lines[start]:
-                  start-=1
-              if '** addr:' not in lines[start]:
-                  start=max(0,idx-80)
-              end=min(len(lines),start+1200)
-              for j in range(start+1,len(lines)):
-                  if j>start and '** addr:' in lines[j]:
-                      end=j
-                      break
-              print(f'\n===== {path.name} lines {start+1}-{end} =====')
-              for n in range(start,end):
-                  print(lines[n])
-
-          print('=== exact function starts ===')
-          found=set()
           files=[]
           for p in root.rglob('*'):
-              if not p.is_file():
-                  continue
-              try: lines=p.read_text(encoding='utf-8',errors='replace').splitlines()
-              except Exception: continue
-              files.append((p,lines))
-              for i,line in enumerate(lines):
-                  low=line.lower()
-                  for addr in targets:
-                      if f'** addr: {addr}' in low:
-                          key=(str(p),addr)
-                          if key not in found:
-                              found.add(key)
-                              print(f'FOUND {addr} in {p}')
-                              dump_function(p,lines,i)
+              if p.is_file():
+                  try: files.append((p,p.read_text(encoding='utf-8',errors='replace').splitlines()))
+                  except Exception: pass
 
-          print('\n=== call sites to helper addresses ===')
-          for p,lines in files:
-              hits=[]
-              for i,line in enumerate(lines):
-                  low=line.lower()
-                  if any(re.search(rf'\bbl\s+#?{re.escape(a)}\b',low) for a in targets):
-                      hits.append(i)
-              for i in hits[:20]:
-                  print(f'\n--- {p.name}:{i+1} ---')
-                  for n in range(max(0,i-35),min(len(lines),i+40)):
-                      print(lines[n])
+          def bounds(lines,idx):
+              s=idx
+              while s>0 and '** addr:' not in lines[s]: s-=1
+              if '** addr:' not in lines[s]: s=max(0,idx-100)
+              e=min(len(lines),s+1600)
+              for j in range(s+1,len(lines)):
+                  if '** addr:' in lines[j]:
+                      e=j; break
+              return s,e
 
-          print('\n=== bootstrap/device PP strings ===')
+          dumped=set()
+          for label,off in pp_targets.items():
+              print(f'\n### TARGET {label} pp+{off}')
+              hits=0
+              for p,lines in files:
+                  for i,line in enumerate(lines):
+                      low=line.lower()
+                      # Blutter renders e.g. [pp+0x90a8] or add/ldr split comments.
+                      if f'[pp+{off}]' not in low:
+                          continue
+                      hits+=1
+                      s,e=bounds(lines,i)
+                      key=(str(p),s,e)
+                      print(f'HIT {label} {p.name}:{i+1} function={lines[s].strip()}')
+                      if key in dumped:
+                          continue
+                      dumped.add(key)
+                      print(f'===== BEGIN {p.name}:{s+1}-{e} =====')
+                      for n in range(s,e): print(lines[n])
+                      print(f'===== END {p.name} =====')
+              print(f'HITS={hits}')
+
+          print('\n### PP target lines')
           pp=Path('/tmp/blutter-out/pp.txt').read_text(encoding='utf-8',errors='replace').splitlines()
-          needles=['qm_device_id','uuid_','oaid:','default_device_id','getOaid','getUDID','getRawAndroidId','timestamp','nonce','bootstrapSign','bootstrapProof','bootstrapDecrypt']
           for line in pp:
-              if any(n.lower() in line.lower() for n in needles):
+              if any(f'[pp+{off}]' in line.lower() for off in pp_targets.values()):
                   print(line)
           PY
