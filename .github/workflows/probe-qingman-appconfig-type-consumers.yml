@@ -20,7 +20,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          sudo apt-get install -y -qq python3-pyelftools python3-capstone cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
           git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
 
       - name: Restore analyzer cache
@@ -51,7 +51,10 @@ jobs:
           cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
           cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
           cd /tmp/blutter
-          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
+          if ! python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1; then
+            tail -120 /tmp/blutter.log
+            exit 1
+          fi
 
           python3 - <<'PY'
           from pathlib import Path
@@ -63,7 +66,6 @@ jobs:
               try: files.append((p,p.read_text('utf-8',errors='replace').splitlines()))
               except Exception: pass
 
-          # Field offsets were previously mapped from the AppConfig JSON parser.
           fields={
               'baseImgUrl':'field_4b',
               'freeUrl':'field_4f',
@@ -78,7 +80,6 @@ jobs:
               return '<redacted-line>' if sensitive.search(s) else s[:520]
 
           def function_header(lines,idx):
-              # Blutter emits a method/function banner before each assembly block.
               for j in range(idx,-1,-1):
                   s=lines[j]
                   if s.startswith('//') and ('0x' in s or 'Function' in s or '::' in s or '(' in s):
@@ -89,17 +90,18 @@ jobs:
           print('=== APPCONFIG FIELD CONSUMERS ===')
           for label,field in fields.items():
               hits=[]
+              seen=set()
               for p,lines in files:
                   for i,s in enumerate(lines):
                       if field in s and ('LoadField' in s or '->'+field in s or field+' ' in s):
                           h,head=function_header(lines,i)
                           key=(str(p),h)
-                          if key not in [(x[0],x[1]) for x in hits]: hits.append((str(p),h,i,head,lines))
+                          if key not in seen:
+                              seen.add(key); hits.append((str(p),h,i,head,lines))
               print(f'FIELD {label} storage={field} UNIQUE_FUNCTIONS={len(hits)}')
               for n,(ps,h,i,head,lines) in enumerate(hits[:20],1):
                   print(f'  CONSUMER {n} file={Path(ps).name} line={i+1}')
                   print('    HEADER '+safe(head))
-                  # Compact semantic window: load itself plus nearby lines relevant to value use.
                   lo=max(h,i-35); hi=min(len(lines),i+70)
                   emitted=0
                   for k in range(lo,hi):
