@@ -153,4 +153,4 @@ jobs:
         if: always()
         run: rm -f upstream/signingkey.jks
 
-# Trigger Qingman v1 staging after workflow registration.
+# Trigger Qingman v1 staging after removing incompatible PNG test icon.
