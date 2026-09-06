@@ -1,0 +1,31 @@
+name: Probe Lizi ECS DNS
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-lizi-ecs-dns.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Query DNS with China ECS
+        shell: bash
+        run: |
+          set -euo pipefail
+          host='bkbfblh.xn--vhqr42drhf5k7b.com'
+          for subnet in '223.5.5.0/24' '114.114.114.0/24' '1.2.4.0/24' '120.53.53.0/24' '183.60.83.0/24' '111.13.100.0/24'; do
+            enc="${subnet//\//%2F}"
+            echo "=== ECS $subnet GOOGLE ==="
+            curl -fsSL --retry 1 -H 'accept: application/dns-json' "https://dns.google/resolve?name=$host&type=A&edns_client_subnet=$enc" || true
+            echo
+            echo "=== ECS $subnet ALI ==="
+            curl -fsSL --retry 1 -H 'accept: application/dns-json' "https://dns.alidns.com/resolve?name=$host&type=A&edns_client_subnet=$enc" || true
+            echo
+          done
