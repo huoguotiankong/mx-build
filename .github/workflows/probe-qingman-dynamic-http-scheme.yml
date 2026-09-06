@@ -1,0 +1,111 @@
+name: Probe Qingman Dynamic HTTP Scheme
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-dynamic-http-scheme.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Resolve current APK and bootstrap host
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/qm_version
+          import json,urllib.request
+          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
+          a=o['data']['datas']['android']
+          print(a['downloadUrl']); print(a.get('version','')); print(a.get('versionCode',''))
+          PY
+          sed -n '2,3p' /tmp/qm_version | paste -sd ' ' - | sed 's/^/official_version=/'
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(head -1 /tmp/qm_version)" -o /tmp/qingman.apk
+          rm -rf /tmp/qm-native && mkdir -p /tmp/qm-native
+          unzip -q -j /tmp/qingman.apk 'lib/arm64-v8a/libqx_security.so' -d /tmp/qm-native
+          test -s /tmp/qm-native/libqx_security.so
+
+      - name: Bootstrap without exposing credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools python3-cryptography >/dev/null
+          python3 - <<'PY'
+          import base64,hashlib,json,time,urllib.request,uuid
+          from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+          from elftools.elf.elffile import ELFFile
+          SO='/tmp/qm-native/libqx_security.so'
+          BOOTSTRAP='https://mu8xm4cx.zermh.com/bootstrap/domain'
+          with open(SO,'rb') as f:
+              elf=ELFFile(f)
+              def read_va(va,n):
+                  for seg in elf.iter_segments():
+                      if seg['p_type']!='PT_LOAD': continue
+                      start=int(seg['p_vaddr']); end=start+int(seg['p_filesz'])
+                      if start<=va and va+n<=end:
+                          f.seek(int(seg['p_offset'])+va-start); return f.read(n)
+                  raise RuntimeError('VA not file-backed')
+              seed=read_va(0x14a40,16)+read_va(0x14af0,16)
+              sign_cipher=read_va(0x17d1f,33); aes_cipher=read_va(0x17d40,32)
+          base=hashlib.sha256(seed).digest()
+          def deob(cipher,kind):
+              stream=b''; counter=0
+              while len(stream)<len(cipher):
+                  stream+=hashlib.sha256(base+bytes([kind])+counter.to_bytes(4,'big')).digest(); counter+=1
+              return bytes(a^b for a,b in zip(cipher,stream))
+          sign_material=deob(sign_cipher,1); aes_key=deob(aes_cipher,2)
+          ts=str(int(time.time()*1000)); did=uuid.uuid4().hex; nonce=uuid.uuid4().hex
+          sig=hashlib.sha256(ts.encode()+nonce.encode()+did.encode()+sign_material).hexdigest()
+          body=json.dumps({'timestamp':ts,'nonce':nonce,'sign':sig,'deviceId':did},separators=(',',':')).encode()
+          req=urllib.request.Request(BOOTSTRAP,data=body,headers={
+              'Content-Type':'application/json','Accept':'application/json, text/plain, */*',
+              'User-Agent':'qingman/4.4.5 (Android)','appVersion':'4.4.5','platform':'android','X-Device-Id':did,
+          },method='POST')
+          with urllib.request.urlopen(req,timeout=20) as r: resp=json.load(r)
+          enc=resp['data']; payload=base64.urlsafe_b64decode(enc+'='*((4-len(enc)%4)%4))
+          obj=json.loads(AESGCM(aes_key).decrypt(payload[:12],payload[12:],(ts+'|'+nonce).encode()))
+          domain=str(obj.get('apiDomain','')).strip()
+          if not domain: raise RuntimeError('bootstrap returned no apiDomain')
+          from urllib.parse import urlsplit
+          host=urlsplit(domain if '://' in domain else 'https://'+domain).hostname
+          if not host: raise RuntimeError('invalid apiDomain')
+          open('/tmp/qm_dynamic_host','w').write(host+'\n')
+          print('bootstrap_ok=true')
+          print('dynamic_host='+host)
+          print('sensitive_bootstrap_fields_logged=false')
+          PY
+
+      - name: Probe plain HTTP without following redirects
+        shell: bash
+        run: |
+          set -euo pipefail
+          host=$(cat /tmp/qm_dynamic_host)
+          echo "=== PLAIN_HTTP_PROBES host=$host ==="
+          paths=(
+            '/'
+            '/api/comic/categories/list'
+            '/api/comic/comics/v1/homeList?page=1&pageNum=1&pageSize=20'
+            '/api/comic/comics/homerecentUpdates?page=1&pageNum=1&pageSize=20'
+          )
+          for path in "${paths[@]}"; do
+            hdr=$(mktemp); body=$(mktemp); err=$(mktemp)
+            code=$(curl -sS --max-redirs 0 --connect-timeout 8 --max-time 15 \
+              -H 'Accept: application/json, text/plain, */*' \
+              -H 'User-Agent: qingman/4.4.5 (Android)' \
+              -H 'appVersion: 4.4.5' -H 'platform: android' \
+              -D "$hdr" -o "$body" -w '%{http_code}' "http://$host$path" 2>"$err" || true)
+            bytes=$(wc -c < "$body" | tr -d ' ')
+            location=$(awk 'BEGIN{IGNORECASE=1}/^location:/{v=$0}END{sub(/^location:[ ]*/,"",v);gsub("\r", "", v);print v}' "$hdr")
+            ctype=$(awk 'BEGIN{IGNORECASE=1}/^content-type:/{v=$0}END{sub(/^content-type:[ ]*/,"",v);gsub("\r", "", v);print v}' "$hdr")
+            server=$(awk 'BEGIN{IGNORECASE=1}/^server:/{v=$0}END{sub(/^server:[ ]*/,"",v);gsub("\r", "", v);print v}' "$hdr")
+            errtext=$(tr '\n' ' ' < "$err" | cut -c1-220)
+            printf 'path=%s http=%s bytes=%s location=%s ctype=%s server=%s err=%s\n' "$path" "$code" "$bytes" "$location" "$ctype" "$server" "$errtext"
+            rm -f "$hdr" "$body" "$err"
+          done
