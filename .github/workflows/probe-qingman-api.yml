@@ -31,7 +31,7 @@ jobs:
             /tmp/blutter/packages
           key: qingman-blutter-dart-3.12.2-arm64-v1
 
-      - name: Trace public web and share routes
+      - name: Trace Qingman route object-pool references
         shell: bash
         run: |
           set -euo pipefail
@@ -39,9 +39,7 @@ jobs:
           import json, urllib.request
           o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
           a=o['data']['datas']['android']
-          print(a['downloadUrl'])
-          print('version='+str(a.get('version','')))
-          print('versionCode='+str(a.get('versionCode','')))
+          print(a['downloadUrl']); print('version='+str(a.get('version',''))); print('versionCode='+str(a.get('versionCode','')))
           PY
           tail -2 /tmp/apk_url
           curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(head -1 /tmp/apk_url)" -o /tmp/qingman.apk
@@ -57,78 +55,48 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import re
-
           root=Path('/tmp/blutter-out/asm')
-          literals=[
-              'www.qingman.app',
-              '/comic/detail',
-              '/comic/read',
-              '/comic/read/blocked_keywords',
-              'SearchWeb.invoke',
-              'searchWeb',
-              'Share.invoke',
-              'shareUrl',
-              'share_url',
-              'webUrl',
-              'web_url',
-              'openUrl',
-              'similarList',
-              'circle_detail_',
-          ]
+          targets={
+              'comic_read':'0x7058',
+              'comic_home':'0x16e10',
+              'comic_update':'0x16e28',
+              'comic_category':'0x16e38',
+              'comic_ranking':'0x16e48',
+              'comic_detail':'0x16f68',
+              'comic_search':'0x16fe8',
+              'chapter_url_key':'0x224a0',
+              'official_site':'0x2e6e0',
+          }
           files=[]
           for p in root.rglob('*.dart'):
-              try:
-                  lines=p.read_text(encoding='utf-8',errors='replace').splitlines()
-                  files.append((p,lines))
-              except Exception:
-                  pass
+              try: files.append((p,p.read_text(encoding='utf-8',errors='replace').splitlines()))
+              except Exception: pass
 
           def bounds(lines,idx):
               s=idx
               while s>0 and '** addr:' not in lines[s]: s-=1
-              if '** addr:' not in lines[s]: s=max(0,idx-180)
+              if '** addr:' not in lines[s]: s=max(0,idx-140)
               e=len(lines)
               for j in range(s+1,len(lines)):
                   if '** addr:' in lines[j]: e=j; break
               return s,e
 
           dumped=set()
-          print('=== WEB/SHARE LITERAL REFERENCES ===')
-          for literal in literals:
-              hits=[]
-              lowlit=literal.lower()
+          for label,off in targets.items():
+              needle=f'[pp+{off}]'.lower(); hits=[]
               for p,lines in files:
                   for i,line in enumerate(lines):
-                      if lowlit in line.lower():
-                          hits.append((p,i,line))
-              print(f'\n### literal={literal} hits={len(hits)}')
-              for p,i,line in hits[:30]:
-                  print(f'HIT {p.name}:{i+1}: {line.strip()}')
+                      if needle in line.lower(): hits.append((p,i,line))
+              print(f'\n### {label} {off} hits={len(hits)}')
+              for p,i,line in hits[:30]: print(f'HIT {p.name}:{i+1}: {line.strip()}')
               for p,i,line in hits[:12]:
-                  s,e=bounds(lines,i)
-                  key=(str(p),s,e)
+                  s,e=bounds(lines,i); key=(str(p),s,e)
                   if key in dumped: continue
                   dumped.add(key)
-                  print(f'===== FUNCTION {p.name}:{s+1}-{e} trigger={literal} =====')
-                  for n in range(s,min(e,s+1000)):
+                  print(f'===== FUNCTION {p.name}:{s+1}-{e} trigger={label} =====')
+                  for n in range(s,min(e,s+900)):
                       text=lines[n]
-                      # Avoid exposing unrelated credentials if present near a target.
                       text=re.sub(r'(?i)((?:token|proof|signature|secret|password|privatekey)\s*[=:]\s*)[^ ]+',r'\1<redacted>',text)
                       print(text)
                   print('===== END FUNCTION =====')
-
-          print('\n=== URL/PATH STRINGS NEAR QINGMAN COMIC FEATURES ===')
-          pp=Path('/tmp/blutter-out/pp.txt').read_text(encoding='utf-8',errors='replace').splitlines()
-          patterns=('qingman','/comic/','share','searchweb','weburl','h5','detailurl','chapterurl','readurl')
-          count=0
-          for line in pp:
-              low=line.lower()
-              if any(x in low for x in patterns):
-                  # Suppress obvious auth/security material.
-                  if any(x in low for x in ('token','proof','signature','password','private key')):
-                      continue
-                  print(line)
-                  count+=1
-                  if count>=500: break
-          print('pp_clue_count=',count)
           PY
