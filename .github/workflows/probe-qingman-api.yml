@@ -31,16 +31,20 @@ jobs:
             /tmp/blutter/packages
           key: qingman-blutter-dart-3.12.2-arm64-v1
 
-      - name: Trace bootstrap fallback and ready callbacks
+      - name: Trace public web and share routes
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY' > /tmp/apk_url
           import json, urllib.request
           o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
-          print(o['data']['datas']['android']['downloadUrl'])
+          a=o['data']['datas']['android']
+          print(a['downloadUrl'])
+          print('version='+str(a.get('version','')))
+          print('versionCode='+str(a.get('versionCode','')))
           PY
-          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qingman.apk
+          tail -2 /tmp/apk_url
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(head -1 /tmp/apk_url)" -o /tmp/qingman.apk
           rm -rf /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
           mkdir -p /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
           unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/apk-extract
@@ -55,27 +59,29 @@ jobs:
           import re
 
           root=Path('/tmp/blutter-out/asm')
-          # Offsets are public strings/control-flow markers only. No signing material is extracted.
-          targets={
-              'before_bootstrap_resolve':'0x3740',
-              'after_bootstrap_resolve':'0x3748',
-              'bootstrap_url':'0xc010',
-              'bootstrap_code':'0xc018',
-              'api_domain_key':'0xc030',
-              'bootstrap_fallback':'0xc040',
-              'missing_access_token':'0xc090',
-              'access_token_applied':'0xc098',
-              'api_domain_parse_failed':'0xc0a0',
-              'api_domain_applied':'0xc0a8',
-              'retry_delay':'0x1ee28',
-              'api_ready_after_retry':'0x1ee38',
-              'builtin_old_domain':'0x2be28',
-          }
-
+          literals=[
+              'www.qingman.app',
+              '/comic/detail',
+              '/comic/read',
+              '/comic/read/blocked_keywords',
+              'SearchWeb.invoke',
+              'searchWeb',
+              'Share.invoke',
+              'shareUrl',
+              'share_url',
+              'webUrl',
+              'web_url',
+              'openUrl',
+              'similarList',
+              'circle_detail_',
+          ]
           files=[]
           for p in root.rglob('*.dart'):
-              try: files.append((p,p.read_text(encoding='utf-8',errors='replace').splitlines()))
-              except Exception: pass
+              try:
+                  lines=p.read_text(encoding='utf-8',errors='replace').splitlines()
+                  files.append((p,lines))
+              except Exception:
+                  pass
 
           def bounds(lines,idx):
               s=idx
@@ -87,41 +93,42 @@ jobs:
               return s,e
 
           dumped=set()
-          print('=== RESOLVED PP REFERENCES ===')
-          for label,off in targets.items():
-              needle=f'[pp+{off}]'.lower()
+          print('=== WEB/SHARE LITERAL REFERENCES ===')
+          for literal in literals:
               hits=[]
+              lowlit=literal.lower()
               for p,lines in files:
                   for i,line in enumerate(lines):
-                      if needle in line.lower(): hits.append((p,i,line))
-              print(f'\n### {label} {off} hits={len(hits)}')
-              for p,i,line in hits[:20]:
-                  print(f'{p.name}:{i+1}: {line.strip()}')
-              for p,i,line in hits[:6]:
-                  lines=p.read_text(encoding='utf-8',errors='replace').splitlines()
+                      if lowlit in line.lower():
+                          hits.append((p,i,line))
+              print(f'\n### literal={literal} hits={len(hits)}')
+              for p,i,line in hits[:30]:
+                  print(f'HIT {p.name}:{i+1}: {line.strip()}')
+              for p,i,line in hits[:12]:
                   s,e=bounds(lines,i)
                   key=(str(p),s,e)
                   if key in dumped: continue
                   dumped.add(key)
-                  print(f'===== FUNCTION {p.name}:{s+1}-{e} trigger={label} =====')
-                  for n in range(s,min(e,s+1200)):
+                  print(f'===== FUNCTION {p.name}:{s+1}-{e} trigger={literal} =====')
+                  for n in range(s,min(e,s+1000)):
                       text=lines[n]
-                      # Only redact values if an unrelated sensitive-looking literal happens to be nearby.
-                      text=re.sub(r'(?i)((?:token|proof|signature|secret|sign|key)\s*[=:]\s*)[^ ]+',r'\1<redacted>',text)
+                      # Avoid exposing unrelated credentials if present near a target.
+                      text=re.sub(r'(?i)((?:token|proof|signature|secret|password|privatekey)\s*[=:]\s*)[^ ]+',r'\1<redacted>',text)
                       print(text)
                   print('===== END FUNCTION =====')
 
-          print('\n=== STATIC FIELD / DOMAIN WRITE CLUES ===')
-          clues=['StoreStaticField','LoadStaticField','field_table_values','baseUrl','apiDomain','domain resolve','bootstrap retry']
-          shown=0
-          for p,lines in files:
-              for i,line in enumerate(lines):
-                  if any(c.lower() in line.lower() for c in clues):
-                      # Only show lines near functions already identified through target refs when possible.
-                      if any(f'[pp+{off}]'.lower() in '\n'.join(lines[max(0,i-80):min(len(lines),i+80)]).lower() for off in targets.values()):
-                          print(f'{p.name}:{i+1}: {line.strip()}')
-                          shown+=1
-                          if shown>=300: break
-              if shown>=300: break
-          print('clue_lines=',shown)
+          print('\n=== URL/PATH STRINGS NEAR QINGMAN COMIC FEATURES ===')
+          pp=Path('/tmp/blutter-out/pp.txt').read_text(encoding='utf-8',errors='replace').splitlines()
+          patterns=('qingman','/comic/','share','searchweb','weburl','h5','detailurl','chapterurl','readurl')
+          count=0
+          for line in pp:
+              low=line.lower()
+              if any(x in low for x in patterns):
+                  # Suppress obvious auth/security material.
+                  if any(x in low for x in ('token','proof','signature','password','private key')):
+                      continue
+                  print(line)
+                  count+=1
+                  if count>=500: break
+          print('pp_clue_count=',count)
           PY
