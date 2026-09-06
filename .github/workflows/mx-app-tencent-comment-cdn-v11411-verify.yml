@@ -1,0 +1,111 @@
+name: Verify MX 1.14.11 Tencent comment CDN fix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/mx-app-tencent-comment-cdn-v11411-verify.yml"
+      - "scripts/patch_mx_tencent_comment_cdn_v11411.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mx-app-tencent-comment-cdn-v11411-verify
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check private repo token
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]] || { echo "::error::Missing MX_PRIVATE_READ_TOKEN"; exit 1; }
+
+      - name: Checkout helper
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-build
+          ref: main
+          path: helper
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout MX feature branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-app
+          ref: fix/tencent-comment-cdn-load-v11411
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply Tencent CDN image loading patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 helper/scripts/patch_mx_tencent_comment_cdn_v11411.py source
+          grep -F 'versionCode = 91' source/app/build.gradle.kts
+          grep -F 'versionName = "1.14.11"' source/app/build.gradle.kts
+          grep -F 'TENCENT_COMMENT_IMAGE_HEADERS' source/app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt
+          grep -F 'commentImageCandidates' source/app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt
+          grep -F 'tencent transformed image candidates include canonical original' source/app/src/test/java/eu/kanade/presentation/manga/comments/CommentRichContentTest.kt
+          git -C source diff --check
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Apply formatting
+        working-directory: source
+        run: ./gradlew spotlessApply
+
+      - name: Verify formatting
+        working-directory: source
+        run: ./gradlew spotlessCheck
+
+      - name: Run comment unit tests
+        working-directory: source
+        run: ./gradlew testReleaseUnitTest
+
+      - name: Build Debug APK
+        working-directory: source
+        run: ./gradlew assembleDebug -Pdisable-code-shrink
+
+      - name: Commit verified fix to MX feature branch
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/build.gradle.kts \
+            app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt \
+            app/src/test/java/eu/kanade/presentation/manga/comments/CommentRichContentTest.kt \
+            docs/COMMENTS.md
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "::error::No MX 1.14.11 changes to commit"
+            exit 1
+          fi
+          git commit -m "fix: retry Tencent comment images with CDN headers"
+          git push origin HEAD:fix/tencent-comment-cdn-load-v11411
+
+      - name: Report verified source
+        working-directory: source
+        shell: bash
+        run: |
+          echo "MX_SOURCE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+          echo "MX 1.14.11 Tencent comment CDN fix verified and committed." >> "$GITHUB_STEP_SUMMARY"
