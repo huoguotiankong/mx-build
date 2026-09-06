@@ -19,7 +19,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq python3-pyelftools cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev binutils-aarch64-linux-gnu >/dev/null
+          sudo apt-get install -y -qq python3-pyelftools python3-capstone cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
           git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
       - name: Restore analyzer cache
         uses: actions/cache@v4
@@ -29,7 +29,7 @@ jobs:
             /tmp/blutter/dartsdk
             /tmp/blutter/packages
           key: qingman-blutter-dart-3.12.2-arm64-v1
-      - name: Inspect bootstrap function metadata
+      - name: Annotate bootstrap object-pool loads
         shell: bash
         run: |
           set -euo pipefail
@@ -46,11 +46,83 @@ jobs:
           cd /tmp/blutter
           python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1 || true
           tail -8 /tmp/blutter.log || true
-          echo '=== files generated ==='
-          find /tmp/blutter-out -maxdepth 1 -type f -printf '%f\n' | sort
-          echo '=== metadata mentioning upb / 516018 ==='
-          grep -RInE -C 80 'upb|516018|0x516018|_HYh@1486071866' /tmp/blutter-out --exclude='*.dart' | head -18000 || true
-          echo '=== dart functions around addresses 0x515000..0x518000 ==='
-          grep -RInE '\*\* addr: 0x51[5-7][0-9a-f]{3}' /tmp/blutter-out/asm | sort | head -1000 || true
-          echo '=== raw arm64 disassembly 0x515000..0x518000 ==='
-          aarch64-linux-gnu-objdump -d --start-address=0x515000 --stop-address=0x518000 /tmp/app-lib/libapp.so | head -12000 || true
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          from elftools.elf.elffile import ELFFile
+          from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM
+
+          START=0x515780
+          END=0x516160
+          pp_lines=Path('/tmp/blutter-out/pp.txt').read_text(encoding='utf-8',errors='replace').splitlines()
+          pp={}
+          for line in pp_lines:
+              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s*(.*)$',line)
+              if m: pp[int(m.group(1),16)]=m.group(2)
+
+          safe_words=(
+              'bootstrap','nonce','sign','apiDomain','appAccessToken','Content-Type','packageName',
+              'buildNumber','buildSignature','installerStore','timestamp','deviceId','requestId',
+              'canonicalRequest','X-QM-','X-Timestamp','X-Signature','body','code','msg','platform',
+              'appVersion','User-Agent','Accept','Field <upb.','AnonymousClosure','Type: Map'
+          )
+          def safe_desc(off):
+              s=pp.get(off,'')
+              if not s: return ''
+              if any(w.lower() in s.lower() for w in safe_words): return s
+              if s.startswith(('Field <upb.','AnonymousClosure:','Type: Map')): return s
+              return '<non-structural pool entry>'
+
+          with open('/tmp/app-lib/libapp.so','rb') as f:
+              elf=ELFFile(f)
+              sec=None
+              for s in elf.iter_sections():
+                  a=s['sh_addr']; z=s['sh_size']
+                  if a <= START < a+z:
+                      sec=s; break
+              if sec is None: raise SystemExit('code section not found')
+              data=sec.data()[START-sec['sh_addr']:END-sec['sh_addr']]
+
+          md=Cs(CS_ARCH_ARM64, CS_MODE_ARM)
+          md.detail=False
+          tracked={}
+          def regnorm(x): return x.strip().lower()
+          print('=== annotated bootstrap machine code ===')
+          for ins in md.disasm(data,START):
+              text=f'{ins.address:08x}: {ins.mnemonic:<7} {ins.op_str}'
+              ann=[]
+              op=ins.op_str.lower()
+              # Track common Dart PP materialization: add xN, x27, #imm [, lsl #12]
+              m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
+              if ins.mnemonic=='add' and m:
+                  imm=int(m.group(2),0); shift=int(m.group(3) or 0)
+                  tracked[regnorm(m.group(1))]=imm << shift
+                  ann.append(f'PPBASE=0x{tracked[regnorm(m.group(1))]:x}')
+              # Direct register copy from PP.
+              m2=re.match(r'(x\d+),\s*x27$',op)
+              if ins.mnemonic=='mov' and m2:
+                  tracked[regnorm(m2.group(1))]=0
+              # LDR/LDUR through x27 or a tracked PP-derived register.
+              if ins.mnemonic in ('ldr','ldur','ldrsw'):
+                  mm=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
+                  if mm:
+                      base=regnorm(mm.group(2)); disp=int(mm.group(3),0) if mm.group(3) else 0
+                      if base=='x27' or base in tracked:
+                          off=(0 if base=='x27' else tracked[base])+disp
+                          ann.append(f'PP+0x{off:x} => {safe_desc(off)}')
+              # ADRP/add can overwrite a tracked register; common arithmetic other than PP-add invalidates it.
+              dest=None
+              dm=re.match(r'([xw]\d+),',op)
+              if dm: dest=dm.group(1).replace('w','x',1)
+              if dest and ins.mnemonic not in ('add','mov','ldr','ldur','ldrsw') and dest in tracked:
+                  tracked.pop(dest,None)
+              # Print all control flow plus PP-related instructions; this keeps logs compact.
+              if ann or ins.mnemonic in ('bl','blr','ret','b','b.eq','b.ne','cbz','cbnz','tbz','tbnz'):
+                  print(text + (('    ; '+' | '.join(ann)) if ann else ''))
+          print('=== safe structural pool entries referenced by range ===')
+          # Explicitly print known safe neighborhood for correlation, never arbitrary pool strings.
+          for off in sorted(pp):
+              if 0xbfc0 <= off <= 0xc160:
+                  d=safe_desc(off)
+                  if d and d!='<non-structural pool entry>': print(f'PP+0x{off:x}: {d}')
+          PY
