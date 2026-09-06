@@ -15,83 +15,62 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Inspect public target and assets
+      - name: Classify public target page
         shell: bash
         run: |
           set -u
           base='https://rx6vxp6wil2ra0cg.f37.top/'
           work=/tmp/qmtarget
-          rm -rf "$work" && mkdir -p "$work/assets"
-
-          echo '=== TARGET_HEAD ==='
-          curl -sSIL --connect-timeout 10 --max-time 30 "$base" | sed -n '1,140p'
-
+          rm -rf "$work" && mkdir -p "$work"
           curl -sSL --connect-timeout 10 --max-time 30 -D "$work/headers" -o "$work/index.html" "$base" || true
           echo "final_url=$(curl -sSL -o /dev/null -w '%{url_effective}' --connect-timeout 10 --max-time 30 "$base" || true)"
           echo "html_bytes=$(wc -c < "$work/index.html" 2>/dev/null || echo 0)"
-          echo '=== HTML_REFS ==='
-          python3 - <<'PY' > /tmp/qmrefs
-          from pathlib import Path
-          import re,html
-          s=Path('/tmp/qmtarget/index.html').read_text('utf-8',errors='replace') if Path('/tmp/qmtarget/index.html').exists() else ''
-          refs=[]
-          for m in re.finditer(r'''(?:src|href)\s*=\s*["']([^"']+)["']''',s,re.I):
-              v=html.unescape(m.group(1)).strip()
-              if v and v not in refs: refs.append(v)
-          for v in refs: print(v)
-          PY
-          cat /tmp/qmrefs | sed -n '1,160p'
 
-          echo '=== FETCH_JS_ASSETS ==='
           python3 - <<'PY'
           from pathlib import Path
-          from urllib.parse import urljoin
-          import urllib.request,re
-          base='https://rx6vxp6wil2ra0cg.f37.top/'
-          refs=Path('/tmp/qmrefs').read_text().splitlines()
-          out=Path('/tmp/qmtarget/assets')
-          n=0
-          for ref in refs:
-              if not re.search(r'\.js(?:\?|$)',ref,re.I): continue
-              url=urljoin(base,ref)
-              try:
-                  req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0'})
-                  data=urllib.request.urlopen(req,timeout=20).read()
-              except Exception as e:
-                  print(f'JS_FETCH_FAIL url={url} type={type(e).__name__}')
-                  continue
-              n+=1
-              p=out/f'{n:02d}.js'
-              p.write_bytes(data)
-              print(f'JS_FETCH_OK url={url} bytes={len(data)} file={p.name}')
-          print('js_count='+str(n))
-          PY
+          import re,html,urllib.parse
+          p=Path('/tmp/qmtarget/index.html')
+          s=p.read_text('utf-8',errors='replace') if p.exists() else ''
+          print('=== PAGE_METADATA ===')
+          for tag in ['title','h1','h2']:
+              vals=[]
+              for m in re.finditer(fr'<{tag}[^>]*>(.*?)</{tag}>',s,re.I|re.S):
+                  v=re.sub(r'<[^>]+>',' ',m.group(1)); v=html.unescape(re.sub(r'\s+',' ',v)).strip()
+                  if v and v not in vals: vals.append(v)
+              for v in vals[:20]: print(tag.upper()+' '+v[:240])
+          metas=[]
+          for m in re.finditer(r'<meta\b[^>]*>',s,re.I):
+              t=m.group(0)
+              n=re.search(r'(?:name|property)=["\']([^"\']+)',t,re.I)
+              c=re.search(r'content=["\']([^"\']*)',t,re.I)
+              if n and c: metas.append((n.group(1),html.unescape(c.group(1))))
+          for n,c in metas[:80]: print(f'META {n}={c[:300]}')
 
-          echo '=== PUBLIC_APP_MARKERS ==='
-          python3 - <<'PY'
-          from pathlib import Path
-          import re,urllib.parse
-          texts=[]
-          ip=Path('/tmp/qmtarget/index.html')
-          if ip.exists(): texts.append(('index.html',ip.read_text('utf-8',errors='replace')))
-          for p in sorted(Path('/tmp/qmtarget/assets').glob('*.js')):
-              texts.append((p.name,p.read_text('utf-8',errors='replace')))
-          hosts=set(); routes=set(); urls=set(); markers=[]
-          for name,s in texts:
-              for u in re.findall(r'https?://[A-Za-z0-9._~:/?#\[\]@!$&()*+,;=%-]+',s):
-                  u=u.rstrip('"\'<>);,')
-                  try: h=urllib.parse.urlsplit(u).hostname
-                  except Exception: h=None
-                  if h: hosts.add(h.lower())
-                  if len(u)<300: urls.add(u)
-              for r in re.findall(r'(?<![A-Za-z0-9_])/?api/[A-Za-z0-9_./-]{3,180}',s,re.I):
-                  routes.add(r.rstrip('"\'<>);,}]))'))
-              for key in ['comicId','comicTitle','chapterId','pageUrls','homeList','homerecentUpdates','categories','ranking','search','sign/key','bootstrap','X-QM-App-Access','X-Api-Guard']:
-                  c=len(re.findall(re.escape(key),s,re.I))
-                  if c: markers.append((name,key,c))
-          for h in sorted(hosts): print('HOST '+h)
-          for r in sorted(routes)[:300]: print('ROUTE '+r)
-          for u in sorted(urls)[:200]: print('URL '+u)
-          for name,key,c in markers: print(f'MARKER file={name} key={key} count={c}')
-          print(f'counts hosts={len(hosts)} routes={len(routes)} urls={len(urls)} markers={len(markers)}')
+          print('=== TEXT_MARKERS ===')
+          for key in ['青漫','漫画','下载','安卓','Android','iOS','APP','安装','备用网址','域名','线路','最新网址','comicId','chapterId','pageUrls','api/','axios','fetch(','XMLHttpRequest','WebSocket','localStorage','search']:
+              print(f'{key}={len(re.findall(re.escape(key),s,re.I))}')
+
+          print('=== URL_CONTEXTS ===')
+          urls=[]
+          for m in re.finditer(r'https?://[A-Za-z0-9._~:/?#\[\]@!$&()*+,;=%-]+',s):
+              u=m.group(0).rstrip('"\'<>);,')
+              if u in urls: continue
+              urls.append(u)
+              lo=max(0,m.start()-180); hi=min(len(s),m.end()+260)
+              ctx=re.sub(r'\s+',' ',s[lo:hi])
+              ctx=re.sub(r'[A-Za-z0-9_-]{80,}','<opaque>',ctx)
+              print('URL '+u)
+              print('CTX '+ctx[:650])
+
+          print('=== NETWORK_CALL_SNIPPETS ===')
+          shown=0
+          for pat in [r'fetch\s*\(',r'axios',r'XMLHttpRequest',r'\.get\s*\(',r'\.post\s*\(']:
+              for m in re.finditer(pat,s,re.I):
+                  lo=max(0,m.start()-220); hi=min(len(s),m.start()+500)
+                  ctx=re.sub(r'\s+',' ',s[lo:hi])
+                  ctx=re.sub(r'[A-Za-z0-9_-]{80,}','<opaque>',ctx)
+                  print('NET '+ctx[:700]); shown+=1
+                  if shown>=40: break
+              if shown>=40: break
+          print('network_snippet_count='+str(shown))
           PY
