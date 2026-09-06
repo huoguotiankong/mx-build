@@ -29,7 +29,7 @@ jobs:
             /tmp/blutter/dartsdk
             /tmp/blutter/packages
           key: qingman-blutter-dart-3.12.2-arm64-v1
-      - name: Trace bootstrap AOT references
+      - name: Locate bootstrap AOT function
         shell: bash
         run: |
           set -euo pipefail
@@ -43,16 +43,12 @@ jobs:
           unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/apk-extract
           cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
           cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
-          echo '=== current embedded domains ==='
-          strings /tmp/app-lib/libapp.so | grep -E 'https?://[^ ]+|[A-Za-z0-9.-]+\.qingman\.mom' | grep -E 'qingman|zermh|dmzj' | sort -u | head -120 || true
           cd /tmp/blutter
           python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1 || true
-          tail -10 /tmp/blutter.log || true
-          echo '=== bootstrap pool entries ==='
-          grep -nE 'bootstrap: 原生签名失败|bootstrap/domain|apiDomain|appAccessToken|bootstrapProof|bootstrapSign|String: "nonce"' /tmp/blutter-out/pp.txt || true
-          echo '=== asm PP syntax sample ==='
-          grep -RInE -m 40 'PP|\[x27' /tmp/blutter-out/asm | head -80 || true
-          echo '=== decimal pool offset references ==='
-          grep -RInE -C 30 '#(49104|49152|49168|49200|49208|49296|49304|49312|49320|49464|49472)\b|\[(PP|x27)[^]]*(49104|49152|49168|49200|49208|49296|49304|49312|49320|49464|49472)' /tmp/blutter-out/asm | head -16000 || true
-          echo '=== pp-index neighborhood references ==='
-          grep -RInE -C 36 '#0x(17fa|1800|1802|1806|1807|1812|1813|1814|1815|1827|1828)\b' /tmp/blutter-out/asm | head -16000 || true
+          tail -8 /tmp/blutter.log || true
+          echo '=== files with bootstrap literals ==='
+          grep -RIlE 'bootstrap/domain|bootstrap: 原生签名失败|apiDomain 已应用|appAccessToken 已应用|bootstrapSign|bootstrapProof' /tmp/blutter-out/asm | head -80 || true
+          echo '=== literal contexts ==='
+          grep -RInE -C 100 'bootstrap/domain|bootstrap: 原生签名失败|apiDomain 已应用|appAccessToken 已应用|bootstrapSign|bootstrapProof' /tmp/blutter-out/asm | head -22000 || true
+          echo '=== related request/header literals ==='
+          grep -RInE -C 12 'X-QM-Proof|X-QM-App-Access|X-Device-Id|X-QM-Request-Id|X-Timestamp|X-Signature|canonicalRequest' /tmp/blutter-out/asm | head -10000 || true
