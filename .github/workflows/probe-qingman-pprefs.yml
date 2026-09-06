@@ -21,6 +21,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq python3-pyelftools python3-capstone cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
           git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+
       - name: Restore analyzer cache
         uses: actions/cache@v4
         with:
@@ -29,97 +30,115 @@ jobs:
             /tmp/blutter/dartsdk
             /tmp/blutter/packages
           key: qingman-blutter-dart-3.12.2-arm64-v1
-      - name: Scan PP references
+
+      - name: Produce compact safe summary
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY' > /tmp/apk_url
           import json,urllib.request
           o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
-          print(o['data']['datas']['android']['downloadUrl'])
+          a=o['data']['datas']['android']
+          print(a['downloadUrl'])
+          print('OFFICIAL_VERSION='+str(a.get('version','')), file=__import__('sys').stderr)
+          print('OFFICIAL_VERSION_CODE='+str(a.get('versionCode','')), file=__import__('sys').stderr)
           PY
-          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qingman.apk
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(head -1 /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
           mkdir -p /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
           unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/apk-extract
           cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
           cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
           cd /tmp/blutter
-          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1 || true
-          python3 - <<'PY'
+          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
+
+          python3 - <<'PY' | tee /tmp/qingman-bootstrap-summary.txt
           from pathlib import Path
           import re
           from elftools.elf.elffile import ELFFile
           from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
 
-          probe_addr=0x515780
+          pp_lines=Path('/tmp/blutter-out/pp.txt').read_text(encoding='utf-8',errors='replace').splitlines()
           pp={}
-          for line in Path('/tmp/blutter-out/pp.txt').read_text(encoding='utf-8',errors='replace').splitlines():
+          for line in pp_lines:
               m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s*(.*)$',line)
               if m: pp[int(m.group(1),16)]=m.group(2)
 
-          targets={
-              0x3740,0x3748,
-              0x8e10,0x8e30,0x8e38,0x8e40,0x90a0,0x96d8,
-              0xbfd0,0xbfd8,0xbfe0,0xbfe8,0xbff0,0xbff8,
-              0xc000,0xc008,0xc010,0xc018,0xc020,0xc028,0xc030,0xc038,0xc040,0xc048,0xc050,0xc058,0xc060,
-              0xc090,0xc098,0xc0a0,0xc0a8,0xc0b8,0xc128,0xc138,0xc140,0xc148,0xc150,
-              0x1ee28,0x1ee38,0x2be28,
+          wanted={
+              'bootstrap_url':0xc010,
+              'api_domain_key':0xc030,
+              'bootstrap_fallback':0xc040,
+              'api_domain_parse_failed':0xc0a0,
+              'api_domain_applied':0xc0a8,
+              'retry_delay':0x1ee28,
+              'api_ready_after_retry':0x1ee38,
+              'builtin_old_domain':0x2be28,
           }
-          focus=set(targets)
-          safe=('bootstrap','nonce','sign','apidomain','appaccesstoken','content-type','timestamp','deviceid','requestid','canonicalrequest','x-qm-','x-timestamp','x-signature','body','code','msg','field <upb.','anonymousclosure','type: map','api 域名','回退内置域名','重试','qingman.mom')
-          def label(off):
-              s=pp.get(off,'')
-              return s if any(x in s.lower() for x in safe) else '<structural target>'
 
-          print('=== target pool labels ===')
-          for o in sorted(targets): print(f'PP+0x{o:x} {label(o)}')
+          print('SUMMARY_VERSION=2')
+          for k,o in wanted.items():
+              print(f'POOL_{k.upper()}=PP+0x{o:x}')
 
-          with open('/tmp/app-lib/libapp.so','rb') as f:
+          # Safe string-level evidence for persistence/cache mechanisms.
+          cache_terms=('sharedpreferences','shared_preferences','getstring','setstring','preferences','hive','sqflite','cache','persist','storage')
+          domain_terms=('apidomain','api_domain','domainbootstrap','bootstrap/domain','api 域名','回退内置域名','重试 bootstrap')
+          cache_hits=[]; domain_hits=[]
+          for line in pp_lines:
+              low=line.lower()
+              if any(t in low for t in cache_terms): cache_hits.append(line)
+              if any(t in low for t in domain_terms): domain_hits.append(line)
+          print('CACHE_STRING_HIT_COUNT='+str(len(cache_hits)))
+          for line in cache_hits[:40]: print('CACHE_STRING='+line[:500])
+          print('DOMAIN_STRING_HIT_COUNT='+str(len(domain_hits)))
+          for line in domain_hits[:40]: print('DOMAIN_STRING='+line[:500])
+
+          # Decode libapp text and count object-pool loads that resolve exactly to
+          # high-level public markers. No secret/signing offsets are included.
+          lib='/tmp/app-lib/libapp.so'
+          with open(lib,'rb') as f:
               elf=ELFFile(f)
-              sec=next(s for s in elf.iter_sections() if s['sh_addr'] <= probe_addr < s['sh_addr']+s['sh_size'])
-              base=sec['sh_addr']; data=sec.data(); name=sec.name
-          print(f'code_section={name} base=0x{base:x} size=0x{len(data):x}')
+              sec=elf.get_section_by_name('.text')
+              if sec is None:
+                  sec=max((s for s in elf.iter_sections() if s['sh_flags'] & 0x4), key=lambda s:s['sh_size'])
+              base=int(sec['sh_addr']); data=sec.data()
 
-          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
-          md.skipdata=True
-          hits=[]
-          pending={}
-          count=0
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.skipdata=True
+          targets=set(wanted.values())
+          pending={}; hits=[]
           for x in md.disasm(data,base):
-              count+=1
               if x.mnemonic.startswith('.'):
                   pending.clear(); continue
               pending={r:(b,n-1) for r,(b,n) in pending.items() if n>1}
               op=x.op_str.lower()
               m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
               if x.mnemonic=='add' and m:
-                  pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),8)
+                  pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),10)
               if x.mnemonic in ('ldr','ldur','ldrsw'):
                   m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
                   if m:
                       br=m.group(2); disp=int(m.group(3),0) if m.group(3) else 0
                       off=disp if br=='x27' else (pending[br][0]+disp if br in pending else None)
-                      if off in targets: hits.append((x.address,off))
-          print('decoded_items=',count)
-          print('=== hits ===')
-          for a,o in hits: print(f'0x{a:x} PP+0x{o:x} {label(o)}')
+                      if off in targets: hits.append((int(x.address),off))
 
-          print('=== focused windows ===')
-          windows=[]
-          for a,o in hits:
-              if o not in focus: continue
-              lo=max(base,(a-0x140)&~3); hi=min(base+len(data),(a+0x260)&~3)
-              if windows and lo <= windows[-1][1]+0x20: windows[-1]=(windows[-1][0],max(windows[-1][1],hi))
-              else: windows.append((lo,hi))
-          hitmap={a:(o,label(o)) for a,o in hits}
-          local=Cs(CS_ARCH_ARM64,CS_MODE_ARM); local.skipdata=True
-          for lo,hi in windows:
-              print(f'--- 0x{lo:x}..0x{hi:x} ---')
-              chunk=data[lo-base:hi-base]
-              for x in local.disasm(chunk,lo):
-                  extra=''
-                  if x.address in hitmap:
-                      o,d=hitmap[x.address]; extra=f' ; PP+0x{o:x} {d}'
-                  print(f'{x.address:08x}: {x.mnemonic:<7} {x.op_str}{extra}')
-          print('hit_count=',len(hits),'windows=',len(windows))
+          rev={v:k for k,v in wanted.items()}
+          print('RESOLVED_PP_HIT_COUNT='+str(len(hits)))
+          for a,o in hits[:80]: print(f'REF={rev[o]}@0x{a:x}')
+
+          # Check whether the literal key apiDomain appears near persistence API
+          # names at the string/object-pool level. This is only evidence, not proof.
+          api_lines=[i for i,l in enumerate(pp_lines) if 'apidomain' in l.lower()]
+          cache_lines=[i for i,l in enumerate(pp_lines) if any(t in l.lower() for t in cache_terms)]
+          near=False
+          for a in api_lines:
+              if any(abs(a-b)<=24 for b in cache_lines): near=True; break
+          print('APIDOMAIN_NEAR_CACHE_STRINGS='+('yes' if near else 'no'))
+          print('SAFE_CONCLUSION=' + ('possible_cache_path_requires_code_trace' if near else 'no_string_level_apiDomain_cache_evidence'))
           PY
+
+      - name: Upload compact summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: qingman-bootstrap-summary
+          path: /tmp/qingman-bootstrap-summary.txt
+          if-no-files-found: error
+          retention-days: 1
