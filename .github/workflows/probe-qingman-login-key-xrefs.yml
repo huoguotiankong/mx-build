@@ -1,4 +1,4 @@
-name: Resolve Qingman Session Contract
+name: Resolve Qingman Login Response And Auth Injection
 
 on:
   push:
@@ -32,7 +32,7 @@ jobs:
             /tmp/blutter/packages
           key: qingman-blutter-dart-3.12.2-arm64-v1
 
-      - name: Resolve session persistence and wire header
+      - name: Trace response fields and auth injection
         shell: bash
         run: |
           set -euo pipefail
@@ -64,46 +64,16 @@ jobs:
           for line in Path('/tmp/blutter-out/pp.txt').read_text('utf-8',errors='replace').splitlines():
               m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s+(.*)$',line)
               if m: pp[int(m.group(1),16)]=m.group(2)
-
-          wanted={
-              'qm_auth_token','qm_user_id','user_info','Authorization','authorization','token','accessToken',
-              'authToken','userId','uid','memberId','X-Token','X-Auth-Token','Bearer','loginip','userName','password',
-          }
-          key_offsets={}
-          print('=== AUTH STRING OFFSETS ===')
-          for off,v in sorted(pp.items()):
-              m=re.fullmatch(r'String: "([^"]*)"',v)
-              if m and m.group(1) in wanted:
-                  key_offsets.setdefault(m.group(1),[]).append(off)
-                  print(f'{m.group(1)} PP+0x{off:x}')
-
           with open('/tmp/app-lib/libapp.so','rb') as f:
               elf=ELFFile(f); sec=elf.get_section_by_name('.text'); base=int(sec['sh_addr']); data=sec.data()
           md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.skipdata=True
           ins=list(md.disasm(data,base)); idx={x.address:i for i,x in enumerate(ins)}
 
-          # Generic PP reference detector with bounded register tracking.
-          refs=[]; pending={}
-          for x in ins:
-              pending={r:(b,n-1) for r,(b,n) in pending.items() if n>1}
-              op=x.op_str.lower()
-              m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
-              if x.mnemonic=='add' and m:
-                  pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),24)
-                  continue
-              if x.mnemonic in ('ldr','ldur','ldrsw'):
-                  m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
-                  if not m: continue
-                  br=m.group(2); disp=int(m.group(3),0) if m.group(3) else 0
-                  off=disp if br=='x27' else (pending[br][0]+disp if br in pending else None)
-                  if off is not None and off in pp:
-                      sm=re.fullmatch(r'String: "([^"]*)"',pp[off])
-                      if sm and sm.group(1) in wanted: refs.append((x.address,off,sm.group(1)))
-
-          print('\n=== AUTH STRING XREFS ===')
-          for a,o,s in refs:
-              print(f'0x{a:x} PP+0x{o:x} {s}')
-
+          safe={
+              'token','accessToken','authToken','userId','uid','memberId','userName','username','isGuest','identityType',
+              'qm_auth_token','qm_user_id','Authorization','authorization','Bearer','X-Token','X-Auth-Token',
+              'data','result','code','msg','status','deviceId','X-Device-Id','X-QM-App-Access',
+          }
           def is_prologue(x):
               return x.mnemonic=='stp' and x.op_str.replace(' ','').startswith('x29,x30,[x15,#-0x10]!')
           def bounds(addr):
@@ -112,29 +82,23 @@ jobs:
               e=k+1
               while e<len(ins) and not is_prologue(ins[e]): e+=1
               return ins[s].address, ins[e].address if e<len(ins) else ins[-1].address+4
-
-          targets=(0xb11608,0xb128e4,0xb1323c,0xb13268,0xb13324,0xb134a4,0xb12c04,0xb13040)
-          print('\n=== RAW BOUNDS AND DIRECT CALLERS ===')
-          for t in targets:
-              if t not in idx: continue
-              st,en=bounds(t)
-              print(f'TARGET 0x{t:x} bounds=0x{st:x}-0x{en:x}')
+          def direct_callers(target_start):
+              out=[]
               for x in ins:
                   if x.mnemonic!='bl': continue
                   m=re.fullmatch(r'#(0x[0-9a-f]+|\d+)',x.op_str.lower())
-                  if m and int(m.group(1),0)==st: print(f'  caller 0x{x.address:x}')
-
-          safe_names=wanted | {'code','msg','data','result','isGuest','identityType','status','username','email','mobile','phone'}
-          def dump(addr,title):
+                  if m and int(m.group(1),0)==target_start: out.append(x.address)
+              return out
+          def dump(addr,title,all_strings=False):
               st,en=bounds(addr)
-              print(f'\n=== {title} 0x{st:x}-0x{en:x} ===')
+              print(f'\n=== {title} 0x{st:x}-0x{en:x} callers={",".join(hex(x) for x in direct_callers(st))} ===')
               pending={}
               for x in md.disasm(data[st-base:en-base],st):
                   pending={r:(b,n-1) for r,(b,n) in pending.items() if n>1}
                   op=x.op_str.lower(); ann=''
                   m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
                   if x.mnemonic=='add' and m:
-                      pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),28)
+                      pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),32)
                   elif x.mnemonic in ('ldr','ldur','ldrsw'):
                       m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
                       if m:
@@ -142,22 +106,56 @@ jobs:
                           off=disp if br=='x27' else (pending[br][0]+disp if br in pending else None)
                           if off is not None and off in pp:
                               v=pp[off]; sm=re.fullmatch(r'String: "([^"]*)"',v)
-                              if sm and sm.group(1) in safe_names: ann=f' ; PP+0x{off:x}={v}'
-                              elif any(q in v for q in ('Type','TypeArguments','Field <')) and not deny.search(v): ann=f' ; PP+0x{off:x}={v[:220]}'
+                              if sm and ((sm.group(1) in safe) or (all_strings and len(sm.group(1))<=80)) and not deny.search(v):
+                                  ann=f' ; PP+0x{off:x}={v}'
+                              elif any(q in v for q in ('Type','TypeArguments','Field <')) and not deny.search(v):
+                                  ann=f' ; PP+0x{off:x}={v[:220]}'
                   if ann or x.mnemonic in ('bl','blr','ret','b','b.eq','b.ne','cbz','cbnz','tbz','tbnz'):
                       print(f'0x{x.address:x} {x.mnemonic:<7} {x.op_str}{ann}')
 
-          dump(0xb11608,'POST-LOGIN SUCCESS HANDLER')
-          dump(0xb13268,'USER ID PERSISTENCE')
-          dump(0xb134a4,'AUTH TOKEN PERSISTENCE')
+          # Actual success continuation called after parsed login response.
+          dump(0xb11750,'LOGIN SUCCESS CONTINUATION',True)
+          # Token/userId JSON generated getter/fromJson helpers referenced near persistence path.
+          for a,t in ((0x5057b4,'TOKEN MODEL HELPER A'),(0x505250,'USER MODEL HELPER'),(0x505354,'AUTH SERVICE MODEL HELPER'),(0x505470,'AUTH SERVICE MODEL HELPER 2')):
+              dump(a,t,True)
 
-          # Print compact contexts around every Authorization/token xref to identify header insertion.
-          print('\n=== WIRE AUTH XREF CONTEXTS ===')
-          for a,o,s in refs:
-              if s not in {'Authorization','authorization','token','accessToken','authToken','X-Token','X-Auth-Token','Bearer','qm_auth_token'}: continue
-              k=idx[a]; lo=max(0,k-28); hi=min(len(ins),k+45)
-              print(f'\n--- {s} @0x{a:x} ---')
-              for x in ins[lo:hi]:
-                  if x.mnemonic in ('bl','blr','ret','b','b.eq','b.ne','cbz','cbnz','tbz','tbnz') or x.address==a:
-                      print(f'0x{x.address:x} {x.mnemonic:<7} {x.op_str}')
+          # Preference token getters that may feed interceptors/network headers.
+          for a,t in ((0xa8d528,'AUTH TOKEN READER A'),(0xb90e44,'AUTH TOKEN READER B'),(0xbbad70,'AUTH TOKEN READER C'),(0xbbb7d8,'AUTH TOKEN READER D')):
+              dump(a,t,True)
+
+          # Trace callers recursively one level for the app-specific auth-token getter around a8d4f0.
+          st,en=bounds(0xa8d528)
+          c1=direct_callers(st)
+          print('\n=== AUTH TOKEN READER CALLER FUNCTIONS ===')
+          seen=set()
+          for ca in c1:
+              cst,cen=bounds(ca)
+              if cst in seen: continue
+              seen.add(cst)
+              print(f'READER 0x{st:x} caller-site=0x{ca:x} caller-func=0x{cst:x}-0x{cen:x} parent-callers={",".join(hex(x) for x in direct_callers(cst))}')
+              dump(ca,f'AUTH READER CALLER @{ca:x}',True)
+
+          # Map all exact Authorization xrefs and inspect their owning raw functions.
+          auth_offs=[o for o,v in pp.items() if v in ('String: "Authorization"','String: "authorization"')]
+          refs=[]; pending={}
+          for x in ins:
+              pending={r:(b,n-1) for r,(b,n) in pending.items() if n>1}
+              op=x.op_str.lower()
+              m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
+              if x.mnemonic=='add' and m:
+                  pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),24); continue
+              if x.mnemonic in ('ldr','ldur','ldrsw'):
+                  m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
+                  if not m: continue
+                  br=m.group(2); disp=int(m.group(3),0) if m.group(3) else 0
+                  off=disp if br=='x27' else (pending[br][0]+disp if br in pending else None)
+                  if off in auth_offs: refs.append(x.address)
+          print('\n=== AUTHORIZATION OWNERS ===')
+          seen=set()
+          for a in refs:
+              st,en=bounds(a)
+              if st in seen: continue
+              seen.add(st)
+              print(f'xref=0x{a:x} owner=0x{st:x}-0x{en:x} callers={",".join(hex(x) for x in direct_callers(st))}')
+              dump(a,f'AUTHORIZATION OWNER @{a:x}',True)
           PY
