@@ -20,7 +20,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq python3-pyelftools cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          sudo apt-get install -y -qq python3-pyelftools python3-capstone cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
           git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
 
       - name: Restore analyzer cache
@@ -32,7 +32,7 @@ jobs:
             /tmp/blutter/packages
           key: qingman-blutter-dart-3.12.2-arm64-v1
 
-      - name: Resolve allocator and request descriptor names
+      - name: Calibrate allocator tags and resolve target classes
         shell: bash
         run: |
           set -euo pipefail
@@ -53,94 +53,62 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import re
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
 
           sensitive=re.compile(r'(?i)(token|secret|password|cookie|authorization|bearer|private|clientp12|certificate|proof|signature|sign/key|k1a|k1b|k2a|k2b|k3a|k3b|seed)')
-          asm_files=[]
-          for p in Path('/tmp/blutter-out/asm').rglob('*.dart'):
-              try:
-                  asm_files.append((p,p.read_text('utf-8',errors='replace').splitlines()))
-              except Exception:
-                  pass
+          def clean(s):
+              if sensitive.search(s):
+                  s=re.sub(r'"[^"]*"','"<redacted>"',s)
+              return s[:700]
 
-          def clean(line):
-              if sensitive.search(line):
-                  return re.sub(r'"[^"]*"','"<redacted>"',line)[:700]
-              return line[:700]
-
-          def function_bounds(lines, idx):
-              start=idx
-              while start>0 and '** addr:' not in lines[start]:
-                  start-=1
-              if '** addr:' not in lines[start]:
-                  start=max(0,idx-80)
-              end=len(lines)
-              for j in range(start+1,len(lines)):
-                  if '** addr:' in lines[j]:
-                      end=j
-                      break
-              return start,end
-
-          targets={
-              'app_allocator':'0xb02b90',
-              'chaping_allocator':'0xb028d0',
-              'shared_constructor':'0x3ea090',
-              'app_error':'Get app config failed',
-              'chaping_error':'Get chaping config failed',
-          }
-          names=set()
-          emitted=set()
-          total=0
-
-          print('=== TARGET HITS ===')
-          for label,needle in targets.items():
-              hits=[]
-              for p,lines in asm_files:
-                  for i,line in enumerate(lines):
-                      if needle.lower() in line.lower():
-                          hits.append((p,lines,i))
-              print(f'TARGET {label} needle={needle} hits={len(hits)}')
-              for p,lines,i in hits[:20]:
-                  print(f'HIT file={p.name} line={i+1}: {clean(lines[i])}')
-                  m=re.search(r'Allocate([A-Za-z0-9_$]+)Stub\s*->\s*([A-Za-z0-9_$]+)',lines[i])
-                  if m:
-                      names.update(m.groups())
-                  s,e=function_bounds(lines,i)
-                  key=(str(p),s,e)
-                  if key in emitted:
-                      continue
-                  emitted.add(key)
-                  print(f'FUNCTION file={p.name} lines={s+1}-{e}')
-                  for n in range(s,min(e,s+420)):
-                      print(clean(lines[n]))
-                      total+=1
-                      if total>=2800:
-                          break
-                  if total>=2800:
-                      break
-              if total>=2800:
-                  break
-
-          print('ALLOCATOR_CLASS_NAMES='+','.join(sorted(names)))
-
-          print('=== CLASS DEFINITIONS FOR ALLOCATOR NAMES ===')
-          if names:
-              for p,lines in asm_files:
-                  for i,line in enumerate(lines):
-                      cm=re.match(r'\s*class\s+([A-Za-z0-9_$]+)\b',line)
-                      if not cm or cm.group(1) not in names:
-                          continue
-                      print(f'CLASS file={p.name} line={i+1}: {clean(line)}')
-                      for n in range(i,min(len(lines),i+220)):
+          print('=== KNOWN CLASS METADATA ===')
+          for root in ('/tmp/blutter-out/objs.txt','/tmp/blutter-out/asm/VRl.dart'):
+              p=Path(root)
+              if not p.exists(): continue
+              lines=p.read_text('utf-8',errors='replace').splitlines()
+              for name in ('nub','evb'):
+                  hits=[i for i,s in enumerate(lines) if re.search(r'\bclass\s+'+name+r'\b',s)]
+                  print(f'{p.name} class={name} hits={len(hits)}')
+                  for i in hits[:4]:
+                      for n in range(max(0,i-4),min(len(lines),i+35)):
                           print(clean(lines[n]))
 
-          print('=== OBJS METADATA FOR ALLOCATOR NAMES ===')
-          objs=Path('/tmp/blutter-out/objs.txt').read_text('utf-8',errors='replace').splitlines()
-          if names:
-              for i,line in enumerate(objs):
-                  if any(re.search(r'\b'+re.escape(name)+r'\b',line) for name in names):
-                      print(f'OBJS_HIT line={i+1}: {clean(line)}')
-                      for n in range(max(0,i-8),min(len(objs),i+28)):
-                          print(clean(objs[n]))
+          print('=== ALLOCATOR STUB DISASSEMBLY ===')
+          stubs={
+              'known_nub':'0xae2a38',
+              'known_evb':'0xae1f48',
+              'target_app':'0xb02b90',
+              'target_chaping':'0xb028d0',
+          }
+          with open('/tmp/app-lib/libapp.so','rb') as f:
+              elf=ELFFile(f)
+              sec=elf.get_section_by_name('.text')
+              base=int(sec['sh_addr']); data=sec.data()
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.skipdata=True
+          for label,addr_s in stubs.items():
+              addr=int(addr_s,16)
+              print(f'STUB {label} {addr_s}')
+              for ins in md.disasm(data[addr-base:addr-base+32],addr):
+                  print(f'  {ins.address:#x} {ins.mnemonic:<8} {ins.op_str}')
 
-          print('PRINTED_FUNCTION_LINES='+str(total))
+          print('=== ALL ASM REFERENCES TO KNOWN/TARGET STUBS ===')
+          needles={k:v.lower() for k,v in stubs.items()}
+          for p in Path('/tmp/blutter-out/asm').rglob('*.dart'):
+              try: lines=p.read_text('utf-8',errors='replace').splitlines()
+              except Exception: continue
+              for i,line in enumerate(lines):
+                  low=line.lower()
+                  labels=[k for k,v in needles.items() if v in low]
+                  if labels:
+                      print(f'REF labels={labels} file={p.name} line={i+1}: {clean(line)}')
+
+          print('=== NEARBY CLASS HEADERS IN VRL ===')
+          p=Path('/tmp/blutter-out/asm/VRl.dart')
+          if p.exists():
+              lines=p.read_text('utf-8',errors='replace').splitlines()
+              for i,line in enumerate(lines):
+                  if re.match(r'\s*class\s+(nub|evb)\b',line):
+                      for n in range(max(0,i-8),min(len(lines),i+30)):
+                          print(clean(lines[n]))
           PY
