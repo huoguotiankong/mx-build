@@ -1,0 +1,53 @@
+name: Blutter latest Lizi Manga
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/blutter-lizi-latest.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reverse:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - name: Install reverse dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools python3-requests git cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev
+      - name: Download latest Lizi APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          url='https://alicm.a.etoote.com/bs2/ad-app/YWQtYXBwOmFkX2RzcF9hcHA6NTMxMzQxOTE1MzpNRVJDSEFOVDpbQkAxZDZlMGRkZDoxOTQxOTgwMjM4MDE1Mw%3D%3D.apk'
+          curl -fL --retry 3 --connect-timeout 20 --max-time 180 -o /tmp/lizi.apk "$url"
+          rm -rf /tmp/lizi && mkdir -p /tmp/lizi
+          unzip -q /tmp/lizi.apk -d /tmp/lizi
+          ls -lh /tmp/lizi/lib/arm64-v8a/libapp.so /tmp/lizi/lib/arm64-v8a/libflutter.so
+      - name: Run Blutter
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+          python3 /tmp/blutter/blutter.py /tmp/lizi/lib/arm64-v8a /tmp/blutter-out
+      - name: Summarize application symbols
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          echo '=== OUTPUT ==='
+          find /tmp/blutter-out -maxdepth 2 -type f -printf '%s %p\n' | sort -nr | head -n 80
+          echo '=== API/NETWORK HITS ==='
+          grep -RInE 'app/api/|lzsign|appsign256|buildSignature|pic_domain|comicPic|chapterGroups|Authorization|deviceId|lizimh|lizi\.lat|myqcloud|category_list|search_full|chapter/v2|detail/' /tmp/blutter-out 2>/dev/null | head -n 4000 || true
+      - name: Upload Blutter output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lizi-blutter-output
+          path: /tmp/blutter-out
+          if-no-files-found: warn
+          compression-level: 9
