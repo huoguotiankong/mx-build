@@ -41,8 +41,7 @@ jobs:
           import base64,hashlib,json,time,urllib.request,uuid,os
           from cryptography.hazmat.primitives.ciphers.aead import AESGCM
           from elftools.elf.elffile import ELFFile
-          SO='/tmp/qm-native/libqx_security.so'
-          BOOTSTRAP='https://mu8xm4cx.zermh.com/bootstrap/domain'
+          SO='/tmp/qm-native/libqx_security.so'; BOOTSTRAP='https://mu8xm4cx.zermh.com/bootstrap/domain'
           with open(SO,'rb') as f:
               elf=ELFFile(f)
               def read_va(va,n):
@@ -52,8 +51,7 @@ jobs:
                       if start<=va and va+n<=end:
                           f.seek(int(seg['p_offset'])+va-start); return f.read(n)
                   raise RuntimeError('VA not file-backed')
-              seed=read_va(0x14a40,16)+read_va(0x14af0,16)
-              sign_cipher=read_va(0x17d1f,33); aes_cipher=read_va(0x17d40,32)
+              seed=read_va(0x14a40,16)+read_va(0x14af0,16); sign_cipher=read_va(0x17d1f,33); aes_cipher=read_va(0x17d40,32)
           base=hashlib.sha256(seed).digest()
           def deob(cipher,kind):
               stream=b''; counter=0
@@ -64,10 +62,7 @@ jobs:
           ts=str(int(time.time()*1000)); did=uuid.uuid4().hex; nonce=uuid.uuid4().hex
           sig=hashlib.sha256(ts.encode()+nonce.encode()+did.encode()+sign_material).hexdigest()
           body=json.dumps({'timestamp':ts,'nonce':nonce,'sign':sig,'deviceId':did},separators=(',',':')).encode()
-          req=urllib.request.Request(BOOTSTRAP,data=body,headers={
-              'Content-Type':'application/json','Accept':'application/json, text/plain, */*',
-              'User-Agent':'qingman/4.4.5 (Android)','appVersion':'4.4.5','platform':'android','X-Device-Id':did,
-          },method='POST')
+          req=urllib.request.Request(BOOTSTRAP,data=body,headers={'Content-Type':'application/json','Accept':'application/json, text/plain, */*','User-Agent':'qingman/4.4.5 (Android)','appVersion':'4.4.5','platform':'android','X-Device-Id':did},method='POST')
           with urllib.request.urlopen(req,timeout=20) as r: resp=json.load(r)
           enc=resp['data']; payload=base64.urlsafe_b64decode(enc+'='*((4-len(enc)%4)%4))
           obj=json.loads(AESGCM(aes_key).decrypt(payload[:12],payload[12:],(ts+'|'+nonce).encode()))
@@ -76,67 +71,68 @@ jobs:
           from urllib.parse import urlsplit
           host=urlsplit(domain if '://' in domain else 'https://'+domain).hostname
           if not host: raise RuntimeError('invalid apiDomain')
-          open('/tmp/qm_dynamic_host','w').write(host+'\n')
-          open('/tmp/qm_app_access','w').write(access)
-          open('/tmp/qm_device_id','w').write(did)
+          open('/tmp/qm_dynamic_host','w').write(host+'\n'); open('/tmp/qm_app_access','w').write(access); open('/tmp/qm_device_id','w').write(did)
           os.chmod('/tmp/qm_app_access',0o600); os.chmod('/tmp/qm_device_id',0o600)
-          print('bootstrap_ok=true')
-          print('dynamic_host='+host)
-          print('sensitive_bootstrap_fields_logged=false')
+          print('bootstrap_ok=true'); print('dynamic_host='+host); print('sensitive_bootstrap_fields_logged=false')
           PY
 
-      - name: Probe plain HTTP application gate
+      - name: Probe plain HTTP application gate and readonly POST
         shell: bash
         run: |
           set -euo pipefail
-          host=$(cat /tmp/qm_dynamic_host)
-          access=$(cat /tmp/qm_app_access)
-          did=$(cat /tmp/qm_device_id)
-          echo "=== PLAIN_HTTP_APPLICATION_GATE host=$host ==="
-          paths=(
-            '/api/comic/categories/list'
-            '/api/comic/comics/v1/homeList?page=1&pageNum=1&pageSize=20'
-            '/api/comic/comics/homerecentUpdates?page=1&pageNum=1&pageSize=20'
-            '/api/radio/api/config/getAdConfig'
-            '/api/comic/comics/sign/key'
-          )
-          for path in "${paths[@]}"; do
-            for variant in basic device app_access both; do
-              body=$(mktemp); hdr=$(mktemp); err=$(mktemp)
-              args=(-H 'Accept: application/json, text/plain, */*' -H 'User-Agent: qingman/4.4.5 (Android)' -H 'appVersion: 4.4.5' -H 'platform: android')
-              case "$variant" in
-                device) args+=(-H "X-Device-Id: $did") ;;
-                app_access) args+=(-H "X-QM-App-Access: $access") ;;
-                both) args+=(-H "X-Device-Id: $did" -H "X-QM-App-Access: $access") ;;
-              esac
-              code=$(curl -sS --max-redirs 0 --connect-timeout 8 --max-time 15 "${args[@]}" -D "$hdr" -o "$body" -w '%{http_code}' "http://$host$path" 2>"$err" || true)
-              bytes=$(wc -c < "$body" | tr -d ' ')
-              summary=$(python3 - "$body" <<'PY'
+          host=$(cat /tmp/qm_dynamic_host); access=$(cat /tmp/qm_app_access); did=$(cat /tmp/qm_device_id)
+          summarize() {
+            python3 - "$1" <<'PY'
           import json,sys,re
-          raw=open(sys.argv[1],'rb').read(65536)
-          text=raw.decode('utf-8','replace')
-          try:
-              o=json.loads(text)
-              if isinstance(o,dict):
-                  sensitive=re.compile(r'(?i)(token|secret|password|cookie|authorization|bearer|private|certificate|proof|signature|sign|key|seed)')
-                  out={}
-                  for k in ('code','msg','message','status','success'):
-                      if k in o and not sensitive.search(k): out[k]=o[k]
-                  out['topLevelKeys']=[k for k in o.keys() if not sensitive.search(str(k))][:30]
-                  if 'data' in o:
-                      d=o['data']
-                      out['dataType']=type(d).__name__
-                      if isinstance(d,list): out['dataCount']=len(d)
-                      elif isinstance(d,dict): out['dataKeys']=[k for k in d.keys() if not sensitive.search(str(k))][:30]
-                  print(json.dumps(out,ensure_ascii=False,separators=(',',':')))
-              else: print(json.dumps({'type':type(o).__name__},separators=(',',':')))
-          except Exception:
-              print('non_json:'+re.sub(r'\s+',' ',text[:180]))
+          raw=open(sys.argv[1],'rb').read(262144); text=raw.decode('utf-8','replace')
+          sensitive=re.compile(r'(?i)(token|secret|password|cookie|authorization|bearer|private|certificate|proof|signature|sign|key|seed)')
+          wanted={'comicId','comicTitle','title','name','categoryId','categoryName','comicCoverUrl','cover','coverUrl','country','gender','totalPages','pageNum','page','pageSize'}
+          def slim(x,depth=0):
+              if depth>5:return None
+              if isinstance(x,dict):
+                  o={}
+                  for k,v in x.items():
+                      if sensitive.search(str(k)): continue
+                      if k in ('code','msg','message','status','success') or k in wanted:
+                          if isinstance(v,(str,int,float,bool)) or v is None:o[k]=v
+                      elif k in ('data','datas','list','records','items','result','rows'):
+                          o[k]=slim(v,depth+1)
+                  return o
+              if isinstance(x,list): return [slim(v,depth+1) for v in x[:5]]
+              if isinstance(x,(str,int,float,bool)) or x is None:return x
+              return type(x).__name__
+          try: print(json.dumps(slim(json.loads(text)),ensure_ascii=False,separators=(',',':'))[:4500])
+          except Exception: print('non_json:'+re.sub(r'\s+',' ',text[:180]))
           PY
-          )
-              errtext=$(tr '\n' ' ' < "$err" | cut -c1-180)
-              printf 'path=%s variant=%s http=%s bytes=%s summary=%s err=%s\n' "$path" "$variant" "$code" "$bytes" "$summary" "$errtext"
-              rm -f "$body" "$hdr" "$err"
+          }
+
+          echo "=== GET_GATE host=$host ==="
+          for path in '/api/comic/categories/list' '/api/radio/api/config/getAdConfig' '/api/comic/comics/sign/key'; do
+            for variant in basic both; do
+              body=$(mktemp); err=$(mktemp)
+              args=(-H 'Accept: application/json, text/plain, */*' -H 'User-Agent: qingman/4.4.5 (Android)' -H 'appVersion: 4.4.5' -H 'platform: android')
+              [[ "$variant" == both ]] && args+=(-H "X-Device-Id: $did" -H "X-QM-App-Access: $access")
+              code=$(curl -sS --max-redirs 0 --connect-timeout 8 --max-time 15 "${args[@]}" -o "$body" -w '%{http_code}' "http://$host$path" 2>"$err" || true)
+              printf 'GET path=%s variant=%s http=%s bytes=%s summary=%s\n' "$path" "$variant" "$code" "$(wc -c < "$body" | tr -d ' ')" "$(summarize "$body")"
+              rm -f "$body" "$err"
             done
           done
+
+          echo '=== POST_READONLY ==='
+          while IFS=$'\t' read -r name path payload; do
+            body=$(mktemp); err=$(mktemp)
+            code=$(curl -sS --connect-timeout 8 --max-time 20 -X POST \
+              -H 'Accept: application/json, text/plain, */*' -H 'Content-Type: application/json' \
+              -H 'User-Agent: qingman/4.4.5 (Android)' -H 'appVersion: 4.4.5' -H 'platform: android' \
+              -H "X-Device-Id: $did" -H "X-QM-App-Access: $access" \
+              --data "$payload" -o "$body" -w '%{http_code}' "http://$host/$path" 2>"$err" || true)
+            printf 'POST name=%s http=%s bytes=%s summary=%s err=%s\n' "$name" "$code" "$(wc -c < "$body" | tr -d ' ')" "$(summarize "$body")" "$(tr '\n' ' ' < "$err" | cut -c1-160)"
+            rm -f "$body" "$err"
+          done <<'EOF'
+          categories	api/comic/categories/list	{}
+          home	api/comic/comics/v1/homeList	{"page":1,"pageNum":1,"pageSize":20}
+          latest	api/comic/comics/homerecentUpdates	{"page":1,"pageNum":1,"pageSize":20}
+          rank	api/comic/comics/getComicRankList	{"page":1,"pageNum":1,"pageSize":20}
+          country	api/comic/comics/country	{}
+          EOF
           rm -f /tmp/qm_app_access /tmp/qm_device_id
