@@ -14,50 +14,35 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Probe Qingman public domain candidates
+      - name: Inspect Qingman native security exports
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          import json, socket, ssl, urllib.error, urllib.parse, urllib.request
-          ctx=ssl.create_default_context()
-          ua='qingman/4.4.5 (Android)'
-          hosts=[
-            'sf85sdq66h.qingman.mom','bass8ycl.zermh.com','mu8xm4cx.zermh.com',
-            'www.qingman.pro','www.qingman.xyz','www.qingman.my','www.qingman.dev','www.qingman.vip',
-            'ios.qingman.vip','rx6vxp6wil2ra0cg.f37.top','y4h4s84eqqlwmlu5.urlg.cc',
-          ]
-          paths=['/api/comic/categories/list','/api/comic/comics/v1/homeList?page=1&pageNum=1&pageSize=20','/api/comic/comics/sign/key']
-          for host in hosts:
-              try: ips=sorted({x[4][0] for x in socket.getaddrinfo(host,443,type=socket.SOCK_STREAM)})
-              except Exception as e: ips=['dns:'+type(e).__name__]
-              print('\nHOST',host,'IPS',ips[:6])
-              for path in paths:
-                  url='https://'+host+path
-                  req=urllib.request.Request(url,headers={'Accept':'application/json, text/plain, */*','User-Agent':ua,'appVersion':'4.4.5','platform':'android'})
-                  try:
-                      with urllib.request.urlopen(req,timeout=8,context=ctx) as r: raw=r.read(4096); status=r.status; ct=r.headers.get('content-type','')
-                  except urllib.error.HTTPError as e: raw=e.read(4096); status=e.code; ct=e.headers.get('content-type','')
-                  except Exception as e:
-                      print(path,'transport',type(e).__name__); continue
-                  text=raw.decode('utf-8','replace')
-                  summary=''
-                  try:
-                      o=json.loads(text)
-                      summary=json.dumps({k:o.get(k) for k in ['code','status','msg','message','error','success'] if k in o},ensure_ascii=False)
-                  except Exception:
-                      summary=text[:80].replace('\n',' ')
-                  print(path,'status',status,'ct',ct,'body',summary[:180])
-          # Public certificate-transparency discovery for zermh.com; names only, no secrets.
-          try:
-              q='https://crt.sh/?q=%25.zermh.com&output=json'
-              req=urllib.request.Request(q,headers={'User-Agent':'Mozilla/5.0'})
-              with urllib.request.urlopen(req,timeout=30,context=ctx) as r: arr=json.load(r)
-              names=[]
-              for row in arr:
-                  for n in str(row.get('name_value','')).splitlines():
-                      n=n.strip().lower().lstrip('*.')
-                      if n.endswith('.zermh.com') and n not in names: names.append(n)
-              print('\nCT_ZERMH_NAMES',names[-100:])
-          except Exception as e: print('CT_ERROR',type(e).__name__,str(e))
+          python3 - <<'PY' > /tmp/apk_url
+          import json, urllib.request
+          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
+          a=o['data']['datas']['android']
+          print(a['downloadUrl'])
+          print('current_version',a.get('version'),'versionCode',a.get('versionCode'),file=open('/tmp/version','w'))
           PY
+          echo "$(cat /tmp/version)"
+          curl -fL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qingman.apk
+          unzip -p /tmp/qingman.apk lib/arm64-v8a/libqx_security.so > /tmp/libqx_security.so
+          unzip -p /tmp/qingman.apk lib/arm64-v8a/libapp.so > /tmp/libapp.so
+          echo '=== native ELF ==='
+          file /tmp/libqx_security.so
+          readelf -h /tmp/libqx_security.so | sed -n '1,30p'
+          echo '=== native needed libs ==='
+          readelf -d /tmp/libqx_security.so | grep -E 'NEEDED|SONAME' || true
+          echo '=== exported symbols ==='
+          readelf -Ws /tmp/libqx_security.so | grep -Ei 'Java_|bootstrap|proof|sign|header|guard|key|decrypt|encrypt|sha|md5|aes|rsa|hkdf|JNI_OnLoad' | head -250 || true
+          echo '=== defined dynamic symbols ==='
+          nm -D --defined-only /tmp/libqx_security.so | grep -Ei 'Java_|bootstrap|proof|sign|header|guard|key|decrypt|encrypt|sha|md5|aes|rsa|hkdf|JNI_OnLoad' | head -250 || true
+          echo '=== native relevant strings with offsets ==='
+          strings -a -t x /tmp/libqx_security.so | grep -Ei 'qm-bootstrap|qm-native|bootstrap(Sign|Proof|Decrypt)|buildHeaders|initializeSignKeys|apiGuard|appAccess|proofVersion|requestId|deviceId|registerChannel|signature|timestamp|AES|RSA|SHA|HKDF|MD5|android|key' | head -400 || true
+          echo '=== dart relevant strings with offsets ==='
+          strings -a -t x /tmp/libapp.so | grep -Ei 'bootstrap/domain|bootstrap(Sign|Proof|Decrypt)|initializeSignKeys|buildHeaders|X-(Api-Guard|Device-Id|QM-App-Access|QM-Proof|QM-Proof-Version|QM-Request-Id|Register-Channel|Signature|Timestamp)|appAccessToken|appKeyStr|sign/key|device/risk/token/report' | head -400 || true
+          echo '=== disassembly of exported JNI/security functions ==='
+          llvm-objdump -d --no-show-raw-insn /tmp/libqx_security.so \
+            | grep -E -A160 -B8 '<(JNI_OnLoad|Java_.*|.*bootstrap.*|.*buildHeaders.*|.*initializeSignKeys.*|.*apiGuard.*)>' \
+            | head -5000 || true
