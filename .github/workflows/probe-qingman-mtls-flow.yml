@@ -1,4 +1,4 @@
-name: Trace Qingman QxNet mTLS Wrapper Callers
+name: Map Qingman mTLS Flow Function Identities
 
 on:
   push:
@@ -20,7 +20,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq python3-pyelftools python3-capstone cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          sudo apt-get install -y -qq python3-pyelftools cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
           git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
 
       - name: Restore analyzer cache
@@ -32,7 +32,54 @@ jobs:
             /tmp/blutter/packages
           key: qingman-blutter-dart-3.12.2-arm64-v1
 
-      - name: Trace safe QxNet and mTLS caller metadata
+      - name: Patch analyzer to map known safe code addresses
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('/tmp/blutter/blutter/src/main.cpp')
+          s=p.read_text()
+          anchor='\t\tapp.EnterScope();\n#ifndef NO_CODE_ANALYSIS\n'
+          block=(
+              '\t\tapp.EnterScope();\n'
+              '\t\t{\n'
+              '\t\t\tstruct Probe { const char* label; uint64_t addr; };\n'
+              '\t\t\tconst Probe probes[] = {\n'
+              '\t\t\t\t{"mtls_parent", 0xaac870},\n'
+              '\t\t\t\t{"pre_context_create", 0xaace94},\n'
+              '\t\t\t\t{"pre_context_config_a", 0x3e0fb8},\n'
+              '\t\t\t\t{"pre_context_config_b", 0x3e0d5c},\n'
+              '\t\t\t\t{"after_ca_prepare", 0x3d04bc},\n'
+              '\t\t\t\t{"credential_apply_a", 0xaacba4},\n'
+              '\t\t\t\t{"credential_apply_b", 0xaacb14},\n'
+              '\t\t\t\t{"credential_apply_c", 0xaaca84},\n'
+              '\t\t\t\t{"client_build", 0x319738},\n'
+              '\t\t\t\t{"qxnet_startup", 0xbb9e20},\n'
+              '\t\t\t\t{"network_status_init", 0xbb9f0c},\n'
+              '\t\t\t\t{"network_status_inner", 0xbb9fe0},\n'
+              '\t\t\t\t{"adapter_config_call", 0xbba0c8},\n'
+              '\t\t\t\t{"bridge_password", 0xaacc00},\n'
+              '\t\t\t\t{"bridge_ca", 0xaacc80},\n'
+              '\t\t\t\t{"bridge_p12", 0xaacd00},\n'
+              '\t\t\t};\n'
+              '\t\t\tstd::cout << "=== SAFE_FUNCTION_MAP ===\\n";\n'
+              '\t\t\tfor (const auto& q : probes) {\n'
+              '\t\t\t\tauto* fn = app.GetFunction(q.addr);\n'
+              '\t\t\t\tstd::cout << q.label << " addr=0x" << std::hex << q.addr << std::dec;\n'
+              '\t\t\t\tif (fn) std::cout << " name=" << fn->FullName() << " size=0x" << std::hex << fn->Size() << std::dec << " stub=" << fn->IsStub();\n'
+              '\t\t\t\telse std::cout << " name=<unmapped>";\n'
+              '\t\t\t\tstd::cout << "\\n";\n'
+              '\t\t\t}\n'
+              '\t\t}\n'
+              '#ifndef NO_CODE_ANALYSIS\n'
+          )
+          if anchor not in s: raise SystemExit('main.cpp anchor not found')
+          p.write_text(s.replace(anchor,block,1))
+          PY
+          rm -f /tmp/blutter/bin/blutter_dartvm3.12.2_android_arm64
+
+      - name: Run patched analyzer safely
         shell: bash
         run: |
           set -euo pipefail
@@ -50,158 +97,6 @@ jobs:
           cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
           cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
           cd /tmp/blutter
-          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
-
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
-          from elftools.elf.elffile import ELFFile
-
-          # Fixed wrapper entry points established by the previous safe probe.
-          wrappers={
-              0xaacc00:'getClientP12Password_wrapper',
-              0xaacc80:'getCaCert_wrapper',
-              0xaacd00:'getClientP12_wrapper',
-          }
-          target_strings=[
-              'App startup detail: QxNet adapter configured',
-              'getCaCert','getClientP12','getClientP12Password',
-          ]
-          safe_fragments=(
-              'QxNet','adapter','HttpClient','SecurityContext','TLS','mTLS','mtls','bootstrap','apiDomain',
-              '网络','证书','双向','安全','client','Dio'
-          )
-          sensitive=re.compile(r'(?i)(password|private|clientp12|certificate|cert|token|secret|cookie|authorization|bearer|proof|signature|seed|k1a|k1b|k2a|k2b|k3a|k3b)')
-          exact_allowed=set(target_strings)
-
-          pp_lines=Path('/tmp/blutter-out/pp.txt').read_text('utf-8',errors='replace').splitlines()
-          pp={}; strings={}
-          for line in pp_lines:
-              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s+(.*)$',line)
-              if not m: continue
-              off=int(m.group(1),16); val=m.group(2); pp[off]=val
-              sm=re.fullmatch(r'String: "(.*)"',val)
-              if sm: strings[off]=sm.group(1)
-
-          target_offs={}
-          for t in target_strings:
-              for off,s in strings.items():
-                  if s==t: target_offs[off]=t
-          print('=== TARGET STRING OFFSETS ===')
-          for off,name in sorted(target_offs.items()): print(f'{name}: PP+0x{off:x}')
-
-          print('=== SAFE QXNET STRINGS ===')
-          for off,s in sorted(strings.items()):
-              if not any(x.lower() in s.lower() for x in safe_fragments): continue
-              if sensitive.search(s) and s not in exact_allowed: continue
-              if len(s)>200: continue
-              print(f'PP+0x{off:x}: {s}')
-
-          with open('/tmp/app-lib/libapp.so','rb') as f:
-              elf=ELFFile(f); sec=elf.get_section_by_name('.text')
-              base=int(sec['sh_addr']); data=sec.data()
-          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.skipdata=True
-          ins=list(md.disasm(data,base))
-          addr_to_idx={it.address:i for i,it in enumerate(ins)}
-
-          # Find direct branch/call sites into the three native-bridge wrappers.
-          direct=[]
-          for i,it in enumerate(ins):
-              if it.mnemonic not in ('bl','b'): continue
-              m=re.fullmatch(r'#(0x[0-9a-f]+|\d+)',it.op_str.lower())
-              if not m: continue
-              dst=int(m.group(1),0)
-              if dst in wrappers: direct.append((i,dst,wrappers[dst]))
-          print('=== DIRECT WRAPPER CALLERS ===')
-          for i,dst,name in direct:
-              print(f'{name}: caller=0x{ins[i].address:x} -> 0x{dst:x}')
-          print('direct_caller_count='+str(len(direct)))
-
-          # Resolve object-pool string xrefs, especially QxNet configured marker.
-          xrefs=[]; pending={}
-          for i,it in enumerate(ins):
-              pending={r:(b,n-1) for r,(b,n) in pending.items() if n>1}
-              op=it.op_str.lower()
-              m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
-              if it.mnemonic=='add' and m:
-                  pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),20); continue
-              if it.mnemonic not in ('ldr','ldur','ldrsw'): continue
-              m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
-              if not m: continue
-              br=m.group(2); disp=int(m.group(3),0) if m.group(3) else 0
-              off=disp if br=='x27' else (pending[br][0]+disp if br in pending else None)
-              if off in target_offs: xrefs.append((i,off,target_offs[off]))
-          print('=== TARGET STRING XREFS ===')
-          for i,off,name in xrefs: print(f'{name}: xref=0x{ins[i].address:x}')
-
-          def safe_ann_for_window(start,end):
-              anns={}; pend={}
-              for j in range(start,end):
-                  pend={r:(b,n-1) for r,(b,n) in pend.items() if n>1}
-                  it=ins[j]; op=it.op_str.lower()
-                  m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
-                  if it.mnemonic=='add' and m:
-                      pend[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),20); continue
-                  if it.mnemonic not in ('ldr','ldur','ldrsw'): continue
-                  m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
-                  if not m: continue
-                  br=m.group(2); disp=int(m.group(3),0) if m.group(3) else 0
-                  off=disp if br=='x27' else (pend[br][0]+disp if br in pend else None)
-                  if off is None: continue
-                  s=strings.get(off)
-                  if s and any(x.lower() in s.lower() for x in safe_fragments) and not (sensitive.search(s) and s not in exact_allowed) and len(s)<=180:
-                      anns[j]=' ; SAFE='+s
-                  elif off in pp:
-                      anns[j]=' ; POOL=<redacted-or-unrelated>'
-              return anns
-
-          # Build compact windows around each direct wrapper caller and QxNet configured marker.
-          centers=[(i,name) for i,dst,name in direct]+[(i,name) for i,off,name in xrefs if 'QxNet adapter configured' in name]
-          centers.sort()
-          emitted=[]
-          for i,name in centers:
-              if any(abs(i-j)<70 for j in emitted): continue
-              emitted.append(i)
-              start=max(0,i-90); end=min(len(ins),i+140)
-              anns=safe_ann_for_window(start,end)
-              print(f'--- CALLER FLOW {name} center=0x{ins[i].address:x} ---')
-              for j in range(start,end):
-                  it=ins[j]
-                  extra=anns.get(j,'')
-                  # Highlight direct calls to known wrappers.
-                  call=''
-                  if it.mnemonic in ('bl','b'):
-                      m=re.fullmatch(r'#(0x[0-9a-f]+|\d+)',it.op_str.lower())
-                      if m and int(m.group(1),0) in wrappers:
-                          call=' ; WRAPPER_CALL='+wrappers[int(m.group(1),0)]
-                  mark='>>' if j==i else '  '
-                  print(f'{mark} 0x{it.address:x} {it.mnemonic:<8} {it.op_str}{call}{extra}')
-
-          # Inspect nearby pool metadata around bridge method names without printing any credential-like strings.
-          print('=== BRIDGE POOL NEIGHBOR METADATA ===')
-          for anchor in (0x8b40,0x8b50,0x8b60):
-              print(f'--- around PP+0x{anchor:x} ---')
-              for off in sorted(k for k in pp if anchor-0x28 <= k <= anchor+0x28):
-                  val=pp[off]
-                  s=strings.get(off)
-                  if s is not None:
-                      if s in exact_allowed: print(f'PP+0x{off:x}: String: {s}')
-                      else: print(f'PP+0x{off:x}: String: <redacted>')
-                  else:
-                      # non-string metadata can expose closure/function identities but not credentials
-                      print(f'PP+0x{off:x}: {val[:500]}')
-
-          # Safe grep of class/function metadata for network/security types; quoted literals are stripped.
-          print('=== SAFE OBJECT/FUNCTION TYPE HINTS ===')
-          objs=Path('/tmp/blutter-out/objs.txt').read_text('utf-8',errors='replace').splitlines()
-          terms=('SecurityContext','HttpClient','QxNet','QxSecurity','IOHttpClientAdapter')
-          count=0
-          for n,line in enumerate(objs):
-              if not any(t.lower() in line.lower() for t in terms): continue
-              sanitized=re.sub(r'"[^"]*"','"<redacted>"',line)
-              print(f'objs:{n+1}: {sanitized[:800]}')
-              count+=1
-              if count>=120: break
-          print('type_hint_count='+str(count))
-          PY
+          python3 blutter.py /tmp/app-lib /tmp/blutter-out | tee /tmp/blutter-run.log
+          echo '=== extracted safe map ==='
+          grep -E 'SAFE_FUNCTION_MAP|mtls_parent|pre_context_|after_ca_prepare|credential_apply_|client_build|qxnet_startup|network_status_|adapter_config_call|bridge_' /tmp/blutter-run.log || true
