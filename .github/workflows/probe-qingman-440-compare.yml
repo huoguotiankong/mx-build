@@ -1,0 +1,73 @@
+name: Compare Qingman 4.4.0 Mirror To Current Official
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-440-compare.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Download candidate 4.4.0 and current official
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --compressed -A 'Mozilla/5.0 (Linux; Android 16)' --connect-timeout 15 --max-time 240 --retry 3 --retry-all-errors \
+            'https://down.qopcu.com/app/com.pctvke.nps%20%281%29.apk' -o /tmp/qm440.apk
+          python3 - <<'PY' > /tmp/current_url
+          import json,urllib.request
+          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
+          print(o['data']['datas']['android']['downloadUrl'])
+          PY
+          curl -fL --compressed -A 'Mozilla/5.0 (Linux; Android 16)' --connect-timeout 15 --max-time 240 --retry 3 --retry-all-errors \
+            "$(head -1 /tmp/current_url)" -o /tmp/qmcurrent.apk
+          unzip -tq /tmp/qm440.apk >/dev/null
+          unzip -tq /tmp/qmcurrent.apk >/dev/null
+          echo "qm440_bytes=$(wc -c < /tmp/qm440.apk)"
+          echo "qmcurrent_bytes=$(wc -c < /tmp/qmcurrent.apk)"
+
+      - name: Verify identity signing and security surface
+        shell: bash
+        run: |
+          set -euo pipefail
+          AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -1)"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)"
+          for spec in '440:/tmp/qm440.apk' 'current:/tmp/qmcurrent.apk'; do
+            label="${spec%%:*}"; apk="${spec#*:}"
+            echo "=== APK $label ==="
+            echo "md5=$(md5sum "$apk" | awk '{print toupper($1)}')"
+            echo "sha256=$(sha256sum "$apk" | awk '{print $1}')"
+            "$AAPT" dump badging "$apk" | grep -E '^(package:|application-label:|sdkVersion:|targetSdkVersion:)' | head -20 || true
+            echo 'SIGNER_CERT_SHA256:'
+            "$APKSIGNER" verify --print-certs "$apk" 2>/dev/null | grep -Ei 'Signer #1 certificate SHA-256 digest:' | sed 's/.*digest: //' || true
+            echo 'SECURITY_LIBS:'
+            unzip -Z1 "$apk" | grep -Ei '^lib/arm64-v8a/(libqx_security|libsecuritydevice|libsgcore|libcommonV2DevInfo|libapp|libflutter).*\.so$' | sort || true
+            echo 'SAFE_SECURITY_STRINGS:'
+            unzip -p "$apk" lib/arm64-v8a/libapp.so > "/tmp/${label}-libapp.so" || true
+            if [ -s "/tmp/${label}-libapp.so" ]; then
+              strings -a "/tmp/${label}-libapp.so" \
+                | grep -Ei 'bootstrap/domain|api/comic/comics/sign/key|initializeSignKeys|buildHeaders|X-QM-App-Access|X-Api-Guard|ClientCertRequest|SecurityContext_(UsePrivateKeyBytes|UseCertificateChainBytes|SetTrustedCertificatesBytes)|www\.qingman\.|https?://[^ ]+' \
+                | grep -Eiv 'token|password|privatekey|secret|cookie|authorization|bearer' \
+                | sort -u | head -260 || true
+            fi
+          done
+
+      - name: Compare non-sensitive protocol markers
+        shell: bash
+        run: |
+          set -euo pipefail
+          for label in 440 current; do
+            f="/tmp/${label}-libapp.so"
+            echo "=== MARKER_COUNTS $label ==="
+            for p in 'bootstrap/domain' 'api/comic/comics/sign/key' 'initializeSignKeys' 'buildHeaders' 'X-QM-App-Access' 'X-Api-Guard' 'ClientCertRequest' 'SecurityContext_UsePrivateKeyBytes' 'SecurityContext_UseCertificateChainBytes' 'SecurityContext_SetTrustedCertificatesBytes'; do
+              c=$(strings -a "$f" | grep -Fic "$p" || true)
+              printf '%s=%s\n' "$p" "$c"
+            done
+          done
