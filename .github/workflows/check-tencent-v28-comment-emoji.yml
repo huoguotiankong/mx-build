@@ -1,0 +1,358 @@
+name: Check Tencent v28 comment emoji patch
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/check-tencent-v28-comment-emoji.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Check private source token
+        shell: bash
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]]
+
+      - name: Checkout Tencent v28 branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: fix/tencent-v28-comment-emoji-tokens
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: dev
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Apply v28 emoji patch in validation workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          source = Path('dev/src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt')
+          build = Path('dev/src/zh/tencentcomics/build.gradle.kts')
+          docs = Path('dev/docs/sources/tencentcomics.md')
+
+          text = source.read_text('utf-8')
+          old_decode = '''    private fun decodeCommentText(value: String): String {
+              val text = Jsoup.parse(value).text().trim()
+              return TENCENT_EMOJI_CODE.replace(text) { match ->
+                  val code = match.groupValues[1].toIntOrNull()
+                  if (code == null) match.value else TENCENT_EMOJI_TEXT[code] ?: match.value
+              }
+          }
+          '''.replace('              ', '        ').replace('                  ', '            ')
+          new_decode = '''    private fun decodeCommentText(value: String): String {
+              val text = Jsoup.parse(value).text().trim()
+              return TENCENT_EMOJI_TOKEN.replace(text) { match ->
+                  val token = match.groupValues[1]
+                  val numericCode = token.toIntOrNull()
+                  if (numericCode != null) {
+                      TENCENT_EMOJI_TEXT[numericCode] ?: "[表情$token]"
+                  } else {
+                      val label = TENCENT_EMOJI_NAMED_PREFIX.matchEntire(token)
+                          ?.groupValues
+                          ?.getOrNull(1)
+                          ?.takeIf(String::isNotBlank)
+                          ?: token
+                      TENCENT_NAMED_EMOJI_TEXT[label] ?: "[$label]"
+                  }
+              }
+          }
+          '''.replace('              ', '        ').replace('                  ', '            ').replace('                      ', '                ')
+          if old_decode not in text:
+              raise SystemExit('decodeCommentText baseline not found')
+          text = text.replace(old_decode, new_decode, 1)
+
+          old_regex = '        val TENCENT_EMOJI_CODE = Regex("\\\\[:(\\\\d{1,3}):]")\n'
+          new_regex = (
+              '        val TENCENT_EMOJI_TOKEN = Regex("\\\\[:([^:\\\\]\\\\r\\\\n]{1,32}):]")\n'
+              '        val TENCENT_EMOJI_NAMED_PREFIX = Regex("^(?:aadb|bjqgx|xxsy|zcy|sw|[abglqs])(.+)$")\n'
+          )
+          if old_regex not in text:
+              raise SystemExit('emoji regex baseline not found')
+          text = text.replace(old_regex, new_regex, 1)
+
+          numeric_anchor = '            61 to "👍",\n'
+          numeric_extra = '''            62 to "🍚",
+              63 to "🌞",
+              64 to "🌹",
+              65 to "🎂",
+              66 to "💩",
+              67 to "🥺",
+              68 to "😁",
+              69 to "🌙",
+              70 to "✊",
+              71 to "🤝",
+              72 to "🍉",
+              73 to "😵",
+              74 to "🗡️",
+              75 to "☝️",
+              76 to "💔",
+              77 to "🤫",
+              78 to "🤔",
+              79 to "🧍",
+              80 to "🍧",
+              81 to "⚽",
+              82 to "🤞",
+              83 to "❤️",
+              84 to "💣",
+              85 to "😭",
+              86 to "💞",
+              87 to "🐷",
+              88 to "😚",
+              89 to "😏",
+          '''.replace('              ', '            ')
+          if numeric_anchor not in text:
+              raise SystemExit('numeric emoji tail not found')
+          text = text.replace(numeric_anchor, numeric_anchor + numeric_extra, 1)
+
+          named_map = '''        val TENCENT_NAMED_EMOJI_TEXT = mapOf(
+              "OK" to "👌",
+              "Yeah" to "✌️",
+              "鼓掌" to "👏",
+              "点赞" to "👍",
+              "称赞" to "👍",
+              "太赞了" to "👍",
+              "顶起" to "👍",
+              "笑哭" to "😂",
+              "大哭" to "😭",
+              "我哭" to "😭",
+              "哭泣" to "😭",
+              "好伤心" to "😭",
+              "伤心" to "😢",
+              "害羞" to "😊",
+              "生气" to "😡",
+              "发怒" to "😡",
+              "暴怒" to "😡",
+              "吃瓜" to "🍉",
+              "喝茶" to "🍵",
+              "睡觉" to "😴",
+              "可怜" to "🥺",
+              "可怜眼" to "🥺",
+              "喜欢" to "❤️",
+              "爱你" to "❤️",
+              "表白" to "❤️",
+              "狗头" to "🐶",
+              "鬼脸" to "😜",
+              "奸笑" to "😏",
+              "惊" to "😱",
+              "吓到" to "😱",
+              "吓死了" to "😱",
+              "吓死宝宝了" to "😱",
+              "惊呆了" to "😱",
+              "晕" to "😵",
+              "晕倒" to "😵",
+              "醉了" to "😵",
+              "疑问" to "❓",
+              "怀疑" to "🤨",
+              "什么鬼" to "❓",
+              "无奈" to "😑",
+              "无语" to "😑",
+              "嫌弃" to "🙄",
+              "不屑" to "🙄",
+              "鄙视" to "🙄",
+              "呵呵" to "😏",
+              "开心" to "😄",
+              "快乐" to "😄",
+              "好嗨" to "😄",
+              "大笑" to "😄",
+              "思考" to "🤔",
+              "冥想" to "🤔",
+              "抱抱" to "🤗",
+              "安慰" to "🤗",
+              "盯着" to "👀",
+              "强力围观" to "👀",
+              "看书" to "📖",
+              "自信" to "😎",
+              "耍酷" to "😎",
+              "就是这么吊" to "😎",
+              "催更" to "📣",
+              "快更新" to "📣",
+              "还不更新吗" to "📣",
+              "可爱" to "🥰",
+              "卡哇伊" to "🥰",
+              "呆滞" to "😶",
+              "愣住" to "😶",
+              "石化" to "😶",
+              "咦！" to "😯",
+              "嘿嘿" to "😏",
+              "威胁" to "😈",
+              "诅咒作者" to "😈",
+              "安详" to "😌",
+              "慈爱" to "😊",
+              "滑稽" to "😏",
+              "苦笑" to "😅",
+              "酸了" to "🍋",
+              "马赛克" to "🫣",
+              "麻了" to "😵‍💫",
+              "黑线" to "😓",
+              "保证" to "🤝",
+              "头疼" to "🤕",
+              "熬夜" to "🌙",
+              "吐舌" to "😛",
+              "发脾气" to "😤",
+              "我要玩" to "🎮",
+              "辛苦了" to "🙏",
+              "弹幕护体" to "🛡️",
+              "捉急" to "😰",
+              "左亲亲" to "😘",
+              "右亲亲" to "😘",
+              "kiss" to "😘",
+              "感动" to "🥹",
+              "核善" to "🙂",
+              "馋你" to "🤤",
+              "emm" to "😐",
+              "吃手" to "🤭",
+              "猫猫" to "🐱",
+              "鼻血" to "🩸",
+              "掌刮" to "👋",
+              "挖鼻" to "👃",
+              "闭嘴" to "🤐",
+              "吐" to "🤮",
+              "星星眼" to "🤩",
+              "不是吧" to "😮",
+              "哼" to "😤",
+              "路人转粉" to "💖",
+              "长知识了" to "💡",
+              "元气波" to "💥",
+              "又涨新姿势" to "💡",
+          )
+          '''.replace('              ', '            ')
+          json_anchor = '        val JSON = Json {\n'
+          if json_anchor not in text:
+              raise SystemExit('JSON anchor not found')
+          text = text.replace(json_anchor, named_map + json_anchor, 1)
+          source.write_text(text, 'utf-8')
+
+          build_text = build.read_text('utf-8')
+          if 'versionCode = 27' not in build_text:
+              raise SystemExit('versionCode 27 baseline not found')
+          build.write_text(build_text.replace('versionCode = 27', 'versionCode = 28', 1), 'utf-8')
+
+          doc_text = docs.read_text('utf-8')
+          if '当前开发版本：`versionCode = 26`' in doc_text:
+              doc_text = doc_text.replace('当前开发版本：`versionCode = 26`', '当前开发版本：`versionCode = 28`', 1)
+          elif '当前开发版本：`versionCode = 27`' in doc_text:
+              doc_text = doc_text.replace('当前开发版本：`versionCode = 27`', '当前开发版本：`versionCode = 28`', 1)
+          else:
+              raise SystemExit('Tencent docs version marker not found')
+          note = '''
+
+## v28：补全腾讯评论表情 Token
+
+### 用户实机反馈
+
+v27 已实机确认修复 `manhua.acimg.cn/.../0?tp=sharp` 评论图片，但章评正文仍出现原始腾讯表情 Token，例如 `[:068:]` 与 `[:b鼓掌:]`。
+
+### 官方 APK 复核
+
+对用户提供的腾讯动漫 Android 12.19.9 APK 重新读取 DEX 字符串与表情注册代码后确认：
+
+- 数字 Token 不只 `[:000:]`～`[:061:]`，官方注册表实际包含 `[:000:]`～`[:089:]`。
+- DEX 同时包含命名表情系列，如 `a / aadb / b / bjqgx / g / l / q / s / sw / xxsy / zcy`。
+- `[:b鼓掌:]` 是官方 Token，不是用户手工文本。
+- v23 仅按 APK 的 `assets/chatbuildinemojis/emoji_0..61.png` 判断数字范围，因此遗漏了新注册表中的 62～89 与命名系列。
+
+### v28 实现
+
+- 表情正则升级为统一 Token 解析，不再只接受纯数字。
+- 数字 `000`～`089` 全部提供 Unicode 近似显示；`[:068:]` 映射为 `😁`。
+- 命名系列先去除官方系列前缀，再按语义映射常见表情；`[:b鼓掌:]` 映射为 `👏`。
+- 未明确映射的官方命名 Token 退化为可读的 `[表情名]`，不再暴露 `[:xxx:]` 原始协议代码，也不会静默丢失评论内容。
+- APP 书评、APP 章评、评论回复与 PC 书评兜底继续共用 `decodeCommentText()`。
+- 保留 v27 已实机确认有效的 `tp=sharp` 评论图片修复，不修改图片、签名、解密、排序和分页链路。
+
+当前状态：v28 需完成 current Keiyoushi、Spotless、Debug/Release、lint 验证；最终表情显示仍以 Android 实机为准。
+'''
+          if '## v28：补全腾讯评论表情 Token' not in doc_text:
+              doc_text = doc_text.rstrip() + note + '\n'
+          docs.write_text(doc_text, 'utf-8')
+          PY
+
+          cd dev
+          python3 scripts/validate_sources.py
+          git diff --check
+          grep -F 'versionCode = 28' src/zh/tencentcomics/build.gradle.kts
+          grep -F 'TENCENT_EMOJI_TOKEN' src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+          grep -F '68 to "😁"' src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+          grep -F '"鼓掌" to "👏"' src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+          grep -F 'removeAllQueryParameters("tp")' src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Checkout current Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Overlay patched Tencent extension
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf upstream/src/zh/tencentcomics
+          cp -a dev/src/zh/tencentcomics upstream/src/zh/tencentcomics
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Verify Spotless
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:tencentcomics:spotlessCheck
+
+      - name: Build debug and release
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:tencentcomics:assembleDebug :src:zh:tencentcomics:assembleRelease
+
+      - name: Lint release
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:tencentcomics:lintRelease
+
+      - name: Package validated source patch
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p handoff/src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics handoff/docs/sources
+          cp dev/src/zh/tencentcomics/build.gradle.kts handoff/src/zh/tencentcomics/build.gradle.kts
+          cp dev/src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt \
+            handoff/src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+          cp dev/docs/sources/tencentcomics.md handoff/docs/sources/tencentcomics.md
+          printf '%s\n' 'Validated Tencent Comics v28 comment emoji source patch' > handoff/VALIDATED.txt
+          printf '%s\n' '${{ github.sha }}' >> handoff/VALIDATED.txt
+
+      - name: Upload validated source patch
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tencent-v28-comment-emoji-source
+          path: handoff
+          if-no-files-found: error
+          retention-days: 7
