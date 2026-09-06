@@ -17,43 +17,64 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Probe public config endpoints
+      - name: Probe current config, category and search
         shell: bash
         run: |
           python3 - <<'PY'
-          import json, ssl, urllib.request
+          import json, ssl, urllib.parse, urllib.request
 
-          urls = [
-              "https://apitong.zqykfz.cn/api/com.xinmiaoqu.app/index.json",
-              "https://apitong.trgfd.cn/api/com.xinmiaoqu.app/index.json",
+          config_url = "https://apitong.zqykfz.cn/api/com.xinmiaoqu.app/index.json"
+          pinned_ctx = ssl._create_unverified_context()
+          headers = {"User-Agent": "QingManLSLand/1.0", "Accept": "application/json, */*"}
+
+          def fetch(url, *, unverified=False):
+              req = urllib.request.Request(url, headers=headers)
+              ctx = pinned_ctx if unverified else None
+              with urllib.request.urlopen(req, timeout=15, context=ctx) as r:
+                  raw = r.read(1000000)
+                  return r.status, r.headers.get("content-type"), raw.decode("utf-8", "replace")
+
+          status, ctype, text = fetch(config_url, unverified=True)
+          print("CONFIG", status, ctype)
+          cfg = json.loads(text)
+          api = cfg.get("apiurl", {})
+          print("VERSION", cfg.get("banben"))
+          print("TXTURL", api.get("txturl"))
+          print("OTHERURL", api.get("qitaurl"))
+          print("COVER", api.get("fengmiantuurl"))
+
+          txt = api.get("txturl", "").rstrip("/")
+          other = api.get("qitaurl", "").rstrip("/")
+          probes = [
+              ("CATEGORY_RECOMMEND_1", f"{txt}/fenlei/com.xinmiaoqu.app/{urllib.parse.quote('推荐')}.json", True),
+              ("CATEGORY_RECOMMEND_2", f"{txt}/fenlei/com.xinmiaoqu.app/{urllib.parse.quote('推荐')}1.json", True),
+              ("CATEGORY_XUANHUAN_1", f"{txt}/fenlei/com.xinmiaoqu.app/{urllib.parse.quote('玄幻')}.json", True),
+              ("SEARCH", f"{other}/sousuo?keyword={urllib.parse.quote('斗罗大陆')}", False),
           ]
-          # The Android app pins/trusts the primary config certificate itself.
-          # This diagnostic runner has no such trust anchor, so only this public
-          # config probe uses an unverified TLS context. No credentials are sent.
-          ctx = ssl._create_unverified_context()
-          sensitive = ("token", "password", "passwd", "secret", "private", "cert", "p12", "signature", "proof", "cookie")
 
-          def sanitize(v):
-              if isinstance(v, dict):
-                  return {k: ("<redacted>" if any(s in str(k).lower() for s in sensitive) else sanitize(val)) for k, val in v.items()}
-              if isinstance(v, list):
-                  return [sanitize(x) for x in v]
-              return v
-
-          for url in urls:
-              print("===", url, "===")
-              req = urllib.request.Request(url, headers={"User-Agent": "QingManLSLand/1.0", "Accept": "application/json, */*"})
+          for label, url, pinned in probes:
+              print("===", label, url, "===")
               try:
-                  with urllib.request.urlopen(req, timeout=15, context=ctx) as r:
-                      raw = r.read(200000)
-                      print("status:", r.status)
-                      print("content-type:", r.headers.get("content-type"))
-                      text = raw.decode("utf-8", "replace")
-                      try:
-                          data = json.loads(text)
-                          print(json.dumps(sanitize(data), ensure_ascii=False, indent=2)[:50000])
-                      except Exception:
-                          print(text[:20000])
+                  s, ct, body = fetch(url, unverified=pinned)
+                  print("status:", s, "type:", ct, "bytes:", len(body.encode('utf-8')))
+                  try:
+                      data = json.loads(body)
+                      if isinstance(data, list):
+                          print("kind:list len=", len(data))
+                          for item in data[:3]:
+                              print(json.dumps(item, ensure_ascii=False)[:2000])
+                      elif isinstance(data, dict):
+                          print("kind:dict keys=", list(data.keys())[:30])
+                          if isinstance(data.get("data"), list):
+                              print("data_len=", len(data["data"]))
+                              for item in data["data"][:3]:
+                                  print(json.dumps(item, ensure_ascii=False)[:2000])
+                          else:
+                              print(json.dumps(data, ensure_ascii=False)[:5000])
+                      else:
+                          print(repr(data)[:5000])
+                  except Exception as e:
+                      print("JSON_ERROR", repr(e), body[:3000])
               except Exception as e:
-                  print(type(e).__name__ + ":", e)
+                  print("FETCH_ERROR", type(e).__name__, str(e))
           PY
