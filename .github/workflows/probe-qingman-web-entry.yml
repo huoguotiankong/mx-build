@@ -1,0 +1,66 @@
+name: Inspect Qingman Public Web Entry
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-web-entry.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Inspect redirect chain and public assets
+        shell: bash
+        run: |
+          set -u
+          work=/tmp/qmweb
+          rm -rf "$work" && mkdir -p "$work"
+
+          echo '=== HEAD_CHAIN ==='
+          curl -sSIL --connect-timeout 10 --max-time 30 https://www.qingman.app/ | sed -n '1,120p'
+
+          echo '=== FETCH_ENTRY ==='
+          curl -sSL --connect-timeout 10 --max-time 30 -D "$work/headers" -o "$work/index.html" https://www.qingman.app/ || true
+          echo "final_url=$(curl -sSL -o /dev/null -w '%{url_effective}' --connect-timeout 10 --max-time 30 https://www.qingman.app/ || true)"
+          echo "html_bytes=$(wc -c < "$work/index.html" 2>/dev/null || echo 0)"
+          echo '--- response headers ---'
+          sed -n '1,160p' "$work/headers" 2>/dev/null || true
+
+          echo '=== HTML_PUBLIC_REFERENCES ==='
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, html
+          p=Path('/tmp/qmweb/index.html')
+          s=p.read_text('utf-8',errors='replace') if p.exists() else ''
+          # Print only public navigation/assets/host-like references; no storage/cookie values.
+          refs=[]
+          for m in re.finditer(r'''(?:src|href)\s*=\s*["']([^"']+)["']''',s,re.I):
+              v=html.unescape(m.group(1)).strip()
+              if v and v not in refs: refs.append(v)
+          for v in refs[:100]: print('REF '+v)
+          urls=[]
+          for v in re.findall(r'https?://[A-Za-z0-9._~:/?#\[\]@!$&()*+,;=%-]+',s):
+              v=v.rstrip('"\'<>);,')
+              if v not in urls: urls.append(v)
+          for v in urls[:100]: print('URL '+v)
+          # Common redirect-related snippets, redacting long opaque values.
+          for line in s.splitlines():
+              if re.search(r'(?i)(location|redirect|window\.|settimeout|href\s*=|replace\()',line):
+                  line=re.sub(r'([A-Za-z0-9_-]{48,})','<opaque>',line)
+                  print('JS '+line[:600])
+          PY
+
+          echo '=== SAME_PAGE_TEXT_MARKERS ==='
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          s=Path('/tmp/qmweb/index.html').read_text('utf-8',errors='replace') if Path('/tmp/qmweb/index.html').exists() else ''
+          for pat in ['安全管家','青漫','comic','api/','bootstrap','qingman','urlg.cc']:
+              print(f'{pat}={len(re.findall(re.escape(pat),s,re.I))}')
+          PY
