@@ -1,0 +1,65 @@
+name: Benchmark Mengman CDN signing
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/benchmark-mengman-cdn-v1.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Probe CDN auth and signatures
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, time, urllib.request, urllib.error
+          api='https://api.yisix.cn'
+          static='https://static.yisix.cn'
+          headers={'User-Agent':'okhttp/4.12.0','Accept':'application/json, text/plain, */*','X-Package':'com.mengman.app','X-App-VersionCode':'101'}
+          def get(url):
+              req=urllib.request.Request(url,headers=headers)
+              try:
+                  with urllib.request.urlopen(req,timeout=12) as r:
+                      b=r.read()
+                      return r.status,dict(r.headers),b
+              except urllib.error.HTTPError as e:
+                  return e.code,dict(e.headers),e.read()
+              except Exception as e:
+                  return -1,{},repr(e).encode()
+          print('=== cdn auth config')
+          code,h,b=get(api+'/api/v1/security/cdn-auth-config')
+          print('status',code,'headers',h,'body',b[:4000].decode('utf-8','replace'))
+          key='94e890e3a45ba392c0c519ed45190a4c'
+          paths=['/static/category/list.zip','/static/search/hot_comic.zip']
+          now_s=int(time.time())
+          now_ms=int(time.time()*1000)
+          for path in paths:
+              print('\nPATH',path)
+              for label,ts in [('s',str(now_s)),('ms',str(now_ms))]:
+                  variants={
+                    'key_path_time':key+path+ts,
+                    'key_path_no_slash_time':key+path.lstrip('/')+ts,
+                    'key_slash_path_time':key+'/'+path.lstrip('/')+ts,
+                    'key_time_path':key+ts+path,
+                    'path_key_time':path+key+ts,
+                    'path_time_key':path+ts+key,
+                    'time_key_path':ts+key+path,
+                  }
+                  for vname,raw in variants.items():
+                      sig=hashlib.md5(raw.encode()).hexdigest()
+                      for order in ['sign_ts','ts_sign']:
+                          q=f'sign={sig}&ts={ts}' if order=='sign_ts' else f'ts={ts}&sign={sig}'
+                          url=static+path+'?'+q
+                          c,hh,bb=get(url)
+                          print(label,vname,order,'=>',c,'len',len(bb),'type',hh.get('Content-Type') or hh.get('content-type'),'head',bb[:80])
+                          if c==200:
+                              raise SystemExit('SUCCESS '+url)
+          PY
