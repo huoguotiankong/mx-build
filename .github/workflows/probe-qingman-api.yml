@@ -31,7 +31,7 @@ jobs:
             /tmp/blutter/packages
           key: qingman-blutter-dart-3.12.2-arm64-v1
 
-      - name: Trace high-level bootstrap and domain flow
+      - name: Trace bootstrap fallback and ready callbacks
         shell: bash
         run: |
           set -euo pipefail
@@ -55,82 +55,73 @@ jobs:
           import re
 
           root=Path('/tmp/blutter-out/asm')
-          needles=[
-              'https://mu8xm4cx.zermh.com/bootstrap/domain',
-              'apiDomain',
-              'bootstrap: code=',
-              'apiDomain 已应用',
-              'apiDomain 解析失败',
-              'bootstrap: 下发失败',
-              'bootstrap: 原生签名失败',
-              'proof 生成失败',
-              'bootstrap: 解密失败',
-              '未下发 appAccessToken',
-              'appAccessToken 已应用',
-              'appAccessToken',
-              'App bootstrap: before _initAppEnv',
-              'App bootstrap: after _initAppEnv',
-          ]
+          # Offsets are public strings/control-flow markers only. No signing material is extracted.
+          targets={
+              'before_bootstrap_resolve':'0x3740',
+              'after_bootstrap_resolve':'0x3748',
+              'bootstrap_url':'0xc010',
+              'bootstrap_code':'0xc018',
+              'api_domain_key':'0xc030',
+              'bootstrap_fallback':'0xc040',
+              'missing_access_token':'0xc090',
+              'access_token_applied':'0xc098',
+              'api_domain_parse_failed':'0xc0a0',
+              'api_domain_applied':'0xc0a8',
+              'retry_delay':'0x1ee28',
+              'api_ready_after_retry':'0x1ee38',
+              'builtin_old_domain':'0x2be28',
+          }
 
           files=[]
           for p in root.rglob('*.dart'):
-              try:
-                  files.append((p,p.read_text(encoding='utf-8',errors='replace').splitlines()))
-              except Exception:
-                  pass
+              try: files.append((p,p.read_text(encoding='utf-8',errors='replace').splitlines()))
+              except Exception: pass
 
-          def function_bounds(lines,idx):
+          def bounds(lines,idx):
               s=idx
-              while s>0 and '** addr:' not in lines[s]:
-                  s-=1
-              if '** addr:' not in lines[s]:
-                  s=max(0,idx-180)
+              while s>0 and '** addr:' not in lines[s]: s-=1
+              if '** addr:' not in lines[s]: s=max(0,idx-180)
               e=len(lines)
               for j in range(s+1,len(lines)):
-                  if '** addr:' in lines[j]:
-                      e=j
-                      break
+                  if '** addr:' in lines[j]: e=j; break
               return s,e
 
-          hits=[]
+          dumped=set()
+          print('=== RESOLVED PP REFERENCES ===')
+          for label,off in targets.items():
+              needle=f'[pp+{off}]'.lower()
+              hits=[]
+              for p,lines in files:
+                  for i,line in enumerate(lines):
+                      if needle in line.lower(): hits.append((p,i,line))
+              print(f'\n### {label} {off} hits={len(hits)}')
+              for p,i,line in hits[:20]:
+                  print(f'{p.name}:{i+1}: {line.strip()}')
+              for p,i,line in hits[:6]:
+                  lines=p.read_text(encoding='utf-8',errors='replace').splitlines()
+                  s,e=bounds(lines,i)
+                  key=(str(p),s,e)
+                  if key in dumped: continue
+                  dumped.add(key)
+                  print(f'===== FUNCTION {p.name}:{s+1}-{e} trigger={label} =====')
+                  for n in range(s,min(e,s+1200)):
+                      text=lines[n]
+                      # Only redact values if an unrelated sensitive-looking literal happens to be nearby.
+                      text=re.sub(r'(?i)((?:token|proof|signature|secret|sign|key)\s*[=:]\s*)[^ ]+',r'\1<redacted>',text)
+                      print(text)
+                  print('===== END FUNCTION =====')
+
+          print('\n=== STATIC FIELD / DOMAIN WRITE CLUES ===')
+          clues=['StoreStaticField','LoadStaticField','field_table_values','baseUrl','apiDomain','domain resolve','bootstrap retry']
+          shown=0
           for p,lines in files:
               for i,line in enumerate(lines):
-                  for needle in needles:
-                      if needle.lower() in line.lower():
-                          hits.append((needle,p,i,line))
-
-          print('=== HIGH LEVEL STRING HITS ===')
-          print('hit_count=',len(hits))
-          for needle,p,i,line in hits:
-              print(f'{needle} -> {p.name}:{i+1}: {line.strip()}')
-
-          print('\n=== ENCLOSING FUNCTIONS ===')
-          dumped=set()
-          for needle,p,i,line in hits:
-              lines=p.read_text(encoding='utf-8',errors='replace').splitlines()
-              s,e=function_bounds(lines,i)
-              key=(str(p),s,e)
-              if key in dumped:
-                  continue
-              dumped.add(key)
-              print(f'\n===== FUNCTION {p.name}:{s+1}-{e} trigger={needle} =====')
-              for n in range(s,min(e,s+1100)):
-                  text=lines[n]
-                  # Redact any accidentally inlined token/proof/signature values; field names stay visible.
-                  text=re.sub(r'(?i)((?:token|proof|signature|secret|sign|key)\s*[=:]\s*)[^ ]+',r'\1<redacted>',text)
-                  print(text)
-              print('===== END FUNCTION =====')
-
-          print('\n=== DOMAIN / FALLBACK RELATED OBJECT POOL ===')
-          pp=Path('/tmp/blutter-out/pp.txt').read_text(encoding='utf-8',errors='replace').splitlines()
-          pool_needles=['apiDomain','baseUrl','baseURL','fallback','domain','bootstrap','qingman.mom','zermh.com','appAccessToken']
-          count=0
-          for line in pp:
-              if any(x.lower() in line.lower() for x in pool_needles):
-                  safe=re.sub(r'(?i)((?:token|proof|signature|secret|sign|key)[^\"]*\"?)[:=]?[^\"]*',r'\1<redacted>',line)
-                  print(safe[:1200])
-                  count+=1
-                  if count>=300:
-                      break
-          print('pool_matches=',count)
+                  if any(c.lower() in line.lower() for c in clues):
+                      # Only show lines near functions already identified through target refs when possible.
+                      if any(f'[pp+{off}]'.lower() in '\n'.join(lines[max(0,i-80):min(len(lines),i+80)]).lower() for off in targets.values()):
+                          print(f'{p.name}:{i+1}: {line.strip()}')
+                          shown+=1
+                          if shown>=300: break
+              if shown>=300: break
+          print('clue_lines=',shown)
           PY
