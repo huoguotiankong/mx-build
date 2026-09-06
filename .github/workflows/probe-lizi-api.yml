@@ -18,59 +18,27 @@ jobs:
           curl -fsSL -A "$ua" "$base/app/api/config" -o /tmp/config.json
           curl -fsSL -A "$ua" "$base/app/api/detail/22613" -o /tmp/detail.json
           python3 - <<'PY'
-          import json, pprint
-          c=json.load(open('/tmp/config.json'))
-          d=json.load(open('/tmp/detail.json'))
-          print('=== CONFIG TOP ===')
-          print(c.keys())
-          data=c.get('data',{})
-          print('config data keys=', list(data.keys()))
-          print('cfg_general=', data.get('cfg_general'))
-          print('pic candidates=', {k:v for k,v in data.items() if 'pic' in k.lower() or 'domain' in k.lower() or 'url' in k.lower()})
-          print('=== DETAIL TOP ===')
-          print(d.keys())
-          dd=d.get('data',{})
-          print('detail data type=',type(dd).__name__)
-          if isinstance(dd,dict):
-              print('detail keys=', list(dd.keys()))
-              for k,v in dd.items():
-                  if k in ('comic','comic_info','detail','chapterGroups','chapter_groups','chapters') or 'chapter' in k.lower():
-                      print(k,'=',repr(v)[:15000])
-              # recursively locate chapter-ish objects and IDs
-              def walk(x,path='data'):
-                  if isinstance(x,dict):
-                      if any(k in x for k in ('chapterId','chapterID','chapter_id')) or ('id' in x and any('chapter' in k.lower() for k in x)):
-                          print('CHAPTER_OBJ',path,repr(x)[:2500])
-                      for k,v in x.items(): walk(v,path+'.'+str(k))
-                  elif isinstance(x,list):
-                      for i,v in enumerate(x[:8]): walk(v,path+f'[{i}]')
-              walk(dd)
-          open('/tmp/chapter-id.txt','w').write('')
-          ids=[]
-          def collect(x):
-              if isinstance(x,dict):
-                  for key in ('chapterId','chapterID','chapter_id'):
-                      if key in x:
-                          ids.append(str(x[key]))
-                  if 'id' in x and ('name' in x or 'title' in x) and any('chapter' in k.lower() for k in x):
-                      ids.append(str(x['id']))
-                  for v in x.values(): collect(v)
-              elif isinstance(x,list):
-                  for v in x: collect(v)
-          collect(dd)
-          ids=list(dict.fromkeys(i for i in ids if i and i!='None'))
-          print('chapter ids=',ids[:20])
-          if ids: open('/tmp/chapter-id.txt','w').write(ids[0])
+          import json,base64
+          c=json.load(open('/tmp/config.json'))['data']
+          d=json.load(open('/tmp/detail.json'))['data']
+          g=c.get('cfg_general',{})
+          print('=== GENERAL IMAGE CONFIG ===')
+          print('pic_domain=',g.get('pic_domain'))
+          print('img_generator.generators=',g.get('img_generator',{}).get('generators'))
+          try:
+              print('img_generator.code=',base64.b64decode(g['img_generator']['code']).decode())
+          except Exception as e: print('decode code error',e)
+          print('=== DETAIL ===')
+          print({k:d.get(k) for k in ['id','name','alias','author','tags','content','picY','picX','isend','hits','score','nums','class']})
+          ch=d.get('chapters') or []
+          print('chapter_count=',len(ch))
+          print('first_chapters=',ch[:4])
+          print('last_chapters=',ch[-4:])
+          cid=str(ch[0]['id']) if ch else ''
+          open('/tmp/chapter-id.txt','w').write(cid)
           PY
           cid="$(cat /tmp/chapter-id.txt)"
-          if [ -n "$cid" ]; then
-            echo "=== CHAPTER $cid ==="
-            curl -fsSL -A "$ua" "$base/app/api/chapter/v2/$cid?packname=com.hbsclj.uth&appsign256=cdd266df8b2399c24da38e408b6d9825c7bd2af073229847f551ea653ea096e1" -o /tmp/chapter.json
-            python3 - <<'PY'
-          import json
-          x=json.load(open('/tmp/chapter.json'))
-          print('chapter top keys=',list(x.keys()) if isinstance(x,dict) else type(x).__name__)
-          d=x.get('data',{}) if isinstance(x,dict) else x
-          print('chapter data=',repr(d)[:20000])
-          PY
-          fi
+          echo "=== CHAPTER $cid ==="
+          curl -iLsS -A "$ua" "$base/app/api/chapter/v2/$cid?packname=com.hbsclj.uth&appsign256=cdd266df8b2399c24da38e408b6d9825c7bd2af073229847f551ea653ea096e1" -o /tmp/chapter.raw
+          head -c 30000 /tmp/chapter.raw
+          echo
