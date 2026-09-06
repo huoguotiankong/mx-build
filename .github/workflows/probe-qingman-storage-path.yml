@@ -1,0 +1,103 @@
+name: Trace Qingman Comic Cache Storage Path
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-storage-path.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+
+      - name: Restore analyzer cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+
+      - name: Trace local comic storage directory selection
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/apk_url
+          import json,urllib.request,sys
+          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
+          a=o['data']['datas']['android']
+          print(a['downloadUrl'])
+          print('OFFICIAL_VERSION='+str(a.get('version','')),file=sys.stderr)
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(head -1 /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          mkdir -p /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/apk-extract
+          cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter
+          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          lines=Path('/tmp/blutter-out/pp.txt').read_text('utf-8',errors='replace').splitlines()
+          entries=[]
+          for line in lines:
+              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s+(.*)$',line)
+              if m: entries.append((int(m.group(1),16),m.group(2)))
+          by={o:v for o,v in entries}
+          sensitive=re.compile(r'(?i)(token|secret|password|cookie|authorization|bearer|private|clientp12|certificate|proof|signature)')
+          terms=(
+              'comic_download/','comic_download','cache_index_incache_comic','cache_index_comic','cache_comic',
+              'comic_cache_tasks','comic_cache_title','comic_cache_chapter','comic_cache_chapter_title','comic_cache_chapter_url',
+              'ep_comic_cache_page','local_chapter_cache','chapternumcache',
+              'getapplicationdocumentsdirectory','getapplicationsupportdirectory','gettemporarydirectory','getexternalstoragedirectory',
+              'getexternalstoragedirectories','getdownloadsDirectory','path_provider','externalstorage','applicationdocuments','application support',
+              'documentsdirectory','cachedirectory','downloadsdirectory','storage/emulated','android/data/'
+          )
+          hits=[]
+          for off,val in entries:
+              if sensitive.search(val): continue
+              low=val.lower()
+              if any(t.lower() in low for t in terms):
+                  hits.append((off,val))
+          print('HIT_COUNT='+str(len(hits)))
+          for off,val in hits[:300]: print(f'HIT PP+0x{off:x} {val[:420]}')
+
+          print('=== NEIGHBORHOODS ===')
+          focus=[h for h in hits if any(x in h[1].lower() for x in ('comic_download','cache_index_incache_comic','comic_cache_tasks','getapplicationdocumentsdirectory','getexternalstoragedirectory','path_provider'))]
+          for off,val in focus[:50]:
+              print(f'--- PP+0x{off:x} {val[:200]} ---')
+              n=0
+              for p in sorted(k for k in by if off-0x300 <= k <= off+0x400):
+                  v=by[p]; low=v.lower()
+                  if sensitive.search(v): continue
+                  if any(x in low for x in ('path','directory','storage','cache','download','comic','chapter','file','hive','box','provider','external','documents','support','temporary')):
+                      print(f'  PP+0x{p:x} {v[:360]}'); n+=1
+                      if n>=100: break
+
+          print('=== CLASS/FIELD HINTS ===')
+          obj=Path('/tmp/blutter-out/objs.txt').read_text('utf-8',errors='replace')
+          selected=[]
+          for line in obj.splitlines():
+              low=line.lower()
+              if sensitive.search(line): continue
+              if any(x in low for x in ('qxdownloadstorage','qxfilecache','qxcacheentry','qxdownloadtask','comic_download','local_chapter_cache','pathprovider')):
+                  selected.append(line)
+          for line in selected[:220]: print(line[:500])
+          PY
