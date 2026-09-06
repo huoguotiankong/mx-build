@@ -10,6 +10,7 @@ on:
 permissions:
   contents: read
 
+# Probe refresh: detail metadata, episodes and genre filters.
 jobs:
   diagnose:
     runs-on: ubuntu-24.04
