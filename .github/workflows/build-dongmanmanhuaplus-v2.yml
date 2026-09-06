@@ -79,12 +79,12 @@ jobs:
           done
 
           # Current androidx preference API accepts Context only for EditTextPreference.
-          # Only adapt plain Preference construction used by the source to the current framework.
+          # Restrict the compatibility replacement to plain Preference lines so it does not alter EditTextPreference.
           python3 - <<'PY'
           from pathlib import Path
           p = Path('dev/src/zh/dongmanmanhuaplus/src/eu/kanade/tachiyomi/extension/zh/dongmanmanhuaplus/DongmanManhuaPlus.kt')
           s = p.read_text('utf-8')
-          s = s.replace('Preference(screen.context).apply {', 'Preference().apply {')
+          s = s.replace('\n        Preference(screen.context).apply {', '\n        Preference().apply {')
           s = s.replace('            isSelectable = false\n', '')
           p.write_text(s, 'utf-8')
           PY
