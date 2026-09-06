@@ -9,36 +9,17 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Inspect current Lizi schemas
+      - name: Test chapter client signature formats
         shell: bash
         run: |
           set -euo pipefail
           base='http://ai.xajtl.com'
           ua='Dart/3.5 (dart:io)'
-          curl -fsSL -A "$ua" "$base/app/api/config" -o /tmp/config.json
-          curl -fsSL -A "$ua" "$base/app/api/detail/22613" -o /tmp/detail.json
-          python3 - <<'PY'
-          import json,base64
-          c=json.load(open('/tmp/config.json'))['data']
-          d=json.load(open('/tmp/detail.json'))['data']
-          g=c.get('cfg_general',{})
-          print('=== GENERAL IMAGE CONFIG ===')
-          print('pic_domain=',g.get('pic_domain'))
-          print('img_generator.generators=',g.get('img_generator',{}).get('generators'))
-          try:
-              print('img_generator.code=',base64.b64decode(g['img_generator']['code']).decode())
-          except Exception as e: print('decode code error',e)
-          print('=== DETAIL ===')
-          print({k:d.get(k) for k in ['id','name','alias','author','tags','content','picY','picX','isend','hits','score','nums','class']})
-          ch=d.get('chapters') or []
-          print('chapter_count=',len(ch))
-          print('first_chapters=',ch[:4])
-          print('last_chapters=',ch[-4:])
-          cid=str(ch[0]['id']) if ch else ''
-          open('/tmp/chapter-id.txt','w').write(cid)
-          PY
-          cid="$(cat /tmp/chapter-id.txt)"
-          echo "=== CHAPTER $cid ==="
-          curl -iLsS -A "$ua" "$base/app/api/chapter/v2/$cid?packname=com.hbsclj.uth&appsign256=cdd266df8b2399c24da38e408b6d9825c7bd2af073229847f551ea653ea096e1" -o /tmp/chapter.raw
-          head -c 30000 /tmp/chapter.raw
-          echo
+          cid='223246'
+          lower='cdd266df8b2399c24da38e408b6d9825c7bd2af073229847f551ea653ea096e1'
+          upper='CDD266DF8B2399C24DA38E408B6D9825C7BD2AF073229847F551EA653EA096E1'
+          for sig in "$lower" "$upper"; do
+            echo "=== sig=$sig ==="
+            curl -sS -A "$ua" -w '\nHTTP:%{http_code}\n' "$base/app/api/chapter/v2/$cid?packname=com.hbsclj.uth&appsign256=$sig" | head -c 8000
+            echo
+          done
