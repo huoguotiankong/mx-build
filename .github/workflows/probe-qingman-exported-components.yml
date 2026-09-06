@@ -1,0 +1,108 @@
+name: Inspect Qingman Exported App Components
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-exported-components.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Fetch current official APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/apk_url
+          import json,urllib.request,sys
+          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
+          a=o['data']['datas']['android']
+          print(a['downloadUrl'])
+          print('OFFICIAL_VERSION='+str(a.get('version','')),file=sys.stderr)
+          print('OFFICIAL_CODE='+str(a.get('versionCode','')),file=sys.stderr)
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(head -1 /tmp/apk_url)" -o /tmp/qingman.apk
+          unzip -p /tmp/qingman.apk AndroidManifest.xml > /tmp/manifest.axml
+
+      - name: Parse manifest component exposure
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import struct
+          b=open('/tmp/manifest.axml','rb').read()
+          def u16(o): return struct.unpack_from('<H',b,o)[0]
+          def u32(o): return struct.unpack_from('<I',b,o)[0]
+          def len8(o):
+              x=b[o]; o+=1
+              if x&0x80: x=((x&0x7f)<<8)|b[o]; o+=1
+              return x,o
+          def len16(o):
+              x=struct.unpack_from('<H',b,o)[0];o+=2
+              if x&0x8000:
+                  y=struct.unpack_from('<H',b,o)[0];o+=2;x=((x&0x7fff)<<16)|y
+              return x,o
+          strings=[]
+          pos=u16(2)
+          while pos+8<=len(b):
+              typ=u16(pos); hs=u16(pos+2); sz=u32(pos+4)
+              if typ==1:
+                  count=u32(pos+8); flags=u32(pos+16); start=pos+u32(pos+20)
+                  utf8=bool(flags&0x100)
+                  offs=[u32(pos+hs+i*4) for i in range(count)]
+                  for off in offs:
+                      o=start+off
+                      if utf8:
+                          _,o=len8(o); n,o=len8(o); s=b[o:o+n].decode('utf-8','replace')
+                      else:
+                          n,o=len16(o); s=b[o:o+n*2].decode('utf-16le','replace')
+                      strings.append(s)
+                  break
+              if sz<8: raise SystemExit('invalid axml')
+              pos+=sz
+          def S(i): return None if i==0xffffffff else strings[i]
+          def V(dt,data):
+              if dt==0x03: return S(data)
+              if dt==0x12: return 'true' if data else 'false'
+              return str(data)
+          pos=u16(2); stack=[]; package=''; rows=[]
+          while pos+8<=len(b):
+              typ=u16(pos); sz=u32(pos+4)
+              if sz<8: break
+              if typ==0x0102:
+                  ext=pos+16; name=S(u32(ext+4)); ast=u16(ext+8); asz=u16(ext+10); cnt=u16(ext+12)
+                  attrs={}; a0=ext+ast
+                  for i in range(cnt):
+                      a=a0+i*asz; key=S(u32(a+4)); raw=u32(a+8); dt=b[a+15]; data=u32(a+16)
+                      attrs[key]=S(raw) if raw!=0xffffffff else V(dt,data)
+                  stack.append(name)
+                  if name=='manifest': package=attrs.get('package','')
+                  if name in ('activity','activity-alias','service','receiver','provider'):
+                      rows.append([name,attrs.get('name',''),attrs.get('exported','<implicit>'),attrs.get('permission',''),attrs.get('authorities','')])
+              elif typ==0x0103:
+                  if stack: stack.pop()
+              pos+=sz
+          print('PACKAGE='+package)
+          print('=== FIRST_PARTY_OR_EXPLICITLY_EXPORTED_COMPONENTS ===')
+          first_party=[]; exposed=[]
+          for kind,name,exported,perm,auth in rows:
+              fp=name.startswith('com.bycgti.') or name.startswith('com.qingman.') or name.startswith(package)
+              if fp:
+                  first_party.append((kind,name,exported,perm,auth))
+              if exported=='true': exposed.append((kind,name,exported,perm,auth))
+          for r in first_party:
+              print('FIRST_PARTY kind=%s name=%s exported=%s permission=%s authorities=%s'%r)
+          print('first_party_count='+str(len(first_party)))
+          print('=== EXPLICIT_EXPORTED ===')
+          for r in exposed:
+              print('EXPORTED kind=%s name=%s exported=%s permission=%s authorities=%s'%r)
+          print('explicit_exported_count='+str(len(exposed)))
+          bridge=[r for r in first_party if r[0] in ('service','receiver','provider') and r[2]=='true']
+          print('first_party_exported_bridge_count='+str(len(bridge)))
+          PY
