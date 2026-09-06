@@ -1,0 +1,186 @@
+name: Probe Miaoqu app protocol
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/miaoqu-app-probe.yml'
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Probe current public app protocol
+        shell: bash
+        run: |
+          python -m pip install --quiet requests cryptography
+          cat >/tmp/probe.py <<'PY'
+          import base64, json, re
+          from urllib.parse import quote, urljoin
+          import requests
+          from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+          CONFIGS = [
+              'https://apitong.zqykfz.cn/api/com.xinmiaoqu.app/index.json',
+              'https://apitong.trgfd.cn/api/com.xinmiaoqu.app/index.json',
+          ]
+          KEY = b'0000o9iu10pol777'
+          s = requests.Session()
+          s.headers.update({'User-Agent':'QingManLSLand/1.0','Accept':'*/*'})
+
+          def get(url):
+              try:
+                  r=s.get(url,timeout=15,allow_redirects=True)
+                  print('GET',url,'->',r.status_code,r.headers.get('content-type'),'len=',len(r.content),'final=',r.url)
+                  return r
+              except Exception as e:
+                  print('GET',url,'-> ERROR',repr(e)); return None
+
+          def parse_json(raw):
+              try: return json.loads(raw.decode('utf-8-sig'))
+              except Exception: return None
+
+          def decrypt(raw):
+              try:
+                  blob=base64.b64decode(re.sub(rb'\s+',b'',raw),validate=True)
+                  return AESGCM(KEY).decrypt(blob[:12],blob[12:],None)
+              except Exception: return None
+
+          def walk(obj,path=''):
+              if isinstance(obj,dict):
+                  for k,v in obj.items():
+                      p=f'{path}.{k}' if path else k
+                      if isinstance(v,(str,int,float,bool)) or v is None:
+                          if any(x in k.lower() for x in ('url','host','domain','category','cate','id','name','title','count','page')):
+                              print(' ',p,'=',str(v)[:500])
+                      walk(v,p)
+              elif isinstance(obj,list):
+                  for i,v in enumerate(obj[:12]): walk(v,f'{path}[{i}]')
+
+          def find(obj,names):
+              if isinstance(obj,dict):
+                  for k,v in obj.items():
+                      if k.lower() in names and isinstance(v,str) and v: return v
+                      hit=find(v,names)
+                      if hit: return hit
+              elif isinstance(obj,list):
+                  for v in obj:
+                      hit=find(v,names)
+                      if hit: return hit
+              return None
+
+          cfg=None
+          for u in CONFIGS:
+              r=get(u)
+              if r is None or not r.ok: continue
+              print('CONFIG PREFIX',r.text[:2000].replace('\n',' '))
+              cfg=parse_json(r.content)
+              if cfg is not None:
+                  print('CONFIG STRUCTURE'); walk(cfg); break
+          if cfg is None: raise SystemExit('NO_LIVE_CONFIG')
+
+          text=find(cfg,{'texturl','text_url','txturl','txt_url'})
+          cover=find(cfg,{'coverimageurl','cover_image_url','coverurl','cover_url'})
+          manga=find(cfg,{'mangaimageurl','manga_image_url','mangaurl','manga_url'})
+          other=find(cfg,{'otherurl','other_url'})
+          print('RESOLVED textUrl',text)
+          print('RESOLVED coverImageUrl',cover)
+          print('RESOLVED mangaImageUrl',manga)
+          print('RESOLVED otherUrl',other)
+
+          manga_id=None
+          if text:
+              base=text.rstrip('/')+'/'
+              for category in ('推荐','爱情','悬疑','搞笑'):
+                  enc=quote(category,safe='')
+                  for rel in (f'fenlei/com.xinmiaoqu.app/{enc}.json',f'api/com.xinmiaoqu.app/{enc}.json'):
+                      r=get(urljoin(base,rel))
+                      if r is None or not r.ok: continue
+                      obj=parse_json(r.content)
+                      if obj is None:
+                          plain=decrypt(r.content)
+                          if plain is not None:
+                              print('CATEGORY DECRYPT OK',category,'len=',len(plain),'prefix=',plain[:1200])
+                              obj=parse_json(plain)
+                      if obj is None:
+                          print('CATEGORY RAW',r.content[:800]); continue
+                      print('CATEGORY JSON',category); walk(obj)
+                      ids=[]
+                      def ids_in(x):
+                          if isinstance(x,dict):
+                              for k,v in x.items():
+                                  if k.lower() in ('id','mangaid','manga_id','comicid','comic_id','bookid','book_id'):
+                                      try:
+                                          n=int(v)
+                                          if n>0: ids.append(n)
+                                      except: pass
+                                  ids_in(v)
+                          elif isinstance(x,list):
+                              for v in x[:50]: ids_in(v)
+                      ids_in(obj)
+                      if ids:
+                          manga_id=ids[0]; print('MANGA_ID',manga_id); break
+                  if manga_id: break
+
+          detail_obj=None
+          if text and manga_id:
+              group=manga_id//1000
+              detail_url=urljoin(text.rstrip('/')+'/',f'miaoqu46/{group}/{manga_id}/info.json')
+              r=get(detail_url)
+              if r is not None and r.ok:
+                  detail_obj=parse_json(r.content)
+                  if detail_obj is None:
+                      plain=decrypt(r.content)
+                      if plain is not None:
+                          print('DETAIL DECRYPT OK len=',len(plain),'prefix=',plain[:3000])
+                          detail_obj=parse_json(plain)
+                  if detail_obj is not None:
+                      print('DETAIL STRUCTURE'); walk(detail_obj)
+
+          if other:
+              for kw in ('斗罗','恋爱'):
+                  r=get(urljoin(other.rstrip('/')+'/', 'sousuo?keyword='+quote(kw,safe='')))
+                  if r is not None and r.ok:
+                      print('SEARCH',kw,'PREFIX',r.text[:3000].replace('\n',' ')); break
+
+          # Try to extract a chapter id/page count from decrypted detail for image-base validation.
+          if detail_obj is not None and manga_id:
+              chapter_ids=[]; page_counts=[]
+              def collect(x):
+                  if isinstance(x,dict):
+                      for k,v in x.items():
+                          kl=k.lower()
+                          if kl in ('chapterid','chapter_id','cid','id'):
+                              try:
+                                  n=int(v)
+                                  if n>0: chapter_ids.append(n)
+                              except: pass
+                          if kl in ('pagecount','page_count','pages','imagecount','image_count'):
+                              try:
+                                  n=int(v)
+                                  if n>0: page_counts.append(n)
+                              except: pass
+                          collect(v)
+                  elif isinstance(x,list):
+                      for v in x[:100]: collect(v)
+              collect(detail_obj)
+              if chapter_ids:
+                  cid=chapter_ids[-1]
+                  group=manga_id//1000
+                  print('IMAGE_TEST manga=',manga_id,'cid=',cid,'pageCounts=',page_counts[:10])
+                  for image_base_name,image_base in [('mangaImageUrl',manga),('coverImageUrl',cover)]:
+                      if not image_base: continue
+                      for page in (1,0):
+                          url=urljoin(image_base.rstrip('/')+'/',f'{group}/{manga_id}/tu/{cid}/{page}.jpeg')
+                          r=get(url)
+                          if r is None: continue
+                          head=r.content[:4096]
+                          print(' IMAGE',image_base_name,'page',page,'status',r.status_code,'type',r.headers.get('content-type'),'len',len(r.content),'head',r.content[:16].hex(),'jpeg_offset',head.find(b'\xff\xd8\xff'))
+          PY
+          python /tmp/probe.py
