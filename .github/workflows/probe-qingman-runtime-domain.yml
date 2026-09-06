@@ -30,6 +30,8 @@ jobs:
           tail -2 /tmp/apk_url
           curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/url)" -o /tmp/qingman.apk
           echo "apk_sha256=$(sha256sum /tmp/qingman.apk | cut -d' ' -f1)"
+          echo '=== packaged native ABIs ==='
+          unzip -Z1 /tmp/qingman.apk | sed -n 's#^lib/\([^/]*\)/.*#\1#p' | sort -u
       - name: Run official app and capture safe bootstrap status
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -39,7 +41,7 @@ jobs:
           disable-animations: true
           emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: |
-            set -euo pipefail
+            set -eu
             adb install -r /tmp/qingman.apk
             PKG="$(aapt dump badging /tmp/qingman.apk | sed -n "s/package: name='\([^']*\)'.*/\1/p")"
             ACT="$(aapt dump badging /tmp/qingman.apk | sed -n "s/launchable-activity: name='\([^']*\)'.*/\1/p")"
