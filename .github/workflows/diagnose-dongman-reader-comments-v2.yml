@@ -1,0 +1,98 @@
+name: Diagnose Dongman reader and comments v2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/diagnose-dongman-reader-comments-v2.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Probe current free reader DOM
+        shell: bash
+        run: |
+          set -euo pipefail
+          url='https://m.dongmanmanhua.cn/FANTASY/fanzhuanlianxisheng/%E7%AC%AC1%E8%AF%9D-%E6%98%A8%E5%A4%A9%E7%9A%84%E6%88%91%E6%98%AF%E9%87%91%E4%B8%8A%E6%B3%AB1/viewer?title_no=2795&episode_no=1'
+          curl -LfsS --compressed -A 'Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140 Mobile Safari/537.36' \
+            -D /tmp/viewer.headers "$url" -o /tmp/viewer.html
+          echo '=== viewer headers ==='
+          sed -n '1,30p' /tmp/viewer.headers
+          echo "viewer bytes=$(wc -c < /tmp/viewer.html)"
+          python3 - <<'PY'
+          from html.parser import HTMLParser
+          from collections import Counter
+          import re
+
+          html=open('/tmp/viewer.html',encoding='utf-8',errors='replace').read()
+          class P(HTMLParser):
+              def __init__(self):
+                  super().__init__(); self.imgs=[]; self.tags=[]; self.scripts=[]
+              def handle_starttag(self, tag, attrs):
+                  d=dict(attrs)
+                  if tag=='img': self.imgs.append(d)
+                  if tag=='script' and d.get('src'): self.scripts.append(d.get('src'))
+                  if d.get('id') or d.get('class'):
+                      self.tags.append((tag,d.get('id',''),d.get('class','')))
+          p=P(); p.feed(html)
+          print('img_count',len(p.imgs))
+          for i,d in enumerate(p.imgs[:80]):
+              interesting={k:v for k,v in d.items() if k in ('id','class','src','data-src','data-url','data-original','data-lazy-src','alt')}
+              print('IMG',i,interesting)
+          print('=== ids/classes containing image/viewer/episode/comment ===')
+          for row in p.tags:
+              s=' '.join(row).lower()
+              if any(x in s for x in ('image','viewer','episode','comment','toon')):
+                  print(row)
+          print('=== scripts ===')
+          for s in p.scripts: print(s)
+          print('=== literal endpoint-ish snippets ===')
+          for pat in [r'.{0,120}_imageList.{0,180}',r'.{0,120}imageUrl.{0,180}',r'.{0,120}comment.{0,180}',r'.{0,120}/v\d+/[^\"\' ]+.{0,120}']:
+              for m in re.finditer(pat,html,re.I|re.S):
+                  print(re.sub(r'\s+',' ',m.group(0))[:500])
+          PY
+
+      - name: Probe official App endpoints without credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://apis.dongmanmanhua.cn'
+          probe() {
+            name="$1"; method="$2"; url="$3"; ctype="${4:-}"; data="${5:-}"
+            echo "===== $name ====="
+            rm -f /tmp/h /tmp/b
+            args=(-sS -L --compressed -D /tmp/h -o /tmp/b -w '%{http_code}' -X "$method" \
+              -H 'Accept: application/json' \
+              -H 'Accept-Language: zh-CN,zh;q=0.9' \
+              -H 'User-Agent: Dongman/Android')
+            if [[ -n "$ctype" ]]; then args+=(-H "Content-Type: $ctype"); fi
+            if [[ -n "$data" ]]; then args+=(--data "$data"); fi
+            code=$(curl "${args[@]}" "$url" || true)
+            echo "HTTP=$code bytes=$(wc -c < /tmp/b 2>/dev/null || echo 0)"
+            grep -Ei '^(content-type|location|server|date|set-cookie|x-)' /tmp/h | head -n 30 || true
+            python3 - <<'PY'
+          from pathlib import Path
+          p=Path('/tmp/b')
+          if p.exists():
+              t=p.read_text(encoding='utf-8',errors='replace')
+              print(t[:5000].replace('\x00',''))
+          PY
+          }
+
+          probe 'episode-info GET camel' GET "$base/app/episode/info/v5?titleNo=2795&episodeNo=1"
+          probe 'episode-info GET snake' GET "$base/app/episode/info/v5?title_no=2795&episode_no=1"
+          probe 'episode-info POST json' POST "$base/app/episode/info/v5" 'application/json; charset=utf-8' '{"titleNo":2795,"episodeNo":1}'
+          probe 'episode-info POST form' POST "$base/app/episode/info/v5" 'application/x-www-form-urlencoded' 'titleNo=2795&episodeNo=1'
+
+          probe 'comment-v2 GET' GET "$base/v2/comment?titleNo=2795&episodeNo=1&pageNo=1&pageSize=20"
+          probe 'comment-v2 POST json' POST "$base/v2/comment" 'application/json; charset=utf-8' '{"titleNo":2795,"episodeNo":1,"pageNo":1,"pageSize":20}'
+          probe 'comment-v2 POST form' POST "$base/v2/comment" 'application/x-www-form-urlencoded' 'titleNo=2795&episodeNo=1&pageNo=1&pageSize=20'
+          probe 'titleEpisodeInfo2 GET' GET "$base/app/comment/titleEpisodeInfo2?titleNo=2795&episodeNo=1"
+          probe 'titleEpisodeInfo2 POST json' POST "$base/app/comment/titleEpisodeInfo2" 'application/json; charset=utf-8' '{"titleNo":2795,"episodeNo":1}'
+          probe 'titleEpisodeInfo2 POST form' POST "$base/app/comment/titleEpisodeInfo2" 'application/x-www-form-urlencoded' 'titleNo=2795&episodeNo=1'
