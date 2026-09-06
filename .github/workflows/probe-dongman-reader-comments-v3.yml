@@ -1,0 +1,54 @@
+name: Probe Dongman free reader and comments v3
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/probe-dongman-reader-comments-v3.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Probe reader html
+        shell: bash
+        run: |
+          set -euxo pipefail
+          U='https://m.dongmanmanhua.cn/FANTASY/fanzhuanlianxisheng/%E7%AC%AC1%E8%AF%9D-%E6%98%A8%E5%A4%A9%E7%9A%84%E6%88%91%E6%98%AF%E9%87%91%E4%B8%8A%E6%B3%AB1/viewer?title_no=2795&episode_no=1'
+          curl -LfsS --compressed -A 'Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140 Mobile Safari/537.36' "$U" -o /tmp/viewer.html
+          wc -c /tmp/viewer.html
+          echo '--- image attributes ---'
+          grep -oE '<img[^>]+>' /tmp/viewer.html | head -n 120 || true
+          echo '--- imageList/viewer/comment literals ---'
+          grep -oEi '.{0,100}(_imageList|imageList|viewer|comment|episodeInfo|imageUrl).{0,220}' /tmp/viewer.html | head -n 200 || true
+          echo '--- script sources ---'
+          grep -oE '<script[^>]+src="[^"]+"' /tmp/viewer.html | head -n 100 || true
+
+      - name: Probe app APIs
+        shell: bash
+        run: |
+          set -u
+          H=(-H 'Accept: application/json' -H 'Accept-Language: zh-CN,zh;q=0.9' -H 'User-Agent: Dongman/Android')
+          probe_get() {
+            N="$1"; U="$2"; echo "===== $N ====="; curl -sS -L --compressed "${H[@]}" -w '\nHTTP=%{http_code}\n' "$U" | head -c 7000; echo;
+          }
+          probe_post() {
+            N="$1"; U="$2"; T="$3"; D="$4"; echo "===== $N ====="; curl -sS -L --compressed "${H[@]}" -H "Content-Type: $T" --data "$D" -w '\nHTTP=%{http_code}\n' "$U" | head -c 7000; echo;
+          }
+          B='https://apis.dongmanmanhua.cn'
+          probe_get 'episode info GET camel' "$B/app/episode/info/v5?titleNo=2795&episodeNo=1"
+          probe_get 'episode info GET snake' "$B/app/episode/info/v5?title_no=2795&episode_no=1"
+          probe_post 'episode info POST JSON' "$B/app/episode/info/v5" 'application/json; charset=utf-8' '{"titleNo":2795,"episodeNo":1}'
+          probe_post 'episode info POST FORM' "$B/app/episode/info/v5" 'application/x-www-form-urlencoded' 'titleNo=2795&episodeNo=1'
+          probe_get 'comment v2 GET' "$B/v2/comment?titleNo=2795&episodeNo=1&pageNo=1&pageSize=20"
+          probe_post 'comment v2 POST JSON' "$B/v2/comment" 'application/json; charset=utf-8' '{"titleNo":2795,"episodeNo":1,"pageNo":1,"pageSize":20}'
+          probe_post 'comment v2 POST FORM' "$B/v2/comment" 'application/x-www-form-urlencoded' 'titleNo=2795&episodeNo=1&pageNo=1&pageSize=20'
+          probe_get 'titleEpisodeInfo2 GET' "$B/app/comment/titleEpisodeInfo2?titleNo=2795&episodeNo=1"
+          probe_post 'titleEpisodeInfo2 POST JSON' "$B/app/comment/titleEpisodeInfo2" 'application/json; charset=utf-8' '{"titleNo":2795,"episodeNo":1}'
+          probe_post 'titleEpisodeInfo2 POST FORM' "$B/app/comment/titleEpisodeInfo2" 'application/x-www-form-urlencoded' 'titleNo=2795&episodeNo=1'
