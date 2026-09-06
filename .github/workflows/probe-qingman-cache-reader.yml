@@ -1,0 +1,139 @@
+name: Probe Qingman Guest Cache Reader
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-cache-reader.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Resolve APK and bootstrap dynamic host
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools python3-cryptography >/dev/null
+          python3 - <<'PY'
+          import base64,hashlib,json,time,urllib.request,uuid,os,subprocess,zipfile
+          from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+          from elftools.elf.elffile import ELFFile
+          a=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))['data']['datas']['android']
+          print('official_version=',a.get('version'),a.get('versionCode'))
+          subprocess.run(['curl','-fsSL','--retry','2','--connect-timeout','20','--max-time','180',a['downloadUrl'],'-o','/tmp/qingman.apk'],check=True)
+          with zipfile.ZipFile('/tmp/qingman.apk') as z: z.extract('lib/arm64-v8a/libqx_security.so','/tmp/qm')
+          so='/tmp/qm/lib/arm64-v8a/libqx_security.so'
+          with open(so,'rb') as f:
+              elf=ELFFile(f)
+              def rv(va,n):
+                  for seg in elf.iter_segments():
+                      if seg['p_type']!='PT_LOAD': continue
+                      s=int(seg['p_vaddr']); e=s+int(seg['p_filesz'])
+                      if s<=va and va+n<=e:
+                          f.seek(int(seg['p_offset'])+va-s); return f.read(n)
+                  raise RuntimeError('VA not backed')
+              seed=rv(0x14a40,16)+rv(0x14af0,16); sc=rv(0x17d1f,33); ac=rv(0x17d40,32)
+          base=hashlib.sha256(seed).digest()
+          def deob(c,k):
+              s=b''; i=0
+              while len(s)<len(c): s+=hashlib.sha256(base+bytes([k])+i.to_bytes(4,'big')).digest(); i+=1
+              return bytes(a^b for a,b in zip(c,s))
+          sm=deob(sc,1); aes=deob(ac,2); ts=str(int(time.time()*1000)); did=uuid.uuid4().hex; nonce=uuid.uuid4().hex
+          sig=hashlib.sha256(ts.encode()+nonce.encode()+did.encode()+sm).hexdigest()
+          body=json.dumps({'timestamp':ts,'nonce':nonce,'sign':sig,'deviceId':did},separators=(',',':')).encode()
+          req=urllib.request.Request('https://mu8xm4cx.zermh.com/bootstrap/domain',data=body,headers={'Content-Type':'application/json','Accept':'application/json, text/plain, */*','User-Agent':'qingman/4.4.5 (Android)','appVersion':'4.4.5','platform':'android','X-Device-Id':did},method='POST')
+          resp=json.load(urllib.request.urlopen(req,timeout=20)); enc=resp['data']; payload=base64.urlsafe_b64decode(enc+'='*((4-len(enc)%4)%4)); obj=json.loads(AESGCM(aes).decrypt(payload[:12],payload[12:],(ts+'|'+nonce).encode()))
+          from urllib.parse import urlsplit
+          host=urlsplit(obj['apiDomain']).hostname; access=obj['appAccessToken']
+          open('/tmp/qm_host','w').write(host); open('/tmp/qm_access','w').write(access); open('/tmp/qm_did','w').write(did)
+          os.chmod('/tmp/qm_access',0o600); os.chmod('/tmp/qm_did',0o600)
+          print('bootstrap_ok=true dynamic_host='+host+' sensitive_fields_logged=false')
+          PY
+
+      - name: Resolve chapter then probe cache reader matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          host=$(cat /tmp/qm_host); access=$(cat /tmp/qm_access); did=$(cat /tmp/qm_did); comic='1965626277746577408'
+          common=(-H 'Accept: application/json, text/plain, */*' -H 'User-Agent: qingman/4.4.5 (Android)' -H 'appVersion: 4.4.5' -H 'platform: android' -H "X-Device-Id: $did" -H "X-QM-App-Access: $access")
+          tmp=$(mktemp)
+          curl -sS --connect-timeout 8 --max-time 20 "${common[@]}" -o "$tmp" "http://$host/api/comic/chapter/ie84hfh8/homelist/$comic?comicId=$comic"
+          python3 - "$tmp" <<'PY'
+          import json,sys
+          o=json.load(open(sys.argv[1])); found=[]
+          def w(x):
+              if isinstance(x,dict):
+                  cid=x.get('chapterId') or x.get('id'); n=x.get('chapterName') or x.get('chapterTitle') or x.get('title') or x.get('name')
+                  if cid and n and not found: found.append((str(cid),str(n)))
+                  for v in x.values(): w(v)
+              elif isinstance(x,list):
+                  for v in x:w(v)
+          w(o); print('chapter_list_code='+str(o.get('code')),'first='+((found[0][1]) if found else ''))
+          if not found: raise SystemExit('no chapter id')
+          open('/tmp/qm_chapter','w').write(found[0][0])
+          PY
+          rm -f "$tmp"; chapter=$(cat /tmp/qm_chapter)
+
+          summarize() {
+            python3 - "$1" "$2" "$3" <<'PY'
+          import json,sys,re,urllib.parse,os
+          raw=open(sys.argv[1],'rb').read(1048576); text=raw.decode('utf-8','replace')
+          try:o=json.loads(text)
+          except Exception:
+              print(sys.argv[3]+'_http='+sys.argv[2]+' non_json='+re.sub(r'\s+',' ',text[:180])); raise SystemExit
+          urls=[]
+          def w(x):
+              if isinstance(x,dict):
+                  for k,v in x.items():
+                      if k in ('pageUrls','pageUrl','imageUrl','url','images','pages'):
+                          if isinstance(v,str) and v.startswith(('http://','https://')): urls.append(v)
+                          elif isinstance(v,list):
+                              for q in v:
+                                  if isinstance(q,str) and q.startswith(('http://','https://')): urls.append(q)
+                                  elif isinstance(q,dict):
+                                      z=q.get('pageUrl') or q.get('imageUrl') or q.get('url')
+                                      if isinstance(z,str) and z.startswith(('http://','https://')): urls.append(z)
+                      if isinstance(v,(dict,list)): w(v)
+              elif isinstance(x,list):
+                  for v in x:w(v)
+          w(o); urls=list(dict.fromkeys(urls)); hosts=sorted(set(urllib.parse.urlsplit(u).hostname or '' for u in urls)); schemes=sorted(set(urllib.parse.urlsplit(u).scheme for u in urls))
+          print(sys.argv[3]+'_http='+sys.argv[2]+' code='+str(o.get('code'))+' msg='+str(o.get('msg'))+' pages='+str(len(urls))+' schemes='+','.join(schemes)+' hosts='+','.join(hosts[:8]))
+          if urls and not os.path.exists('/tmp/qm_page'): open('/tmp/qm_page','w').write(urls[0])
+          PY
+          }
+
+          echo '=== CACHE DETAIL MATRIX ==='
+          for method in GET POST; do
+            for type in none 0 1 2 3; do
+              query="comicId=$comic&chapterId=$chapter"; [[ "$type" != none ]] && query="$query&type=$type"
+              out=$(mktemp); err=$(mktemp)
+              if [[ "$method" == POST ]]; then
+                code=$(curl -sS --connect-timeout 8 --max-time 20 -X POST "${common[@]}" -H 'Content-Type: application/json' --data '{}' -o "$out" -w '%{http_code}' "http://$host/api/comic/chapter/ie84hfh8/cache/detail?$query" 2>"$err" || true)
+              else
+                code=$(curl -sS --connect-timeout 8 --max-time 20 "${common[@]}" -o "$out" -w '%{http_code}' "http://$host/api/comic/chapter/ie84hfh8/cache/detail?$query" 2>"$err" || true)
+              fi
+              summarize "$out" "$code" "cache_${method}_${type}"
+              rm -f "$out" "$err"
+            done
+          done
+
+          if [[ -s /tmp/qm_page ]]; then
+            echo '=== FIRST PAGE TRANSPORT ==='
+            page=$(cat /tmp/qm_page)
+            for mode in direct plain; do
+              u="$page"; [[ "$mode" == plain ]] && u=$(python3 -c 'import sys,urllib.parse;x=urllib.parse.urlsplit(sys.argv[1]);print(urllib.parse.urlunsplit(("http",x.netloc,x.path,x.query,x.fragment)))' "$page")
+              h=$(mktemp); b=$(mktemp); e=$(mktemp)
+              code=$(curl -sS --connect-timeout 8 --max-time 20 -D "$h" -o "$b" -w '%{http_code}' "$u" 2>"$e" || true)
+              ct=$(awk 'BEGIN{IGNORECASE=1}/^content-type:/{v=$0}END{sub(/^content-type:[ ]*/,"",v);gsub("\r", "", v);print v}' "$h")
+              printf 'page_mode=%s http=%s bytes=%s ctype=%s\n' "$mode" "$code" "$(wc -c < "$b" | tr -d ' ')" "$ct"
+              rm -f "$h" "$b" "$e"
+            done
+          fi
+          rm -f /tmp/qm_access /tmp/qm_did /tmp/qm_chapter /tmp/qm_page
