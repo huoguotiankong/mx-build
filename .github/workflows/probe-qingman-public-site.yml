@@ -14,12 +14,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Print public redirects and referenced hosts
+      - name: Print public redirects and probe referenced hosts
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import re,urllib.request,urllib.parse
+          import re,urllib.request,urllib.parse,urllib.error
           start='https://www.qingman.app/'
           class H(urllib.request.HTTPRedirectHandler):
               def redirect_request(self,req,fp,code,msg,hdrs,newurl):
@@ -27,23 +27,30 @@ jobs:
                   return super().redirect_request(req,fp,code,msg,hdrs,newurl)
           op=urllib.request.build_opener(H())
           req=urllib.request.Request(start,headers={'User-Agent':'Mozilla/5.0'})
-          try:
-              r=op.open(req,timeout=20); final=r.geturl(); body=r.read(500000).decode('utf-8','replace')
-              print('final=',final,'status=',getattr(r,'status',None),'bytes=',len(body))
-          except Exception as e:
-              print('fetch_error=',type(e).__name__,str(e)[:180]); raise
+          r=op.open(req,timeout=20); final=r.geturl(); body=r.read(500000).decode('utf-8','replace')
+          print('final=',final,'status=',getattr(r,'status',None),'bytes=',len(body))
           refs=set()
           for s in re.findall(r'(?i)(?:https?:)?//[^\s"\'<>]+',body):
               if s.startswith('//'): s='https:'+s
               try: refs.add(urllib.parse.urlsplit(s).netloc.lower())
               except Exception: pass
           for s in re.findall(r'(?i)(?:src|href)=["\']([^"\']+)["\']',body):
-              u=urllib.parse.urljoin(final,s)
-              h=urllib.parse.urlsplit(u).netloc.lower()
+              u=urllib.parse.urljoin(final,s); h=urllib.parse.urlsplit(u).netloc.lower()
               if h: refs.add(h)
           print('referenced_hosts=',','.join(sorted(refs)))
-          # Only print compact redirect-like JS targets, never arbitrary page data.
-          for pat in [r'(?i)location(?:\.href|\.replace)?\s*[=(]\s*["\']([^"\']+)',r'(?i)window\.location\s*=\s*["\']([^"\']+)']:
-              for x in re.findall(pat,body):
-                  print('js_target=',urllib.parse.urljoin(final,x)[:300])
+          headers={'Accept':'application/json, text/plain, */*','User-Agent':'qingman/4.4.5 (Android)','appVersion':'4.4.5','platform':'android'}
+          paths=['/','/api/comic/categories/list','/api/comic/comics/v1/homeList','/api/comic/comics/homerecentUpdates']
+          for h in sorted(refs):
+              for p in paths:
+                  u='https://'+h+p
+                  q=urllib.request.Request(u,headers=headers)
+                  try:
+                      with urllib.request.urlopen(q,timeout=10) as rr:
+                          data=rr.read(420).decode('utf-8','replace').replace('\n',' ')
+                          print('probe',h,p,'http=',rr.status,'type=',rr.headers.get('content-type',''),'body=',data[:320])
+                  except urllib.error.HTTPError as e:
+                      data=e.read(420).decode('utf-8','replace').replace('\n',' ')
+                      print('probe',h,p,'http=',e.code,'type=',e.headers.get('content-type',''),'body=',data[:320])
+                  except Exception as e:
+                      print('probe',h,p,'error=',type(e).__name__,str(e)[:120])
           PY
