@@ -67,34 +67,45 @@ jobs:
               sec=next(s for s in elf.iter_sections() if s['sh_addr'] <= probe_addr < s['sh_addr']+s['sh_size'])
               base=sec['sh_addr']; data=sec.data(); name=sec.name
           print(f'code_section={name} base=0x{base:x} size=0x{len(data):x}')
+
           md=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
-          ins=list(md.disasm(data,base))
+          md.skipdata=True
           hits=[]
           pending={}
-          for i,x in enumerate(ins):
+          count=0
+          for x in md.disasm(data,base):
+              count+=1
+              if x.mnemonic.startswith('.'):
+                  pending.clear()
+                  continue
               pending={r:(b,n-1) for r,(b,n) in pending.items() if n>1}
               op=x.op_str.lower()
               m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
-              if x.mnemonic=='add' and m: pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),6)
+              if x.mnemonic=='add' and m:
+                  pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),6)
               if x.mnemonic in ('ldr','ldur','ldrsw'):
                   m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
                   if m:
                       br=m.group(2); disp=int(m.group(3),0) if m.group(3) else 0
                       off=disp if br=='x27' else (pending[br][0]+disp if br in pending else None)
-                      if off in targets: hits.append((i,x.address,off))
+                      if off in targets: hits.append((x.address,off))
+          print('decoded_items=',count)
           print('=== hits ===')
-          for _,a,o in hits: print(f'0x{a:x} PP+0x{o:x} {label(o)}')
+          for a,o in hits: print(f'0x{a:x} PP+0x{o:x} {label(o)}')
+
+          interesting=[h for h in hits if h[1] in {0xbfd0,0xbfd8,0xbfe0,0xbfe8,0xbff0,0xbff8,0xc000,0xc008,0xc010,0xc018,0xc030,0xc038,0xc128,0xc138,0xc140,0xc150}]
           print('=== focused windows ===')
-          interesting=[h for h in hits if h[2] in {0xbfd0,0xbfd8,0xbfe0,0xbfe8,0xbff0,0xbff8,0xc000,0xc008,0xc010,0xc018,0xc030,0xc038,0xc128,0xc138,0xc140,0xc150}]
-          ranges=[]
-          for i,_,_ in interesting:
-              a=max(0,i-26); b=min(len(ins),i+38)
-              if ranges and a<=ranges[-1][1]+8: ranges[-1]=(ranges[-1][0],max(ranges[-1][1],b))
-              else:ranges.append((a,b))
-          hitmap={a:(o,label(o)) for _,a,o in hits}
-          for a,b in ranges:
-              print(f'--- 0x{ins[a].address:x}..0x{ins[b-1].address:x} ---')
-              for x in ins[a:b]:
+          windows=[]
+          for a,_ in interesting:
+              lo=max(base,(a-0x90)&~3); hi=min(base+len(data),(a+0x110)&~3)
+              if windows and lo <= windows[-1][1]+0x20: windows[-1]=(windows[-1][0],max(windows[-1][1],hi))
+              else: windows.append((lo,hi))
+          hitmap={a:(o,label(o)) for a,o in hits}
+          local=Cs(CS_ARCH_ARM64,CS_MODE_ARM); local.skipdata=True
+          for lo,hi in windows:
+              print(f'--- 0x{lo:x}..0x{hi:x} ---')
+              chunk=data[lo-base:hi-base]
+              for x in local.disasm(chunk,lo):
                   extra=''
                   if x.address in hitmap:
                       o,d=hitmap[x.address]; extra=f' ; PP+0x{o:x} {d}'
