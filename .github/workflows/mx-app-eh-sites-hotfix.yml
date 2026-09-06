@@ -1,0 +1,180 @@
+name: MX EH Sites Hotfix
+
+on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/mx-app-eh-sites-hotfix.yml", ".github/mx-eh-sites-hotfix-trigger"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mx-eh-sites-hotfix
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Check secrets
+        env:
+          MX_APP_SIGNING_BUNDLE: ${{ secrets.MX_APP_SIGNING_BUNDLE }}
+          MX_APP_PUBLISH_TOKEN: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+        run: |
+          test -n "$MX_APP_SIGNING_BUNDLE"
+          test -n "$MX_APP_PUBLISH_TOKEN"
+
+      - name: Checkout Stage 3 source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-app
+          ref: integration/mx-stage3-ehentai-20260906
+          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply E-Hentai and ExHentai hotfix
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('app/src/main/java/eu/kanade/tachiyomi/source/online/all/EHentai.kt')
+          s=p.read_text()
+          old='''    override val name = if (exh) {\n        "ExHentai"\n    } else {\n        "E-Hentai"\n    }'''
+          new='''    override val name = if (exh) {\n        "ExHentai（里站）"\n    } else {\n        "E-Hentai（表站）"\n    }'''
+          if old not in s and new not in s: raise SystemExit('EH source name block not found')
+          p.write_text(s.replace(old,new,1))
+          b=Path('app/build.gradle.kts')
+          s=b.read_text()
+          s=re.sub(r'versionCode\\s*=\\s*\\d+', 'versionCode = 89', s, count=1)
+          s=re.sub(r'versionName\\s*=\\s*"[^"]+"', 'versionName = "1.14.9"', s, count=1)
+          b.write_text(s)
+          PY
+          git diff --check
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          build-root-directory: source
+
+      - name: Format and test
+        working-directory: source
+        run: |
+          ./gradlew spotlessApply
+          git diff --check
+          ./gradlew testReleaseUnitTest
+
+      - name: Commit hotfix
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "fix: expose E-Hentai table site and refresh built-in icons"
+            git push origin HEAD:integration/mx-stage3-ehentai-20260906
+          fi
+          echo "SOURCE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Prepare signing key
+        env:
+          MX_APP_SIGNING_BUNDLE: ${{ secrets.MX_APP_SIGNING_BUNDLE }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import base64,json,os
+          from pathlib import Path
+          b=json.loads(os.environ['MX_APP_SIGNING_BUNDLE'])
+          p=Path(os.environ['RUNNER_TEMP'])/'mx-app.jks'; p.write_bytes(base64.b64decode(b['signingKey']))
+          with open(os.environ['GITHUB_ENV'],'a') as f:
+            f.write(f"MX_KEYSTORE_PATH={p}\nMX_KEY_ALIAS={b['alias']}\nMX_KEYSTORE_PASSWORD={b['storePassword']}\nMX_KEY_PASSWORD={b['storePassword']}\n")
+          PY
+
+      - name: Verify signing identity
+        shell: bash
+        run: |
+          expected=c230be9c78bf5d28a101c2cb785923b899aa569ead15961309dea8bbcb34ec33
+          actual=$(keytool -exportcert -alias "$MX_KEY_ALIAS" -keystore "$MX_KEYSTORE_PATH" -storepass "$MX_KEYSTORE_PASSWORD" | sha256sum | awk '{print $1}')
+          test "$actual" = "$expected"
+
+      - name: Build signed Preview APK
+        working-directory: source
+        shell: bash
+        run: |
+          ./gradlew assemblePreview -Pdisable-code-shrink --no-configuration-cache \
+            -Pandroid.injected.signing.store.file="$MX_KEYSTORE_PATH" \
+            -Pandroid.injected.signing.store.password="$MX_KEYSTORE_PASSWORD" \
+            -Pandroid.injected.signing.key.alias="$MX_KEY_ALIAS" \
+            -Pandroid.injected.signing.key.password="$MX_KEY_PASSWORD"
+
+      - name: Verify APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          aapt=$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -1)
+          signer=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)
+          found=0
+          while IFS= read -r apk; do
+            found=1
+            badging=$("$aapt" dump badging "$apk")
+            echo "$badging" | grep -q "name='com.huoguotiankong.mx.beta'"
+            echo "$badging" | grep -q "versionCode='89'"
+            echo "$badging" | grep -q "versionName='1.14.9-"
+            cert=$("$signer" verify --print-certs "$apk" | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')
+            [[ "$cert" == *c230be9c78bf5d28a101c2cb785923b899aa569ead15961309dea8bbcb34ec33* ]]
+          done < <(find source/app/build/outputs/apk/preview -type f -name '*.apk' | sort)
+          test "$found" -eq 1
+
+      - name: Checkout downloads branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-app
+          ref: main
+          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          path: publisher
+          fetch-depth: 1
+
+      - name: Publish APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd publisher
+          git switch --orphan mx-eh-hotfix-downloads
+          git rm -rf . || true
+          git clean -fdx
+          mkdir -p apks
+          arm=$(find ../source/app/build/outputs/apk/preview -maxdepth 1 -type f -name '*arm64-v8a*.apk' | head -1)
+          test -n "$arm"
+          cp "$arm" apks/MX-Manga-arm64-v8a-preview.apk
+          cp "$arm" apks/MX-Manga-arm64-v1.14.9-eh-sites-preview.apk
+          cat > README.md <<EOF
+          # MX漫画 E-Hentai / ExHentai Hotfix Preview
+
+          - 版本：1.14.9 / versionCode 89
+          - ARM64：\`apks/MX-Manga-arm64-v1.14.9-eh-sites-preview.apk\`
+          - 源码：\`$SOURCE_SHA\`
+          - 修复：E-Hentai 表站与 ExHentai 里站明确区分，并更新两套内置图标。
+          EOF
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "Publish MX漫画 1.14.9 EH sites hotfix"
+          git push --force origin HEAD:downloads
+
+      - name: Cleanup
+        if: always()
+        run: rm -f "$RUNNER_TEMP/mx-app.jks"
