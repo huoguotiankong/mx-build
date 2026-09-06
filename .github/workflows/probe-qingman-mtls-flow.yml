@@ -1,0 +1,194 @@
+name: Trace Qingman mTLS Client Setup Flow
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-mtls-flow.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools python3-capstone cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+
+      - name: Restore analyzer cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+
+      - name: Trace safe mTLS setup metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/apk_url
+          import json,urllib.request,sys
+          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
+          a=o['data']['datas']['android']
+          print(a['downloadUrl'])
+          print('OFFICIAL_VERSION='+str(a.get('version','')),file=sys.stderr)
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(head -1 /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          mkdir -p /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/apk-extract
+          cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter
+          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
+
+          # Only metadata/control-flow names are allowed to be printed. No credential values/blobs.
+          targets = [
+              'getCaCert',
+              'getClientP12',
+              'getClientP12Password',
+              'SecurityContext_UsePrivateKeyBytes',
+              'SecurityContext_SetTrustedCertificatesBytes',
+              'SecurityContext_UseCertificateChainBytes',
+              'SecurityContext',
+              'HttpClient',
+              'IOHttpClientAdapter',
+              'createHttpClient',
+              'badCertificateCallback',
+              'qx/security',
+          ]
+          allowed_exact=set(targets)
+          allowed_fragments=(
+              'mTLS','mtls','SecurityContext','HttpClient','client cert','client certificate',
+              '证书','双向','TLS','apiDomain','bootstrap','Dio','adapter'
+          )
+          hard_sensitive=re.compile(r'(?i)(password|private|clientp12|certificate|cert|token|secret|cookie|authorization|bearer|proof|signature|seed|k1a|k1b|k2a|k2b|k3a|k3b)')
+
+          pp_lines=Path('/tmp/blutter-out/pp.txt').read_text('utf-8',errors='replace').splitlines()
+          pp={}
+          string_by_off={}
+          for line in pp_lines:
+              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s+(.*)$',line)
+              if not m: continue
+              off=int(m.group(1),16); val=m.group(2); pp[off]=val
+              sm=re.fullmatch(r'String: "(.*)"',val)
+              if sm: string_by_off[off]=sm.group(1)
+
+          print('=== TARGET POOL OFFSETS ===')
+          target_offsets={}
+          for t in targets:
+              offs=[off for off,s in string_by_off.items() if s==t]
+              target_offsets[t]=offs
+              print(f'{t}: '+(','.join(f'0x{x:x}' for x in offs) if offs else '<not-in-object-pool>'))
+
+          print('=== SAFE NETWORK CONTROL STRINGS ===')
+          shown=0
+          for off,s in sorted(string_by_off.items()):
+              if shown>=100: break
+              if not any(f.lower() in s.lower() for f in allowed_fragments): continue
+              # Never print values that could themselves be credentials; method/control names remain allowed.
+              if hard_sensitive.search(s) and s not in allowed_exact:
+                  continue
+              if len(s)>220: continue
+              print(f'PP+0x{off:x}: {s}')
+              shown+=1
+
+          with open('/tmp/app-lib/libapp.so','rb') as f:
+              elf=ELFFile(f)
+              sec=elf.get_section_by_name('.text')
+              base=int(sec['sh_addr']); data=sec.data()
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.skipdata=True
+          ins=list(md.disasm(data,base))
+
+          wanted={off:name for name,offs in target_offsets.items() for off in offs}
+          xrefs=[]
+          pending={}
+          for idx,it in enumerate(ins):
+              pending={r:(b,n-1) for r,(b,n) in pending.items() if n>1}
+              op=it.op_str.lower()
+              m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
+              if it.mnemonic=='add' and m:
+                  pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),20)
+                  continue
+              if it.mnemonic not in ('ldr','ldur','ldrsw'): continue
+              m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
+              if not m: continue
+              br=m.group(2); disp=int(m.group(3),0) if m.group(3) else 0
+              off=disp if br=='x27' else (pending[br][0]+disp if br in pending else None)
+              if off in wanted:
+                  xrefs.append((idx,off,wanted[off]))
+
+          print('=== TARGET XREFS ===')
+          for idx,off,name in xrefs:
+              print(f'{name}: addr=0x{ins[idx].address:x} pp=0x{off:x}')
+          print('xref_count='+str(len(xrefs)))
+
+          # Print compact instruction windows. Pool annotations are allowlisted labels only.
+          def pool_label_for(it,pending_state):
+              op=it.op_str.lower()
+              m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
+              if it.mnemonic=='add' and m:
+                  pending_state[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),20)
+                  return ''
+              if it.mnemonic not in ('ldr','ldur','ldrsw'): return ''
+              m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
+              if not m: return ''
+              br=m.group(2); disp=int(m.group(3),0) if m.group(3) else 0
+              off=disp if br=='x27' else (pending_state[br][0]+disp if br in pending_state else None)
+              if off is None: return ''
+              if off in wanted: return f' ; TARGET={wanted[off]}'
+              s=string_by_off.get(off)
+              if s and any(f.lower() in s.lower() for f in allowed_fragments) and not (hard_sensitive.search(s) and s not in allowed_exact) and len(s)<=180:
+                  return f' ; SAFE={s}'
+              if off in pp: return ' ; POOL=<redacted-or-unrelated>'
+              return ''
+
+          printed=set()
+          for idx,off,name in xrefs[:60]:
+              # coalesce close xrefs
+              if any(abs(idx-j)<50 for j in printed): continue
+              printed.add(idx)
+              start=max(0,idx-45); end=min(len(ins),idx+90)
+              print(f'--- FLOW {name} xref=0x{ins[idx].address:x} ---')
+              pending_state={}
+              for j in range(start,end):
+                  pending_state={r:(b,n-1) for r,(b,n) in pending_state.items() if n>1}
+                  it=ins[j]
+                  ann=pool_label_for(it,pending_state)
+                  mark='>>' if j==idx else '  '
+                  print(f'{mark} 0x{it.address:x} {it.mnemonic:<8} {it.op_str}{ann}')
+
+          print('=== ASM LOCATION HINTS ===')
+          addr_tokens={f'0x{ins[idx].address:x}':name for idx,off,name in xrefs}
+          hints=0
+          for p in Path('/tmp/blutter-out/asm').rglob('*.dart'):
+              try: lines=p.read_text('utf-8',errors='replace').splitlines()
+              except Exception: continue
+              for i,line in enumerate(lines):
+                  low=line.lower()
+                  matched=[(a,n) for a,n in addr_tokens.items() if a in low]
+                  if not matched: continue
+                  for a,n in matched:
+                      print(f'{n}: file={p.name} line={i+1} addr={a}')
+                      hints+=1
+                      if hints>=80: break
+                  if hints>=80: break
+              if hints>=80: break
+          print('asm_hints='+str(hints))
+          PY
