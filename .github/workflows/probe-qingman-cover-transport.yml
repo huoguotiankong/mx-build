@@ -1,0 +1,164 @@
+name: Probe Qingman Cover Transport
+
+on:
+  push:
+    branches: [probe/qingman-cover-check3]
+    paths:
+      - '.github/workflows/probe-qingman-cover-transport.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Resolve official APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/qm_version
+          import json,urllib.request
+          a=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))['data']['datas']['android']
+          if str(a.get('version'))!='4.4.5' or str(a.get('versionCode'))!='445':
+              raise SystemExit('Unexpected Qingman official version')
+          print(a['downloadUrl'])
+          print(a.get('version',''))
+          print(a.get('versionCode',''))
+          PY
+          sed -n '2,3p' /tmp/qm_version | paste -sd ' ' - | sed 's/^/official_version=/'
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(head -1 /tmp/qm_version)" -o /tmp/qingman.apk
+          rm -rf /tmp/qm-native && mkdir -p /tmp/qm-native
+          unzip -q -j /tmp/qingman.apk 'lib/arm64-v8a/libqx_security.so' -d /tmp/qm-native
+
+      - name: Bootstrap safely
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools python3-cryptography >/dev/null
+          python3 - <<'PY'
+          import base64,hashlib,json,time,urllib.request,uuid,os
+          from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+          from elftools.elf.elffile import ELFFile
+          with open('/tmp/qm-native/libqx_security.so','rb') as f:
+              elf=ELFFile(f)
+              def rv(va,n):
+                  for seg in elf.iter_segments():
+                      if seg['p_type']!='PT_LOAD': continue
+                      s=int(seg['p_vaddr']); e=s+int(seg['p_filesz'])
+                      if s<=va and va+n<=e:
+                          f.seek(int(seg['p_offset'])+va-s); return f.read(n)
+                  raise RuntimeError('VA not backed')
+              seed=rv(0x14a40,16)+rv(0x14af0,16); sc=rv(0x17d1f,33); ac=rv(0x17d40,32)
+          base=hashlib.sha256(seed).digest()
+          def deob(c,k):
+              stream=b''; i=0
+              while len(stream)<len(c):
+                  stream+=hashlib.sha256(base+bytes([k])+i.to_bytes(4,'big')).digest(); i+=1
+              return bytes(a^b for a,b in zip(c,stream))
+          sm=deob(sc,1); aes=deob(ac,2); ts=str(int(time.time()*1000)); did=uuid.uuid4().hex; nonce=uuid.uuid4().hex
+          sig=hashlib.sha256(ts.encode()+nonce.encode()+did.encode()+sm).hexdigest()
+          body=json.dumps({'timestamp':ts,'nonce':nonce,'sign':sig,'deviceId':did},separators=(',',':')).encode()
+          req=urllib.request.Request('https://mu8xm4cx.zermh.com/bootstrap/domain',data=body,headers={'Content-Type':'application/json','Accept':'application/json, text/plain, */*','User-Agent':'qingman/4.4.5 (Android)','appVersion':'4.4.5','platform':'android','X-Device-Id':did},method='POST')
+          resp=json.load(urllib.request.urlopen(req,timeout=20)); enc=resp['data']; payload=base64.urlsafe_b64decode(enc+'='*((4-len(enc)%4)%4))
+          obj=json.loads(AESGCM(aes).decrypt(payload[:12],payload[12:],(ts+'|'+nonce).encode()))
+          from urllib.parse import urlsplit
+          host=urlsplit(obj['apiDomain']).hostname; access=obj['appAccessToken']
+          if not host or not access: raise RuntimeError('bootstrap missing fields')
+          open('/tmp/qm_host','w').write(host+'\n'); open('/tmp/qm_access','w').write(access); open('/tmp/qm_did','w').write(did)
+          os.chmod('/tmp/qm_access',0o600); os.chmod('/tmp/qm_did',0o600)
+          print('bootstrap_ok=true dynamic_host='+host+' sensitive_fields_logged=false')
+          PY
+
+      - name: Probe cover fields and image responses
+        shell: bash
+        run: |
+          set -euo pipefail
+          host=$(cat /tmp/qm_host); access=$(cat /tmp/qm_access); did=$(cat /tmp/qm_did)
+          common=(-H 'Accept: application/json, text/plain, */*' -H 'User-Agent: qingman/4.4.5 (Android)' -H 'appVersion: 4.4.5' -H 'platform: android' -H "X-Device-Id: $did" -H "X-QM-App-Access: $access")
+          home=$(mktemp)
+          hcode=$(curl -sS --connect-timeout 8 --max-time 25 -X POST "${common[@]}" -H 'Content-Type: application/json' --data '{}' -o "$home" -w '%{http_code}' "http://$host/api/comic/comics/v1/homeList?page=1&pageNum=1&pageSize=20" || true)
+          python3 - "$home" "$hcode" <<'PY'
+          import json,sys,urllib.parse,os
+          o=json.load(open(sys.argv[1])); rows=[]
+          def walk(x):
+              if isinstance(x,dict):
+                  if (x.get('comicId') or x.get('id')) and (x.get('comicTitle') or x.get('title') or x.get('comicName')):
+                      rows.append(x)
+                  for v in x.values(): walk(v)
+              elif isinstance(x,list):
+                  for v in x: walk(v)
+          walk(o)
+          print('home_http='+sys.argv[2]+' code='+str(o.get('code'))+' comics='+str(len(rows)))
+          if not rows: raise SystemExit('No comic objects found')
+          seen=set(); selected=None
+          for x in rows:
+              keys=sorted(k for k in x if 'cover' in k.lower() or 'image' in k.lower() or 'pic' in k.lower())
+              sig=','.join(keys)
+              if sig and sig not in seen:
+                  print('cover_keys='+sig); seen.add(sig)
+              for k in ('verticalImageUrl','comicCoverUrl','coverUrl','comicCover','cover','horizontalImageUrl','verticalCover'):
+                  v=x.get(k)
+                  if isinstance(v,str) and v.strip():
+                      u=v.strip(); p=urllib.parse.urlsplit(u)
+                      print('cover_candidate_key='+k+' absolute='+str(bool(p.scheme and p.netloc)).lower()+' scheme='+p.scheme+' host='+(p.hostname or '')+' path_ext='+os.path.splitext(p.path)[1].lower())
+                      if selected is None and p.scheme in ('http','https') and p.netloc: selected=u
+              if selected: break
+          if selected:
+              open('/tmp/qm_cover_url','w').write(selected)
+          cid=str(rows[0].get('comicId') or rows[0].get('id') or '')
+          if cid: open('/tmp/qm_comic_id','w').write(cid)
+          PY
+          rm -f "$home"
+
+          if [[ -s /tmp/qm_comic_id ]]; then
+            comic=$(cat /tmp/qm_comic_id); detail=$(mktemp)
+            dcode=$(curl -sS --connect-timeout 8 --max-time 25 -X POST "${common[@]}" -H 'Content-Type: application/json' --data '{}' -o "$detail" -w '%{http_code}' "http://$host/api/comic/comics/ie84hfh8/detail?comicId=$comic" || true)
+            python3 - "$detail" "$dcode" <<'PY'
+          import json,sys,urllib.parse,os
+          o=json.load(open(sys.argv[1])); found=[]
+          def walk(x):
+              if isinstance(x,dict):
+                  for k,v in x.items():
+                      if ('cover' in k.lower() or 'image' in k.lower() or 'pic' in k.lower()) and isinstance(v,str) and v.strip(): found.append((k,v.strip()))
+                      if isinstance(v,(dict,list)): walk(v)
+              elif isinstance(x,list):
+                  for v in x: walk(v)
+          walk(o)
+          print('detail_http='+sys.argv[2]+' code='+str(o.get('code'))+' cover_values='+str(len(found)))
+          seen=set()
+          for k,u in found[:12]:
+              p=urllib.parse.urlsplit(u); key=(k,p.hostname,p.scheme,os.path.splitext(p.path)[1].lower())
+              if key in seen: continue
+              seen.add(key); print('detail_cover_key='+k+' absolute='+str(bool(p.scheme and p.netloc)).lower()+' scheme='+p.scheme+' host='+(p.hostname or '')+' path_ext='+os.path.splitext(p.path)[1].lower())
+              if not os.path.exists('/tmp/qm_cover_url') and p.scheme in ('http','https') and p.netloc: open('/tmp/qm_cover_url','w').write(u)
+          PY
+            rm -f "$detail"
+          fi
+
+          if [[ -s /tmp/qm_cover_url ]]; then
+            cover=$(cat /tmp/qm_cover_url)
+            echo '=== COVER_TRANSPORT ==='
+            for mode in direct direct_ua direct_referer direct_app plain plain_app; do
+              u="$cover"
+              args=()
+              case "$mode" in
+                direct_ua) args=(-H 'User-Agent: qingman/4.4.5 (Android)') ;;
+                direct_referer) args=(-H 'User-Agent: qingman/4.4.5 (Android)' -H 'Referer: https://www.qingman.app/') ;;
+                direct_app) args=("${common[@]}") ;;
+                plain) u=$(python3 -c 'import sys,urllib.parse;x=urllib.parse.urlsplit(sys.argv[1]);print(urllib.parse.urlunsplit(("http",x.netloc,x.path,x.query,x.fragment)))' "$cover") ;;
+                plain_app) u=$(python3 -c 'import sys,urllib.parse;x=urllib.parse.urlsplit(sys.argv[1]);print(urllib.parse.urlunsplit(("http",x.netloc,x.path,x.query,x.fragment)))' "$cover"); args=("${common[@]}") ;;
+              esac
+              hdr=$(mktemp); body=$(mktemp); err=$(mktemp)
+              code=$(curl -sS -L --connect-timeout 8 --max-time 25 -D "$hdr" -o "$body" -w '%{http_code}' "${args[@]}" "$u" 2>"$err" || true)
+              ctype=$(awk 'BEGIN{IGNORECASE=1}/^content-type:/{v=$0}END{sub(/^content-type:[ ]*/,"",v);gsub("\r", "", v);print v}' "$hdr")
+              printf 'cover_mode=%s http=%s bytes=%s ctype=%s err=%s\n' "$mode" "$code" "$(wc -c < "$body" | tr -d ' ')" "$ctype" "$(tr '\n' ' ' < "$err" | cut -c1-100)"
+              rm -f "$hdr" "$body" "$err"
+            done
+          else
+            echo 'cover_url_found=false'
+          fi
+          rm -f /tmp/qm_host /tmp/qm_access /tmp/qm_did /tmp/qm_comic_id /tmp/qm_cover_url
