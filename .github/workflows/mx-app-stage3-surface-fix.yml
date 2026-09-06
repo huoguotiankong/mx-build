@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/mx-app-stage3-surface-fix.yml"
+      - "scripts/apply_mx_stage3_eh_surface_fix.py"
       - ".github/mx-app-stage3-surface-fix-trigger"
   workflow_dispatch:
 
@@ -29,6 +30,15 @@ jobs:
           [[ -n "$MX_APP_SIGNING_BUNDLE" ]]
           [[ -n "$MX_APP_PUBLISH_TOKEN" ]]
 
+      - name: Checkout build helper
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-build
+          ref: main
+          path: helper
+          fetch-depth: 1
+          persist-credentials: false
+
       - name: Checkout Stage 3 source
         uses: actions/checkout@v5
         with:
@@ -39,16 +49,11 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
-      - name: Prepare 1.14.9 surface-site fix
-        working-directory: source
+      - name: Prepare 1.14.9 E-Hentai surface and icon fix
         run: |
           set -euo pipefail
-          grep -q 'it.id == EH_SOURCE_ID' app/src/main/java/eu/kanade/domain/source/interactor/GetEnabledSources.kt
-          grep -q 'EHENTAI_EXT_SOURCES.forEach' app/src/main/java/eu/kanade/tachiyomi/source/AndroidSourceManager.kt
-          grep -q 'EH_SOURCE_ID to "all"' source-api/src/commonMain/kotlin/exh/source/SourceIds.kt
-          sed -i -E '0,/versionCode = [0-9]+/s//versionCode = 89/' app/build.gradle.kts
-          sed -i -E '0,/versionName = "[^"]+"/s//versionName = "1.14.9"/' app/build.gradle.kts
-          git diff --check
+          python3 helper/scripts/apply_mx_stage3_eh_surface_fix.py source
+          git -C source diff --check
 
       - name: Set up Java
         uses: actions/setup-java@v5
@@ -77,7 +82,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           if ! git diff --cached --quiet; then
-            git commit -m "fix: expose E-Hentai surface site and bump 1.14.9"
+            git commit -m "fix: expose E-Hentai table site and refresh built-in icons"
             git push origin HEAD:integration/mx-stage3-ehentai-20260906
           fi
           echo "SOURCE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
@@ -177,7 +182,8 @@ jobs:
           - ARM64：\`apks/MX-Manga-arm64-v1.14.9-stage3-surface-preview.apk\`
           - 固定地址：\`apks/MX-Manga-arm64-v8a-preview.apk\`
           - 源码：\`$SOURCE_SHA\`
-          - 修复：保留 ExHentai 里站，同时确保内置 E-Hentai 表站可在源列表中发现和使用。
+          - 修复：E-Hentai（表站）与 ExHentai（里站）明确区分，并替换两套内置源图标。
+          - 保留：Stage 1 + Stage 2 + Stage 3 已验证增强。
           EOF
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
