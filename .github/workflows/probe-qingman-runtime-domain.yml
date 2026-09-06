@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   runtime:
-    runs-on: macos-15
+    runs-on: macos-14
     timeout-minutes: 15
     steps:
       - name: Resolve current official APK
@@ -48,6 +48,7 @@ jobs:
           emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-metrics
           script: |
             set -u
+            echo "host_arch=$(uname -m)"
             adb wait-for-device
             adb shell getprop sys.boot_completed
             test -n "$QM_PKG"
