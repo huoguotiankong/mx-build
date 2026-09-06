@@ -1,0 +1,94 @@
+name: Probe Qingman Public Host Candidates
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-public-hosts.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+
+      - name: Restore analyzer cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+
+      - name: Extract hostname candidates and probe read-only routes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/apk_url
+          import json,urllib.request,sys
+          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
+          a=o['data']['datas']['android']
+          print(a['downloadUrl'])
+          print('OFFICIAL_VERSION='+str(a.get('version','')),file=sys.stderr)
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(head -1 /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          mkdir -p /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/apk-extract
+          cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter
+          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
+
+          python3 - <<'PY' > /tmp/hosts
+          from pathlib import Path
+          import re,urllib.parse
+          text=Path('/tmp/blutter-out/pp.txt').read_text('utf-8',errors='replace')
+          hosts=set()
+          for s in re.findall(r'String: "([^"]+)"',text):
+              for url in re.findall(r'https?://[A-Za-z0-9._:-]+',s):
+                  try:
+                      h=urllib.parse.urlsplit(url).hostname
+                  except Exception:
+                      h=None
+                  if not h: continue
+                  h=h.lower().rstrip('.')
+                  if '.' not in h: continue
+                  # Keep only app/vendor hosts relevant to this target; discard generic SDK/CDN hosts.
+                  if any(x in h for x in ('qingman','zermh','mhxiaomidi','xiaomidi')):
+                      hosts.add(h)
+          for h in sorted(hosts): print(h)
+          PY
+
+          echo '=== APP_RELATED_STATIC_HOSTS ==='
+          cat /tmp/hosts
+          echo '=== READ_ONLY_ROUTE_RESULTS ==='
+          while IFS= read -r host; do
+            [ -n "$host" ] || continue
+            for route in api/comic/categories/list api/comic/comics/v1/homeList api/comic/comics/homerecentUpdates; do
+              err=/tmp/err; body=/tmp/body
+              : > "$err"; : > "$body"
+              code=$(curl -sS --connect-timeout 8 --max-time 15 -o "$body" -w '%{http_code}' "https://${host}/${route}" 2>"$err" || true)
+              bytes=$(wc -c < "$body" | tr -d ' ')
+              if grep -qi 'certificate required\|tls.*alert' "$err"; then
+                result='tls-client-certificate-required'
+              elif [ "$code" = '000' ]; then
+                result='connection-failed'
+              else
+                result="http-${code}"
+              fi
+              printf 'host=%s route=%s result=%s bytes=%s\n' "$host" "$route" "$result" "$bytes"
+            done
+          done < /tmp/hosts
