@@ -12,12 +12,14 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     steps:
-      - name: Focus Qingman bootstrap bridge contract
+      - name: Map Qingman Dart bootstrap signing flow
         shell: bash
         run: |
           set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
           python3 - <<'PY' > /tmp/apk_url
           import json, urllib.request
           o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
@@ -27,21 +29,16 @@ jobs:
           PY
           echo "$(cat /tmp/version)"
           curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qingman.apk
-          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 \
-            'https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip' -o /tmp/jadx.zip
-          mkdir -p /tmp/jadx-bin /tmp/jadx-out
-          unzip -q /tmp/jadx.zip -d /tmp/jadx-bin
-          /tmp/jadx-bin/bin/jadx --no-res --show-bad-code -d /tmp/jadx-out /tmp/qingman.apk >/tmp/jadx.log 2>&1 || true
-          BRIDGE=/tmp/jadx-out/sources/P/z.java
-          CRYPTO=/tmp/jadx-out/sources/com/bycgti/xfc/security/QxSecurityCrypto.java
-          CONFIG=/tmp/jadx-out/sources/com/baidu/mobstat/Config.java
-          echo '=== bridge 220-570 ==='
-          sed -n '220,570p' "$BRIDGE"
-          echo '=== bridge helpers 1-220 ==='
-          sed -n '1,220p' "$BRIDGE"
-          echo '=== crypto full ==='
-          sed -n '1,320p' "$CRYPTO"
-          echo '=== Config path constant ==='
-          grep -nE 'FEED_LIST_ITEM_PATH|path' "$CONFIG" | head -80 || true
-          echo '=== security channel registration ==='
-          grep -RInE -C 8 'new MethodChannel.*qx/|setMethodCallHandler' /tmp/jadx-out/sources/P /tmp/jadx-out/sources/com/bycgti/xfc 2>/dev/null | head -600 || true
+          mkdir -p /tmp/app-lib /tmp/blutter-out
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/apk-extract
+          cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+          cd /tmp/blutter
+          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1 || true
+          echo '=== blutter tail ==='
+          tail -120 /tmp/blutter.log || true
+          echo '=== bootstrap/signing symbols ==='
+          grep -RInE -C 18 'bootstrap/domain|bootstrapSign|bootstrapProof|bootstrapDecrypt|initializeSignKeys|buildHeaders|canonicalRequest|appAccessToken|appKeyStr|X-QM-Proof|X-QM-App-Access|X-Api-Guard|detailPath|chapterListPath|readPath|cachePath|k1a|k1b|k2a|k2b|k3a|k3b' /tmp/blutter-out/asm /tmp/blutter-out/objs.txt /tmp/blutter-out/pp.txt 2>/dev/null | head -8000 || true
+          echo '=== likely network/security classes ==='
+          grep -RInE -C 8 'bootstrap|canonicalRequest|requestId|nonce|X-Signature|apiGuard' /tmp/blutter-out/asm 2>/dev/null | head -8000 || true
