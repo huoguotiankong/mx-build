@@ -1,0 +1,147 @@
+name: Trace Qingman Public Data Paths
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-public-data-paths.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+
+      - name: Restore analyzer cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+
+      - name: Inspect public routes and non-secret hosts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/apk_url
+          import json, urllib.request, sys
+          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
+          a=o['data']['datas']['android']
+          print(a['downloadUrl'])
+          print('OFFICIAL_VERSION='+str(a.get('version','')), file=sys.stderr)
+          print('OFFICIAL_VERSION_CODE='+str(a.get('versionCode','')), file=sys.stderr)
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(head -1 /tmp/apk_url)" -o /tmp/qingman.apk
+
+          echo '=== APK WEB/CONFIG ASSET NAMES ==='
+          unzip -Z1 /tmp/qingman.apk | grep -Ei '(html|\.js$|\.json$|web|h5|share|config|domain|comic|manga)' | head -300 || true
+
+          rm -rf /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          mkdir -p /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/apk-extract
+          cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter
+          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
+
+          python3 - <<'PY' | tee /tmp/qingman-public-paths.txt
+          from pathlib import Path
+          from urllib.parse import urlsplit
+          import re
+
+          lines=Path('/tmp/blutter-out/pp.txt').read_text('utf-8',errors='replace').splitlines()
+          entries=[]
+          for line in lines:
+              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s+(.*)$',line)
+              if m:
+                  entries.append((int(m.group(1),16),m.group(2)))
+
+          sensitive=re.compile(r'(?i)(token|password|private|clientp12|certificate|secret|cookie|authorization|bearer)')
+          url_re=re.compile(r'https?://[^\s"<>]+')
+          path_re=re.compile(r'(?<![A-Za-z0-9_])(?:api/|/api/|/comic/|comic/|/h5/|h5/|/share/|share/|/web/|web/)[A-Za-z0-9_./?=&%-]*',re.I)
+
+          print('=== PUBLIC URL STRINGS ===')
+          hosts=set(); urls=[]
+          for off,val in entries:
+              if sensitive.search(val):
+                  continue
+              for u in url_re.findall(val):
+                  if sensitive.search(u):
+                      continue
+                  urls.append((off,u))
+                  try:
+                      h=urlsplit(u).hostname
+                      if h: hosts.add(h)
+                  except Exception:
+                      pass
+          seen=set()
+          for off,u in urls:
+              if u in seen: continue
+              seen.add(u)
+              print(f'URL PP+0x{off:x} {u[:320]}')
+
+          print('=== HOSTS ===')
+          for h in sorted(hosts): print(h)
+
+          print('=== COMIC/H5/SHARE/WEB PATH STRINGS ===')
+          shown=set()
+          for off,val in entries:
+              if sensitive.search(val): continue
+              low=val.lower()
+              if any(k in low for k in ('api/comic','comic/','/comic','h5','share','webview','web_view','deeplink','deep_link','qingman.app','imagecdn','img-','cdn','cache/detail')):
+                  if val in shown: continue
+                  shown.add(val)
+                  print(f'PATH PP+0x{off:x} {val[:420]}')
+
+          print('=== NEIGHBORHOODS FOR PUBLIC MARKERS ===')
+          markers=[]
+          for off,val in entries:
+              low=val.lower()
+              if sensitive.search(val): continue
+              if any(k in low for k in ('www.qingman.app','webview','web_view','deeplink','deep_link','shareurl','share_url','h5url','h5_url','comic/detail','comic/read')):
+                  markers.append((off,val))
+          by={off:val for off,val in entries}
+          for off,val in markers[:40]:
+              print(f'--- MARKER PP+0x{off:x} {val[:220]} ---')
+              for p in sorted(k for k in by if off-0x80 <= k <= off+0x100):
+                  v=by[p]
+                  if sensitive.search(v):
+                      print(f'  PP+0x{p:x} <redacted-sensitive-entry>')
+                  elif any(k in v.lower() for k in ('http','comic','share','web','h5','url','route','path','open','page','host','domain','cdn','img')):
+                      print(f'  PP+0x{p:x} {v[:300]}')
+          PY
+
+          echo '=== PUBLIC HOST HTTP PROBES ==='
+          python3 - <<'PY'
+          import re, subprocess
+          from pathlib import Path
+          text=Path('/tmp/qingman-public-paths.txt').read_text('utf-8',errors='replace')
+          hosts=[]
+          for line in text.splitlines():
+              if re.fullmatch(r'[A-Za-z0-9.-]+',line) and '.' in line:
+                  hosts.append(line)
+          deny=('mhxiaomidi.com','qingman.mom')
+          allow=[]
+          for h in hosts:
+              if h.endswith(deny):
+                  continue
+              if h not in allow:
+                  allow.append(h)
+          for h in allow[:30]:
+              url='https://'+h+'/'
+              p=subprocess.run(['curl','-L','--compressed','--connect-timeout','7','--max-time','15','-sS','-o','/dev/null','-w','%{http_code} %{url_effective} %{content_type}',url],capture_output=True,text=True)
+              print('PROBE',h,p.stdout.strip() or ('ERR '+p.stderr.strip()[:120]))
+          PY
