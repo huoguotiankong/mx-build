@@ -152,3 +152,5 @@ jobs:
       - name: Cleanup signing material
         if: always()
         run: rm -f upstream/signingkey.jks
+
+# Trigger Qingman v1 staging after workflow registration.
