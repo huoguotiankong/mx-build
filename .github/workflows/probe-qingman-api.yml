@@ -29,7 +29,7 @@ jobs:
             /tmp/blutter/dartsdk
             /tmp/blutter/packages
           key: qingman-blutter-dart-3.12.2-arm64-v1
-      - name: Dump bootstrap AOT request windows
+      - name: Dump targeted bootstrap AOT windows
         shell: bash
         run: |
           set -euo pipefail
@@ -46,10 +46,11 @@ jobs:
           cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
           cd /tmp/blutter
           python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1 || true
-          tail -12 /tmp/blutter.log || true
 
-          echo '=== Blutter address ownership hints ==='
-          grep -RInE -C 12 '0x515[0-9a-fA-F]{3}|0x5160[0-9a-fA-F]{2}|0xb1a[3-9a-b][0-9a-fA-F]{2}' /tmp/blutter-out/asm /tmp/blutter-out/objs.txt 2>/dev/null | head -2200 || true
+          echo '=== owner around Dart bootstrap orchestration ==='
+          grep -RInE -C 6 '0x515[6-9a-f][0-9a-fA-F]{2}|0x516018' /tmp/blutter-out/asm 2>/dev/null | head -900 || true
+          echo '=== owner around bootstrap HTTP request ==='
+          grep -RInE -C 8 '0xb1a[3-9a-b][0-9a-fA-F]{2}' /tmp/blutter-out/asm 2>/dev/null | head -900 || true
 
           python3 - <<'PY'
           from pathlib import Path
@@ -64,15 +65,20 @@ jobs:
 
           with open('/tmp/app-lib/libapp.so','rb') as f:
               elf=ELFFile(f)
-              exec_secs=[s for s in elf.iter_sections() if (int(s['sh_flags']) & 0x4) and int(s['sh_size'])]
-              def bytes_for(start,end):
-                  s=next(x for x in exec_secs if int(x['sh_addr']) <= start < int(x['sh_addr'])+int(x['sh_size']))
-                  b=int(s['sh_addr']); return s.data()[start-b:end-b]
+              exec_secs=[]
+              for s in elf.iter_sections():
+                  if (int(s['sh_flags']) & 0x4) and int(s['sh_size']):
+                      exec_secs.append((int(s['sh_addr']),s.data()))
+          def bytes_for(start,end):
+              b,d=next((b,d) for b,d in exec_secs if b <= start < b+len(d))
+              return d[start-b:end-b]
 
           md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.skipdata=True
           ranges=[
-              ('dart-bootstrap-orchestration',0x514f00,0x516180),
-              ('bootstrap-http-request',0xb1a3c4,0xb1ac20),
+              ('dart-bootstrap-main',0x515700,0x515f50),
+              ('bootstrap-http-build-send',0xb1a3c4,0xb1a8c0),
+              ('bootstrap-http-response',0xb1a980,0xb1ab40),
+              ('nonce-closure',0x516018,0x516120),
           ]
           for label,start,end in ranges:
               print('\n===',label,hex(start),hex(end),'===')
@@ -91,7 +97,7 @@ jobs:
                           br=mm.group(2); disp=int(mm.group(3),0) if mm.group(3) else 0
                           off=disp if br=='x27' else (pending[br][0]+disp if br in pending else None)
                           if off in pp:
-                              d=pp[off].replace('\n',' ')[:240]
+                              d=pp[off].replace('\n',' ')[:260]
                               comment=f' ; PP+0x{off:x} {d}'
                   print(f'{ins.address:08x}: {ins.mnemonic:<8} {ins.op_str}{comment}')
           PY
