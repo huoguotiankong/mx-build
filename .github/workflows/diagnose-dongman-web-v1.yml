@@ -10,7 +10,6 @@ on:
 permissions:
   contents: read
 
-# Probe refresh: detail metadata, episodes and genre filters.
 jobs:
   diagnose:
     runs-on: ubuntu-24.04
@@ -21,22 +20,16 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p out
-          urls=(
-            'https://m.dongmanmanhua.cn/LOVE/buguoshilimingshifen/list?title_no=2738'
-            'https://www.dongmanmanhua.cn/LOVE/buguoshilimingshifen/list?title_no=2738'
-            'https://m.dongmanmanhua.cn/genre'
-            'https://www.dongmanmanhua.cn/genre'
-            'https://m.dongmanmanhua.cn/search?keyword=%E4%B8%8D%E8%BF%87%E6%98%AF%E9%BB%8E%E6%98%8E%E6%97%B6%E5%88%86'
-          )
-          i=0
-          for url in "${urls[@]}"; do
-            i=$((i+1))
-            echo "=== probe $i: $url ==="
-            code=$(curl -L --compressed -A 'Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140 Mobile Safari/537.36' -H 'Accept-Language: zh-CN,zh;q=0.9' -H 'Referer: https://m.dongmanmanhua.cn/' -sS -o "out/$i.html" -w '%{http_code}' "$url" || true)
-            echo "http=$code bytes=$(wc -c < "out/$i.html")"
-          done
+          curl -L --compressed -A 'Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140 Mobile Safari/537.36' \
+            -H 'Accept-Language: zh-CN,zh;q=0.9' -sS \
+            'https://m.dongmanmanhua.cn/FANTASY/skyhigh/list?title_no=2756' -o out/detail.html
+          curl -L --compressed -A 'Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140 Mobile Safari/537.36' \
+            -H 'Accept-Language: zh-CN,zh;q=0.9' -sS \
+            'https://m.dongmanmanhua.cn/genre' -o out/genre.html
+          echo "detail bytes=$(wc -c < out/detail.html)"
+          echo "genre bytes=$(wc -c < out/genre.html)"
 
-      - name: Inspect document structure
+      - name: Inspect exact filter and detail DOM
         shell: bash
         run: |
           set -euo pipefail
@@ -44,45 +37,66 @@ jobs:
           python3 - <<'PY'
           from bs4 import BeautifulSoup
           from pathlib import Path
-          selectors = [
-              'h1','h2','h3',
-              '.detail_header','.detail_body','.info','.summary','.author','.author_area','.genre','.day_info',
-              '#_asideDetail','#_listUl','ul#_listUl li','.episode_lst li','.episode_list li',
-              '[class*=episode]','[class*=detail]','[class*=summary]','[class*=author]','[class*=genre]',
-              'a[href*="title_no="]','a[href*="episode_no="]','a[href*="episodeNo="]',
-              'a[href*="genre"]','a[href*="webtoonGenre"]','a[href*="complete"]','a[href*="sortOrder"]',
-          ]
-          for p in sorted(Path('out').glob('*.html')):
-              text=p.read_text('utf-8', errors='replace')
-              soup=BeautifulSoup(text,'html.parser')
-              print(f'=== {p.name} title={soup.title.get_text(" ", strip=True) if soup.title else ""!r} ===')
-              for sel in selectors:
-                  nodes=soup.select(sel)
-                  if nodes:
-                      sample=' | '.join(' '.join(n.stripped_strings)[:180] for n in nodes[:3])
-                      print(f'{sel}: {len(nodes)} :: {sample}')
-              print('--- ids/classes with detail/list/episode/author/genre/summary/info ---')
-              seen=[]
-              for tag in soup.find_all(True):
-                  tid=tag.get('id')
-                  cls=' '.join(tag.get('class', []))
-                  key=(tid or '')+' '+cls
-                  if any(k in key.lower() for k in ['detail','list','episode','author','genre','summary','info','webtoon','comic']):
-                      item=(tag.name, tid, cls, ' '.join(tag.stripped_strings)[:160])
-                      if item not in seen:
-                          seen.append(item)
-              for item in seen[:120]: print(item)
-              print('--- relevant links ---')
-              for a in soup.select('a[href]'):
-                  href=a.get('href','')
-                  label=' '.join(a.stripped_strings)
-                  if any(k in href for k in ['title_no','episode_no','episodeNo','genre','complete','sortOrder']):
-                      print(href, '::', label[:120])
-              print('--- meta ---')
-              for m in soup.select('meta[name],meta[property]'):
-                  k=m.get('name') or m.get('property')
-                  if k and any(x in k.lower() for x in ['title','description','author','image']):
-                      print(k, '=>', m.get('content','')[:200])
+          import re
+
+          detail = BeautifulSoup(Path('out/detail.html').read_text('utf-8', errors='replace'), 'html.parser')
+          genre = BeautifulSoup(Path('out/genre.html').read_text('utf-8', errors='replace'), 'html.parser')
+
+          print('=== DETAIL INFO LAYER ===')
+          layer = detail.select_one('#_informationLayer')
+          print(layer.prettify()[:12000] if layer else 'missing #_informationLayer')
+
+          print('=== DETAIL META ===')
+          for m in detail.select('meta[name], meta[property]'):
+              key = m.get('name') or m.get('property') or ''
+              val = m.get('content') or ''
+              if any(k in key.lower() for k in ['title','description','author','image','genre','section','type']):
+                  print(key, '=>', val[:500])
+
+          print('=== DETAIL SCRIPTS: genre/status/category/titleNo ===')
+          for i, s in enumerate(detail.find_all('script')):
+              text = s.get_text('\n', strip=False)
+              if any(k.lower() in text.lower() for k in ['genre','category','completed','complete','finish','titleNo','title_no','episode_list']):
+                  hits=[]
+                  for pat in [r'.{0,160}genre.{0,240}', r'.{0,160}category.{0,240}', r'.{0,160}complet.{0,240}', r'.{0,160}titleNo.{0,240}', r'.{0,160}title_no.{0,240}']:
+                      hits.extend(re.findall(pat, text, flags=re.I|re.S)[:4])
+                  if hits:
+                      print(f'-- script {i} --')
+                      for h in hits[:12]: print(' '.join(h.split())[:700])
+
+          print('=== EPISODE LIST FIRST/LAST ===')
+          eps = detail.select('.episode_list li')
+          print('count=', len(eps))
+          for idx, li in list(enumerate(eps[:3])) + list(enumerate(eps[-3:], start=max(0,len(eps)-3))):
+              print(f'-- ep[{idx}] --')
+              print(str(li)[:3500])
+
+          print('=== GENRE NAV/FILTER LINKS ===')
+          wanted = ['ROMANCE','BOY','FANTASY','ANCIENTCHINESE','COMIC','CAMPUS','CITY','CURE','SUSPENSE','ENCOURAGE','MOVIE','NEW','FREE','COMPLETED']
+          for key in wanted:
+              nodes = genre.select(f'a[data-sc-name*="M_genre-page_{key}-genre-list-item"]')
+              print(f'[{key}] count={len(nodes)}')
+              seen=set()
+              for a in nodes:
+                  sig=(a.get('href',''), a.get('data-sc-name',''), ' '.join(a.stripped_strings))
+                  if sig in seen: continue
+                  seen.add(sig)
+                  print(' href=', sig[0], ' sc=', sig[1], ' text=', sig[2][:100])
+                  if len(seen) >= 8: break
+
+          print('=== SORT-LIKE LINKS / LABELS ===')
+          for a in genre.select('a[href], button, input, option'):
+              label=' '.join(a.stripped_strings) or a.get('value','') or a.get('title','') or ''
+              sc=a.get('data-sc-name','') or ''
+              href=a.get('href','') or ''
+              blob=' '.join([label,sc,href])
+              if any(k in blob for k in ['最近更新','人气','关注','sort','favorite_count','read_count','UPDATE','READ_COUNT','LIKEIT']):
+                  print(a.name, 'href=', href, 'sc=', sc, 'value=', a.get('value',''), 'text=', label[:160])
+
+          print('=== UNIQUE DATA-SC-NAME VALUES ===')
+          vals=sorted({n.get('data-sc-name') for n in genre.select('[data-sc-name]') if n.get('data-sc-name')})
+          for v in vals:
+              if 'genre-page' in v: print(v)
           PY
 
       - name: Upload probe HTML
