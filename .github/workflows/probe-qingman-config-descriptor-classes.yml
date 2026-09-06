@@ -1,4 +1,4 @@
-name: Resolve Qingman Request GDT Targets
+name: Disassemble Qingman Request GDT Targets
 
 on:
   push:
@@ -20,7 +20,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq python3-pyelftools cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          sudo apt-get install -y -qq python3-pyelftools python3-capstone cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
           git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
 
       - name: Restore analyzer cache
@@ -32,55 +32,7 @@ jobs:
             /tmp/blutter/packages
           key: qingman-blutter-dart-3.12.2-arm64-v1
 
-      - name: Patch Blutter to print safe GDT target metadata
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          p=Path('/tmp/blutter/blutter/src/main.cpp')
-          s=p.read_text()
-          s=s.replace('#include "args.hxx"\n', '#include "args.hxx"\n#include "vm/thread.h"\n')
-          anchor='\t\tapp.EnterScope();\n#ifndef NO_CODE_ANALYSIS\n'
-          block=(
-              '\t\tapp.EnterScope();\n'
-              '\t\t{\n'
-              '\t\t\tauto* thread = dart::Thread::Current();\n'
-              '\t\t\tauto* gdt = thread->dispatch_table_array();\n'
-              '\t\t\tstruct Probe { const char* label; intptr_t cid; intptr_t offset; };\n'
-              '\t\t\tconst Probe probes[] = {\n'
-              '\t\t\t\t{"app_beba", 992, 0xbeba},\n'
-              '\t\t\t\t{"app_db15", 992, 0xdb15},\n'
-              '\t\t\t\t{"app_dc93", 992, 0xdc93},\n'
-              '\t\t\t\t{"chaping_beba", 1114, 0xbeba},\n'
-              '\t\t\t\t{"chaping_db15", 1114, 0xdb15},\n'
-              '\t\t\t\t{"chaping_dc93", 1114, 0xdc93},\n'
-              '\t\t\t};\n'
-              '\t\t\tstd::cout << "=== SAFE_GDT_TARGETS ===\\n";\n'
-              '\t\t\tfor (const auto& q : probes) {\n'
-              '\t\t\t\tconst intptr_t index = q.cid + q.offset;\n'
-              '\t\t\t\tconst uintptr_t entry = static_cast<uintptr_t>(gdt[index]);\n'
-              '\t\t\t\tstd::cout << q.label << " cid=" << q.cid << " offset=0x" << std::hex << q.offset << " index=0x" << index << std::dec;\n'
-              '\t\t\t\tif (entry == 0) { std::cout << " entry=null\\n"; continue; }\n'
-              '\t\t\t\tstd::cout << " entry_rel=";\n'
-              '\t\t\t\tif (entry >= static_cast<uintptr_t>(app.base())) {\n'
-              '\t\t\t\t\tconst uint64_t rel = entry - static_cast<uintptr_t>(app.base());\n'
-              '\t\t\t\t\tstd::cout << "0x" << std::hex << rel << std::dec;\n'
-              '\t\t\t\t\tauto* fn = app.GetFunction(rel);\n'
-              '\t\t\t\t\tif (fn != nullptr) std::cout << " fn=" << fn->FullName(); else std::cout << " fn=<unmapped>";\n'
-              '\t\t\t\t} else { std::cout << "<outside-libapp>"; }\n'
-              '\t\t\t\tstd::cout << "\\n";\n'
-              '\t\t\t}\n'
-              '\t\t}\n'
-              '#ifndef NO_CODE_ANALYSIS\n'
-          )
-          if anchor not in s:
-              raise SystemExit('main.cpp anchor not found')
-          p.write_text(s.replace(anchor,block,1))
-          PY
-          rm -f /tmp/blutter/bin/blutter_dartvm3.12.2_android_arm64
-
-      - name: Resolve current APK and run patched analyzer
+      - name: Run analyzer and disassemble resolved GDT functions
         shell: bash
         run: |
           set -euo pipefail
@@ -98,6 +50,63 @@ jobs:
           cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
           cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
           cd /tmp/blutter
-          python3 blutter.py /tmp/app-lib /tmp/blutter-out | tee /tmp/blutter-run.log
-          echo '=== extracted target lines ==='
-          grep -E 'SAFE_GDT_TARGETS|app_(beba|db15|dc93)|chaping_(beba|db15|dc93)' /tmp/blutter-run.log || true
+          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
+
+          sensitive=re.compile(r'(?i)(token|secret|password|cookie|authorization|bearer|private|clientp12|certificate|proof|signature|sign/key|k1a|k1b|k2a|k2b|k3a|k3b|seed)')
+          pp={}
+          for line in Path('/tmp/blutter-out/pp.txt').read_text('utf-8',errors='replace').splitlines():
+              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s+(.*)$',line)
+              if m: pp[int(m.group(1),16)]=m.group(2)
+
+          with open('/tmp/app-lib/libapp.so','rb') as f:
+              elf=ELFFile(f)
+              sec=elf.get_section_by_name('.text')
+              base=int(sec['sh_addr']); data=sec.data()
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.skipdata=True
+
+          def safe(v):
+              if not v: return ''
+              if sensitive.search(v): return '<redacted-sensitive>'
+              return v[:500]
+
+          def dump(label,start,max_bytes=0x240):
+              print(f'=== {label} start=0x{start:x} ===')
+              pending={}; count=0
+              for ins in md.disasm(data[start-base:start-base+max_bytes],start):
+                  pending={r:(b,n-1) for r,(b,n) in pending.items() if n>1}
+                  op=ins.op_str.lower(); ann=''
+                  m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
+                  if ins.mnemonic=='add' and m:
+                      pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),18)
+                  elif ins.mnemonic in ('ldr','ldur','ldrsw'):
+                      m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
+                      if m:
+                          br=m.group(2); disp=int(m.group(3),0) if m.group(3) else 0
+                          off=disp if br=='x27' else (pending[br][0]+disp if br in pending else None)
+                          if off is not None and off in pp:
+                              ann=f' ; PP+0x{off:x}={safe(pp[off])}'
+                  print(f'{ins.address:#x} {ins.mnemonic:<8} {ins.op_str}{ann}')
+                  count+=1
+                  if ins.mnemonic=='ret' and count>=3:
+                      break
+
+          dump('APP_SLOT_BEBA',0x7e2f78)
+          dump('CHAPING_SLOT_BEBA',0x7e25d0)
+          dump('COMMON_SLOT_DB15',0x6586f4)
+          dump('COMMON_SLOT_DC93',0x6582cc)
+
+          print('=== BLUTTER ASM ADDRESSES ===')
+          targets=('0x7e2f78','0x7e25d0','0x6586f4','0x6582cc')
+          for p in Path('/tmp/blutter-out/asm').rglob('*.dart'):
+              try: lines=p.read_text('utf-8',errors='replace').splitlines()
+              except Exception: continue
+              for i,line in enumerate(lines):
+                  if any(t in line.lower() for t in targets):
+                      print(f'{p.name}:{i+1}: {line[:700]}')
+          PY
