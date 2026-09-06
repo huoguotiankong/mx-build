@@ -1,0 +1,97 @@
+name: Probe Qingman Login Contract
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-login-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Resolve current APK and bootstrap host
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/qm_version
+          import json,urllib.request
+          a=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))['data']['datas']['android']
+          print(a['downloadUrl']); print(a.get('version','')); print(a.get('versionCode',''))
+          PY
+          sed -n '2,3p' /tmp/qm_version | paste -sd ' ' - | sed 's/^/official_version=/'
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(head -1 /tmp/qm_version)" -o /tmp/qingman.apk
+          rm -rf /tmp/qm-native && mkdir -p /tmp/qm-native
+          unzip -q -j /tmp/qingman.apk 'lib/arm64-v8a/libqx_security.so' -d /tmp/qm-native
+
+      - name: Bootstrap without exposing credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools python3-cryptography >/dev/null
+          python3 - <<'PY'
+          import base64,hashlib,json,time,urllib.request,uuid,os
+          from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+          from elftools.elf.elffile import ELFFile
+          so='/tmp/qm-native/libqx_security.so'
+          with open(so,'rb') as f:
+              elf=ELFFile(f)
+              def rv(va,n):
+                  for seg in elf.iter_segments():
+                      if seg['p_type']!='PT_LOAD': continue
+                      s=int(seg['p_vaddr']); e=s+int(seg['p_filesz'])
+                      if s<=va and va+n<=e:
+                          f.seek(int(seg['p_offset'])+va-s); return f.read(n)
+                  raise RuntimeError('VA not backed')
+              seed=rv(0x14a40,16)+rv(0x14af0,16); sc=rv(0x17d1f,33); ac=rv(0x17d40,32)
+          base=hashlib.sha256(seed).digest()
+          def deob(c,k):
+              stream=b''; i=0
+              while len(stream)<len(c): stream+=hashlib.sha256(base+bytes([k])+i.to_bytes(4,'big')).digest(); i+=1
+              return bytes(a^b for a,b in zip(c,stream))
+          sm=deob(sc,1); aes=deob(ac,2); ts=str(int(time.time()*1000)); did=uuid.uuid4().hex; nonce=uuid.uuid4().hex
+          sig=hashlib.sha256(ts.encode()+nonce.encode()+did.encode()+sm).hexdigest(); body=json.dumps({'timestamp':ts,'nonce':nonce,'sign':sig,'deviceId':did},separators=(',',':')).encode()
+          req=urllib.request.Request('https://mu8xm4cx.zermh.com/bootstrap/domain',data=body,headers={'Content-Type':'application/json','Accept':'application/json, text/plain, */*','User-Agent':'qingman/4.4.5 (Android)','appVersion':'4.4.5','platform':'android','X-Device-Id':did},method='POST')
+          resp=json.load(urllib.request.urlopen(req,timeout=20)); enc=resp['data']; payload=base64.urlsafe_b64decode(enc+'='*((4-len(enc)%4)%4)); obj=json.loads(AESGCM(aes).decrypt(payload[:12],payload[12:],(ts+'|'+nonce).encode()))
+          from urllib.parse import urlsplit
+          host=urlsplit(obj['apiDomain']).hostname; access=obj['appAccessToken']
+          open('/tmp/qm_dynamic_host','w').write(host+'\n'); open('/tmp/qm_app_access','w').write(access); open('/tmp/qm_device_id','w').write(did)
+          os.chmod('/tmp/qm_app_access',0o600); os.chmod('/tmp/qm_device_id',0o600)
+          print('bootstrap_ok=true'); print('dynamic_host='+host); print('sensitive_bootstrap_fields_logged=false')
+          PY
+
+      - name: Probe login request contract with empty payload only
+        shell: bash
+        run: |
+          set -euo pipefail
+          host=$(cat /tmp/qm_dynamic_host); access=$(cat /tmp/qm_app_access); did=$(cat /tmp/qm_device_id)
+          url="http://$host/api/appapi/user/f9384dh/login"
+          common=(-H 'Accept: application/json, text/plain, */*' -H 'User-Agent: qingman/4.4.5 (Android)' -H 'appVersion: 4.4.5' -H 'platform: android' -H "X-Device-Id: $did" -H "X-QM-App-Access: $access")
+          for mode in get post_json post_form post_query; do
+            out=$(mktemp); err=$(mktemp)
+            case "$mode" in
+              get) code=$(curl -sS --connect-timeout 8 --max-time 15 "${common[@]}" -o "$out" -w '%{http_code}' "$url" 2>"$err" || true) ;;
+              post_json) code=$(curl -sS --connect-timeout 8 --max-time 15 -X POST "${common[@]}" -H 'Content-Type: application/json' --data '{}' -o "$out" -w '%{http_code}' "$url" 2>"$err" || true) ;;
+              post_form) code=$(curl -sS --connect-timeout 8 --max-time 15 -X POST "${common[@]}" -H 'Content-Type: application/x-www-form-urlencoded' --data '' -o "$out" -w '%{http_code}' "$url" 2>"$err" || true) ;;
+              post_query) code=$(curl -sS --connect-timeout 8 --max-time 15 -X POST "${common[@]}" -H 'Content-Type: application/json' --data '{}' -o "$out" -w '%{http_code}' "$url?deviceId=" 2>"$err" || true) ;;
+            esac
+            python3 - "$out" "$mode" "$code" <<'PY'
+          import json,sys,re
+          raw=open(sys.argv[1],'rb').read(65536); text=raw.decode('utf-8','replace')
+          try:
+              o=json.loads(text)
+              if isinstance(o,dict):
+                  print('mode='+sys.argv[2],'http='+sys.argv[3],'code='+str(o.get('code')),'msg='+str(o.get('msg') or o.get('message')))
+              else: print('mode='+sys.argv[2],'http='+sys.argv[3],'json_type='+type(o).__name__)
+          except Exception:
+              print('mode='+sys.argv[2],'http='+sys.argv[3],'non_json='+re.sub(r'\s+',' ',text[:180]))
+          PY
+            rm -f "$out" "$err"
+          done
+          rm -f /tmp/qm_app_access /tmp/qm_device_id
