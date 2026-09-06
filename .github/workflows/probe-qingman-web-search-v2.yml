@@ -1,0 +1,42 @@
+name: Probe Qingman Search Form And Pagination
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-qingman-web-search-v2.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Probe search form
+        shell: bash
+        run: |
+          set -euo pipefail
+          UA='Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Mobile Safari/537.36'
+          BASE='https://www.xydqyfw.com'
+          mkdir -p /tmp/qmsearch
+
+          fetch() {
+            name="$1"; shift
+            out="/tmp/qmsearch/$name.html"
+            meta=$(curl -L --compressed --connect-timeout 10 --max-time 30 -A "$UA" -sS -o "$out" -w 'http=%{http_code} final=%{url_effective}' "$@" || true)
+            cards=$(grep -oE 'href="/newgszc/[0-9]+\.html"' "$out" 2>/dev/null | sort -u | wc -l || true)
+            title=$(grep -oPm1 '(?<=<title>).*?(?=</title>)' "$out" 2>/dev/null || true)
+            echo "ROUTE $name $meta bytes=$(wc -c < "$out" 2>/dev/null || echo 0) cards=$cards title=$title"
+            echo 'PAGERS:'
+            grep -oE '<a[^>]+href="[^"]+"[^>]*>[^<]*</a>' "$out" 2>/dev/null | grep -E 'page/2|/search/[^/]+/2|下一|下页|下一頁|next|Next|>2<' | head -n 30 || true
+            echo 'SAMPLE TITLES:'
+            grep -oE '<h3[^>]*cardtitle[^>]*>[^<]+' "$out" 2>/dev/null | head -n 12 || true
+          }
+
+          fetch search_get "$BASE/search?key=%E6%9C%AB%E4%B8%96"
+          fetch search_curl_g -G --data-urlencode 'key=末世' "$BASE/search"
+          fetch category_page2 "$BASE/category/page/2"
+          fetch cat5_page2 "$BASE/category/list/5/page/2"
