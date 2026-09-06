@@ -1,4 +1,4 @@
-name: Inspect Qingman Exported App Components
+name: Inspect Qingman First Party Intent Exposure
 
 on:
   push:
@@ -30,7 +30,7 @@ jobs:
           curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(head -1 /tmp/apk_url)" -o /tmp/qingman.apk
           unzip -p /tmp/qingman.apk AndroidManifest.xml > /tmp/manifest.axml
 
-      - name: Parse manifest component exposure
+      - name: Parse first-party components and intent filters
         shell: bash
         run: |
           set -euo pipefail
@@ -48,13 +48,11 @@ jobs:
               if x&0x8000:
                   y=struct.unpack_from('<H',b,o)[0];o+=2;x=((x&0x7fff)<<16)|y
               return x,o
-          strings=[]
-          pos=u16(2)
+          strings=[]; pos=u16(2)
           while pos+8<=len(b):
               typ=u16(pos); hs=u16(pos+2); sz=u32(pos+4)
               if typ==1:
-                  count=u32(pos+8); flags=u32(pos+16); start=pos+u32(pos+20)
-                  utf8=bool(flags&0x100)
+                  count=u32(pos+8); flags=u32(pos+16); start=pos+u32(pos+20); utf8=bool(flags&0x100)
                   offs=[u32(pos+hs+i*4) for i in range(count)]
                   for off in offs:
                       o=start+off
@@ -71,38 +69,55 @@ jobs:
               if dt==0x03: return S(data)
               if dt==0x12: return 'true' if data else 'false'
               return str(data)
-          pos=u16(2); stack=[]; package=''; rows=[]
+          def is_fp(name,pkg):
+              return bool(name) and (name.startswith('com.bycgti.') or name.startswith('com.qingman.') or name.startswith(pkg))
+
+          pos=u16(2); stack=[]; package=''; components=[]; current=None
+          component_tags={'activity','activity-alias','service','receiver','provider'}
           while pos+8<=len(b):
               typ=u16(pos); sz=u32(pos+4)
               if sz<8: break
               if typ==0x0102:
-                  ext=pos+16; name=S(u32(ext+4)); ast=u16(ext+8); asz=u16(ext+10); cnt=u16(ext+12)
+                  ext=pos+16; tag=S(u32(ext+4)); ast=u16(ext+8); asz=u16(ext+10); cnt=u16(ext+12)
                   attrs={}; a0=ext+ast
                   for i in range(cnt):
                       a=a0+i*asz; key=S(u32(a+4)); raw=u32(a+8); dt=b[a+15]; data=u32(a+16)
                       attrs[key]=S(raw) if raw!=0xffffffff else V(dt,data)
-                  stack.append(name)
-                  if name=='manifest': package=attrs.get('package','')
-                  if name in ('activity','activity-alias','service','receiver','provider'):
-                      rows.append([name,attrs.get('name',''),attrs.get('exported','<implicit>'),attrs.get('permission',''),attrs.get('authorities','')])
+                  stack.append(tag)
+                  if tag=='manifest': package=attrs.get('package','')
+                  if tag in component_tags:
+                      current={'kind':tag,'name':attrs.get('name',''),'exported':attrs.get('exported','<implicit>'),'permission':attrs.get('permission',''),'authorities':attrs.get('authorities',''),'filters':[]}
+                      components.append(current)
+                  elif current and tag=='intent-filter':
+                      current['filters'].append({'actions':[],'categories':[],'data':[]})
+                  elif current and current['filters'] and tag=='action':
+                      current['filters'][-1]['actions'].append(attrs.get('name',''))
+                  elif current and current['filters'] and tag=='category':
+                      current['filters'][-1]['categories'].append(attrs.get('name',''))
+                  elif current and current['filters'] and tag=='data':
+                      d={k:attrs.get(k,'') for k in ('scheme','host','port','path','pathPrefix','pathPattern','mimeType') if attrs.get(k,'')}
+                      current['filters'][-1]['data'].append(d)
               elif typ==0x0103:
+                  ext=pos+16; tag=S(u32(ext+4))
+                  if tag in component_tags: current=None
                   if stack: stack.pop()
               pos+=sz
+
           print('PACKAGE='+package)
-          print('=== FIRST_PARTY_OR_EXPLICITLY_EXPORTED_COMPONENTS ===')
-          first_party=[]; exposed=[]
-          for kind,name,exported,perm,auth in rows:
-              fp=name.startswith('com.bycgti.') or name.startswith('com.qingman.') or name.startswith(package)
-              if fp:
-                  first_party.append((kind,name,exported,perm,auth))
-              if exported=='true': exposed.append((kind,name,exported,perm,auth))
-          for r in first_party:
-              print('FIRST_PARTY kind=%s name=%s exported=%s permission=%s authorities=%s'%r)
-          print('first_party_count='+str(len(first_party)))
-          print('=== EXPLICIT_EXPORTED ===')
-          for r in exposed:
-              print('EXPORTED kind=%s name=%s exported=%s permission=%s authorities=%s'%r)
-          print('explicit_exported_count='+str(len(exposed)))
-          bridge=[r for r in first_party if r[0] in ('service','receiver','provider') and r[2]=='true']
-          print('first_party_exported_bridge_count='+str(len(bridge)))
+          first=[c for c in components if is_fp(c['name'],package)]
+          print('=== FIRST_PARTY_COMPONENTS ===')
+          for c in first:
+              print('COMPONENT kind={kind} name={name} exported={exported} permission={permission} authorities={authorities}'.format(**c))
+              for i,f in enumerate(c['filters']):
+                  print('  FILTER[%d] actions=%s categories=%s data=%s'%(i,','.join(f['actions']),','.join(f['categories']),f['data']))
+          bridges=[c for c in first if c['kind'] in ('service','receiver','provider') and c['exported']=='true']
+          non_launcher=[]
+          for c in first:
+              for f in c['filters']:
+                  actions=set(f['actions']); cats=set(f['categories'])
+                  launcher=('android.intent.action.MAIN' in actions and 'android.intent.category.LAUNCHER' in cats)
+                  if not launcher: non_launcher.append((c,f))
+          print('first_party_count='+str(len(first)))
+          print('first_party_exported_bridge_count='+str(len(bridges)))
+          print('first_party_non_launcher_filter_count='+str(len(non_launcher)))
           PY
