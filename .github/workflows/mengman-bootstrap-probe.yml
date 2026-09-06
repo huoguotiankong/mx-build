@@ -1,0 +1,36 @@
+name: Mengman Bootstrap Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/mengman-bootstrap-probe.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/mengman-bootstrap
+          curl --fail --location --retry 3 --connect-timeout 10 --max-time 60 -o /tmp/mengman-bootstrap/a1.png https://static.yisix.cn/bootstrap/a1.png
+          curl --fail --location --retry 3 --connect-timeout 10 --max-time 60 -o /tmp/mengman-bootstrap/a2.png https://static.yisix.cn/bootstrap/a2.png
+          curl --fail --location --retry 3 --connect-timeout 10 --max-time 60 -o /tmp/mengman-bootstrap/domain.json https://static.yisix.cn/static/config/domain.json
+          file /tmp/mengman-bootstrap/*
+          sha256sum /tmp/mengman-bootstrap/*
+          wc -c /tmp/mengman-bootstrap/*
+          echo '--- domain.json ---'
+          cat /tmp/mengman-bootstrap/domain.json
+
+      - name: Upload assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: mengman-bootstrap-assets
+          path: /tmp/mengman-bootstrap
+          if-no-files-found: error
+          retention-days: 1
