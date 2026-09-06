@@ -1,0 +1,47 @@
+name: Scan Qingman Public Host Strings
+
+on:
+  push:
+    paths:
+      - '.github/workflows/probe-qingman-host-strings.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Scan current official APK for hostname strings
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/apk_url
+          import json,urllib.request
+          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
+          print(o['data']['datas']['android']['downloadUrl'])
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/qm && mkdir -p /tmp/qm
+          unzip -q /tmp/qingman.apk -d /tmp/qm
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          roots=Path('/tmp/qm')
+          host_re=re.compile(rb'(?i)(?:https?://)?(?:[a-z0-9-]{1,63}\.)+(?:qingman\.(?:mom|app|vip)|zermh\.com|dmzj\.com|pwpni\.com)(?::\d+)?')
+          found={}
+          for p in roots.rglob('*'):
+              if not p.is_file(): continue
+              try: b=p.read_bytes()
+              except Exception: continue
+              for m in host_re.finditer(b):
+                  s=m.group(0).decode('ascii','ignore').lower().rstrip('.,;:)\]')
+                  if s:
+                      found.setdefault(s,set()).add(str(p.relative_to(roots)))
+          print('host_count=',len(found))
+          for h in sorted(found):
+              files=sorted(found[h])[:8]
+              print(h,'files='+','.join(files))
+          PY
