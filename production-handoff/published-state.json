@@ -33,15 +33,15 @@
     "versionName": "1.6.1"
   },
   "eu.kanade.tachiyomi.extension.zh.dongmanmanhuaplus": {
-    "androidVersionCode": 212006,
-    "apk": "tachiyomi-zh.dongmanmanhuaplus-v1.6.6.apk",
-    "apkSha256": "c3633ca26e9fb6d22564cab6e4fc3d5aced7f814a71fbcb30dab743c72f5d5a4",
-    "jar": "tachiyomi-zh.dongmanmanhuaplus-v1.6.6.jar",
-    "jarSha256": "cc8edc3bdf5525581bbf2b1b99c77b42778aff2001f5395c0bc50467be684988",
+    "androidVersionCode": 212007,
+    "apk": "tachiyomi-zh.dongmanmanhuaplus-v1.6.7.apk",
+    "apkSha256": "90b585617d6d05506c8c25ad50583961fc960072128fcaca8a540e7924269851",
+    "jar": "tachiyomi-zh.dongmanmanhuaplus-v1.6.7.jar",
+    "jarSha256": "dd4b8110a9791669441fbc074bda63a794c1f1e12da02cc7933f8d4aeb2732e8",
     "module": "zh.dongmanmanhuaplus",
-    "sourceHash": "2a659f4f40e4763f740ea0d937dd80ec39f7ca98fb8aa13f5976c06d75ef6104",
-    "versionCode": 106006,
-    "versionName": "1.6.6"
+    "sourceHash": "4ab3af9ef94072d2b0b1f01459e7e258a7a79d749516f69fff76bcefb52d036d",
+    "versionCode": 106007,
+    "versionName": "1.6.7"
   },
   "eu.kanade.tachiyomi.extension.zh.haoduoman": {
     "androidVersionCode": 212001,
