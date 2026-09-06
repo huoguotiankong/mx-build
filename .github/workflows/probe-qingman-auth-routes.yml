@@ -20,7 +20,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          sudo apt-get install -y -qq python3-pyelftools cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
           git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
       - name: Restore analyzer cache
         uses: actions/cache@v4
@@ -46,7 +46,10 @@ jobs:
           cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
           cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
           cd /tmp/blutter
-          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
+          if ! python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1; then
+            tail -80 /tmp/blutter.log
+            exit 1
+          fi
           python3 - <<'PY'
           from pathlib import Path
           import re
@@ -62,23 +65,25 @@ jobs:
           hits=[]
           for off,val in entries:
               if sensitive.search(val): continue
-              low=val.lower()
-              if 'api/' in low and auth.search(val):
+              if 'api/' in val.lower() and auth.search(val):
                   hits.append((off,val)); print(f'PP+0x{off:x} {val[:500]}')
           print('ROUTE_COUNT='+str(len(hits)))
           print('\n=== AUTH_MARKERS_AND_NEARBY_ROUTES ===')
           markers=[]
           for off,val in entries:
               if sensitive.search(val): continue
-              if auth.search(val) and ('String:' in val or 'Field <' in val):
-                  markers.append((off,val))
-          for off,val in markers[:100]:
+              if auth.search(val) and ('String:' in val or 'Field <' in val): markers.append((off,val))
+          emitted=0
+          for off,val in markers:
               nearby=[]
-              for p in sorted(k for k in by if off-0x140 <= k <= off+0x140):
+              for p in sorted(k for k in by if off-0x180 <= k <= off+0x180):
                   v=by[p]
                   if sensitive.search(v): continue
                   if 'api/' in v.lower(): nearby.append((p,v))
               if nearby:
                   print(f'MARK PP+0x{off:x} {val[:260]}')
-                  for p,v in nearby[:20]: print(f'  ROUTE PP+0x{p:x} {v[:420]}')
+                  for p,v in nearby[:24]: print(f'  ROUTE PP+0x{p:x} {v[:420]}')
+                  emitted+=1
+                  if emitted>=120: break
+          print('MARKER_GROUPS='+str(emitted))
           PY
