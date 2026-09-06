@@ -1,4 +1,4 @@
-name: Mengman Static Probe
+name: Mengman Catalog Probe
 
 on:
   push:
@@ -13,7 +13,7 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Fetch signed static data
+      - name: Fetch signed static catalog data
         shell: bash
         run: |
           set -euo pipefail
@@ -23,12 +23,16 @@ jobs:
           base='https://static.yisix.cn'
           seed='94e890e3a45ba392c0c519ed45190a4c'
           paths=[
-            '/static/category/list.zip',
-            '/static/search/hot_comic.zip',
-            '/static/search/hot.zip',
-            '/static/ranking/comic/0/hot.zip',
-            '/static/ranking/comic/1/hot.zip',
-            '/static/ranking/comic/2/hot.zip',
+            '/static/category/1/1.zip',
+            '/static/category/1/2.zip',
+            '/static/category/2/1.zip',
+            '/static/comic/home.zip',
+            '/static/recommend/comic.zip',
+            '/static/comic/index/banner.zip',
+            '/static/column_index/comic.zip',
+            '/static/ranking/comic/reco.zip',
+            '/static/ranking/comic.zip',
+            '/static/ranking/hot.zip',
           ]
           for path in paths:
               ts=str(int(time.time()))
@@ -50,7 +54,7 @@ jobs:
       - name: Upload static data
         uses: actions/upload-artifact@v4
         with:
-          name: mengman-static-data
+          name: mengman-catalog-data
           path: /tmp/mengman-static
           if-no-files-found: error
           retention-days: 1
