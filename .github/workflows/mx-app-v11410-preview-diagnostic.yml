@@ -1,0 +1,144 @@
+name: MX 1.14.10 Preview Build Diagnostic
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/mx-app-v11410-preview-diagnostic.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mx-app-v11410-preview-diagnostic
+  cancel-in-progress: true
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check required secrets
+        shell: bash
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          MX_APP_SIGNING_BUNDLE: ${{ secrets.MX_APP_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]] || { echo "::error::Missing MX_PRIVATE_READ_TOKEN"; exit 1; }
+          [[ -n "$MX_APP_SIGNING_BUNDLE" ]] || { echo "::error::Missing MX_APP_SIGNING_BUNDLE"; exit 1; }
+
+      - name: Checkout verified MX source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-app
+          ref: 25b6b8e8ea1aac8aa01f891668b16e172176e210
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          build-root-directory: source
+
+      - name: Prepare stable signing key
+        shell: bash
+        env:
+          MX_APP_SIGNING_BUNDLE: ${{ secrets.MX_APP_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, json, os
+          from pathlib import Path
+          bundle = json.loads(os.environ['MX_APP_SIGNING_BUNDLE'])
+          path = Path(os.environ['RUNNER_TEMP']) / 'mx-app.jks'
+          path.write_bytes(base64.b64decode(bundle['signingKey']))
+          values = {
+              'MX_KEYSTORE_PATH': str(path),
+              'MX_KEY_ALIAS': str(bundle['alias']),
+              'MX_KEYSTORE_PASSWORD': str(bundle['storePassword']),
+              'MX_KEY_PASSWORD': str(bundle.get('keyPassword') or bundle['storePassword']),
+          }
+          with Path(os.environ['GITHUB_ENV']).open('a', encoding='utf-8') as f:
+              for name, value in values.items():
+                  print(f'::add-mask::{value}')
+                  f.write(f'{name}<<__MX_EOF__\n{value}\n__MX_EOF__\n')
+          PY
+
+      - name: Run Preview build and capture compact diagnostics
+        id: build
+        working-directory: source
+        shell: bash
+        timeout-minutes: 30
+        run: |
+          set -uo pipefail
+          log="$RUNNER_TEMP/mx-preview-build.log"
+          summary="$RUNNER_TEMP/mx-preview-build-summary.txt"
+          rm -f "$log" "$summary"
+
+          set +e
+          ./gradlew assemblePreview -Pdisable-code-shrink --no-configuration-cache \
+            -Pandroid.injected.signing.store.file="$MX_KEYSTORE_PATH" \
+            -Pandroid.injected.signing.store.password="$MX_KEYSTORE_PASSWORD" \
+            -Pandroid.injected.signing.key.alias="$MX_KEY_ALIAS" \
+            -Pandroid.injected.signing.key.password="$MX_KEY_PASSWORD" \
+            2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          set -e
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+
+          if [[ "$status" -ne 0 ]]; then
+            python3 - "$log" "$summary" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+          log_path = Path(sys.argv[1])
+          summary_path = Path(sys.argv[2])
+          lines = log_path.read_text(encoding='utf-8', errors='replace').splitlines()
+          pattern = re.compile(r'(?:FAILURE:|What went wrong:|Execution failed|Task .* FAILED|^e: |error:|AAPT|R8|OutOfMemory|Could not |Exception|Caused by:)', re.IGNORECASE)
+          hits = [line for line in lines if pattern.search(line)]
+          tail = lines[-100:]
+          merged = []
+          seen = set()
+          for line in hits[-100:] + tail:
+              if line not in seen:
+                  seen.add(line)
+                  merged.append(line)
+          if not merged:
+              merged = ['Preview build failed but no diagnostic lines were captured.']
+          summary_path.write_text('\n'.join(merged[-180:]) + '\n', encoding='utf-8')
+          PY
+            echo "Preview build failed; compact diagnostic artifact will be uploaded."
+          else
+            echo "Preview build succeeded." > "$summary"
+          fi
+
+      - name: Upload compact build diagnostic
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: mx-preview-build-summary
+          path: ${{ runner.temp }}/mx-preview-build-summary.txt
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Fail job after diagnostic upload
+        if: ${{ steps.build.outputs.status != '0' }}
+        shell: bash
+        run: |
+          echo "::error::Preview build failed; inspect mx-preview-build-summary artifact."
+          exit 1
+
+      - name: Cleanup signing material
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/mx-app.jks"
