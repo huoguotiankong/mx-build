@@ -76,63 +76,71 @@ jobs:
           print('bootstrap_ok=true'); print('dynamic_host='+host); print('sensitive_bootstrap_fields_logged=false')
           PY
 
-      - name: Probe plain HTTP application gate and readonly POST
+      - name: Probe readonly endpoint method matrix
         shell: bash
         run: |
           set -euo pipefail
           host=$(cat /tmp/qm_dynamic_host); access=$(cat /tmp/qm_app_access); did=$(cat /tmp/qm_device_id)
+          COMIC_ID='1965626277746577408'
+          common=(-H 'Accept: application/json, text/plain, */*' -H 'User-Agent: qingman/4.4.5 (Android)' -H 'appVersion: 4.4.5' -H 'platform: android' -H "X-Device-Id: $did" -H "X-QM-App-Access: $access")
+
           summarize() {
             python3 - "$1" <<'PY'
-          import json,sys,re
-          raw=open(sys.argv[1],'rb').read(262144); text=raw.decode('utf-8','replace')
+          import json,sys,re,urllib.parse
+          raw=open(sys.argv[1],'rb').read(1048576); text=raw.decode('utf-8','replace')
           sensitive=re.compile(r'(?i)(token|secret|password|cookie|authorization|bearer|private|certificate|proof|signature|sign|key|seed)')
-          wanted={'comicId','comicTitle','title','name','categoryId','categoryName','comicCoverUrl','cover','coverUrl','country','gender','totalPages','pageNum','page','pageSize'}
-          def slim(x,depth=0):
-              if depth>5:return None
+          def walk(x,out,depth=0):
+              if depth>8:return
               if isinstance(x,dict):
-                  o={}
+                  item={}
+                  for k in ('id','comicId','comicTitle','title','name','chapterId','chapterName','chapterTitle','categoryId','categoryName','country','status','totalPages','pageNum','page','pageSize'):
+                      v=x.get(k)
+                      if isinstance(v,(str,int,float,bool)) or v is None and k in x: item[k]=v
+                  if item and any(k in item for k in ('id','comicId','comicTitle','chapterId','title','categoryId','country')) and len(out['items'])<12:
+                      out['items'].append(item)
                   for k,v in x.items():
                       if sensitive.search(str(k)): continue
-                      if k in ('code','msg','message','status','success') or k in wanted:
-                          if isinstance(v,(str,int,float,bool)) or v is None:o[k]=v
-                      elif k in ('data','datas','list','records','items','result','rows'):
-                          o[k]=slim(v,depth+1)
-                  return o
-              if isinstance(x,list): return [slim(v,depth+1) for v in x[:5]]
-              if isinstance(x,(str,int,float,bool)) or x is None:return x
-              return type(x).__name__
-          try: print(json.dumps(slim(json.loads(text)),ensure_ascii=False,separators=(',',':'))[:4500])
-          except Exception: print('non_json:'+re.sub(r'\s+',' ',text[:180]))
+                      if k in ('comicCoverUrl','coverUrl','cover','thumbnail','imageUrl') and isinstance(v,str):
+                          h=urllib.parse.urlsplit(v).hostname
+                          if h and h not in out['imageHosts']: out['imageHosts'].append(h)
+                      elif isinstance(v,(dict,list)): walk(v,out,depth+1)
+              elif isinstance(x,list):
+                  for v in x[:40]: walk(v,out,depth+1)
+          try:
+              obj=json.loads(text); out={'code':obj.get('code') if isinstance(obj,dict) else None,'msg':obj.get('msg') if isinstance(obj,dict) else None,'items':[],'imageHosts':[]}; walk(obj,out); print(json.dumps(out,ensure_ascii=False,separators=(',',':'))[:7000])
+          except Exception:
+              print('non_json:'+re.sub(r'\s+',' ',text[:220]))
           PY
           }
 
-          echo "=== GET_GATE host=$host ==="
-          for path in '/api/comic/categories/list' '/api/radio/api/config/getAdConfig' '/api/comic/comics/sign/key'; do
-            for variant in basic both; do
-              body=$(mktemp); err=$(mktemp)
-              args=(-H 'Accept: application/json, text/plain, */*' -H 'User-Agent: qingman/4.4.5 (Android)' -H 'appVersion: 4.4.5' -H 'platform: android')
-              [[ "$variant" == both ]] && args+=(-H "X-Device-Id: $did" -H "X-QM-App-Access: $access")
-              code=$(curl -sS --max-redirs 0 --connect-timeout 8 --max-time 15 "${args[@]}" -o "$body" -w '%{http_code}' "http://$host$path" 2>"$err" || true)
-              printf 'GET path=%s variant=%s http=%s bytes=%s summary=%s\n' "$path" "$variant" "$code" "$(wc -c < "$body" | tr -d ' ')" "$(summarize "$body")"
-              rm -f "$body" "$err"
-            done
-          done
-
-          echo '=== POST_READONLY ==='
-          while IFS=$'\t' read -r name path payload; do
+          probe_post() {
+            name="$1"; url="$2"; ctype="$3"; payload="$4"
             body=$(mktemp); err=$(mktemp)
-            code=$(curl -sS --connect-timeout 8 --max-time 20 -X POST \
-              -H 'Accept: application/json, text/plain, */*' -H 'Content-Type: application/json' \
-              -H 'User-Agent: qingman/4.4.5 (Android)' -H 'appVersion: 4.4.5' -H 'platform: android' \
-              -H "X-Device-Id: $did" -H "X-QM-App-Access: $access" \
-              --data "$payload" -o "$body" -w '%{http_code}' "http://$host/$path" 2>"$err" || true)
+            code=$(curl -sS --connect-timeout 8 --max-time 25 -X POST "${common[@]}" -H "Content-Type: $ctype" --data "$payload" -o "$body" -w '%{http_code}' "$url" 2>"$err" || true)
             printf 'POST name=%s http=%s bytes=%s summary=%s err=%s\n' "$name" "$code" "$(wc -c < "$body" | tr -d ' ')" "$(summarize "$body")" "$(tr '\n' ' ' < "$err" | cut -c1-160)"
             rm -f "$body" "$err"
-          done <<'EOF'
-          categories	api/comic/categories/list	{}
-          home	api/comic/comics/v1/homeList	{"page":1,"pageNum":1,"pageSize":20}
-          latest	api/comic/comics/homerecentUpdates	{"page":1,"pageNum":1,"pageSize":20}
-          rank	api/comic/comics/getComicRankList	{"page":1,"pageNum":1,"pageSize":20}
-          country	api/comic/comics/country	{}
-          EOF
+          }
+
+          echo "=== DATASET_CONFIRMATION host=$host ==="
+          probe_post home "http://$host/api/comic/comics/v1/homeList" 'application/json' '{"page":1,"pageNum":1,"pageSize":20}'
+          probe_post rank "http://$host/api/comic/comics/getComicRankList" 'application/json' '{"page":1,"pageNum":1,"pageSize":20}'
+
+          echo '=== LATEST_METHOD_MATRIX ==='
+          probe_post latest_query "http://$host/api/comic/comics/homerecentUpdates?page=1&pageNum=1&pageSize=20" 'application/json' '{}'
+          probe_post latest_json "http://$host/api/comic/comics/homerecentUpdates" 'application/json' '{"page":1,"pageNum":1,"pageSize":20}'
+          probe_post latest_form "http://$host/api/comic/comics/homerecentUpdates" 'application/x-www-form-urlencoded' 'page=1&pageNum=1&pageSize=20'
+
+          echo '=== DETAIL_METHOD_MATRIX ==='
+          probe_post detail_query "http://$host/api/comic/comics/ie84hfh8/detail?comicId=$COMIC_ID" 'application/json' '{}'
+          probe_post detail_json "http://$host/api/comic/comics/ie84hfh8/detail" 'application/json' "{\"comicId\":\"$COMIC_ID\"}"
+          probe_post detail_form "http://$host/api/comic/comics/ie84hfh8/detail" 'application/x-www-form-urlencoded' "comicId=$COMIC_ID"
+
+          echo '=== CHAPTER_LIST_METHOD_MATRIX ==='
+          probe_post chapters_path_query "http://$host/api/comic/chapter/ie84hfh8/homelist/$COMIC_ID?comicId=$COMIC_ID" 'application/json' '{}'
+          probe_post chapters_path_json "http://$host/api/comic/chapter/ie84hfh8/homelist/$COMIC_ID" 'application/json' "{\"comicId\":\"$COMIC_ID\"}"
+
+          echo '=== SEARCH_METHOD_MATRIX ==='
+          probe_post search_query "http://$host/api/comic/categories/comicList?page=1&pageNum=1&pageSize=20&keyword=%E6%88%91%E7%8B%AC%E8%87%AA%E5%8D%87%E7%BA%A7" 'application/json' '{}'
+          probe_post search_json "http://$host/api/comic/categories/comicList" 'application/json' '{"page":1,"pageNum":1,"pageSize":20,"keyword":"我独自升级"}'
+
           rm -f /tmp/qm_app_access /tmp/qm_device_id
