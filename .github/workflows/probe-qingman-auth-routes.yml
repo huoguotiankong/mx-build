@@ -1,0 +1,84 @@
+name: Inspect Qingman Guest/Auth Routes
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-auth-routes.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+      - name: Restore analyzer cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+      - name: Inspect non-secret auth route metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/apk_url
+          import json,urllib.request
+          a=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))['data']['datas']['android']
+          print(a['downloadUrl'])
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          mkdir -p /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/apk-extract
+          cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter
+          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          lines=Path('/tmp/blutter-out/pp.txt').read_text('utf-8',errors='replace').splitlines()
+          entries=[]
+          for line in lines:
+              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s+(.*)$',line)
+              if m: entries.append((int(m.group(1),16),m.group(2)))
+          by={o:v for o,v in entries}
+          sensitive=re.compile(r'(?i)(token|secret|password|cookie|authorization|bearer|private|clientp12|certificate|proof|signature|sign/key|p12|seed|k1a|k1b|k2a|k2b|k3a|k3b)')
+          auth=re.compile(r'(?i)(login|register|guest|anonymous|visitor|device|auth|session|游客|登录|注册|免登|匿名|设备)')
+          print('=== AUTH_RELATED_API_ROUTES ===')
+          hits=[]
+          for off,val in entries:
+              if sensitive.search(val): continue
+              low=val.lower()
+              if 'api/' in low and auth.search(val):
+                  hits.append((off,val)); print(f'PP+0x{off:x} {val[:500]}')
+          print('ROUTE_COUNT='+str(len(hits)))
+          print('\n=== AUTH_MARKERS_AND_NEARBY_ROUTES ===')
+          markers=[]
+          for off,val in entries:
+              if sensitive.search(val): continue
+              if auth.search(val) and ('String:' in val or 'Field <' in val):
+                  markers.append((off,val))
+          for off,val in markers[:100]:
+              nearby=[]
+              for p in sorted(k for k in by if off-0x140 <= k <= off+0x140):
+                  v=by[p]
+                  if sensitive.search(v): continue
+                  if 'api/' in v.lower(): nearby.append((p,v))
+              if nearby:
+                  print(f'MARK PP+0x{off:x} {val[:260]}')
+                  for p,v in nearby[:20]: print(f'  ROUTE PP+0x{p:x} {v[:420]}')
+          PY
