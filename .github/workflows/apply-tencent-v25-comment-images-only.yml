@@ -1,0 +1,90 @@
+name: Apply validated Tencent v25 comment image fix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/apply-tencent-v25-comment-images-only.yml"
+      - ".github/tencent-v25-comment-images-apply-trigger"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apply-tencent-v25-comment-images-only
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check private source token
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]]
+
+      - name: Checkout current private source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Checkout validated handoff snapshot
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-build
+          ref: b8366671fe3408c433b70f0536f1643ce86fccbe
+          path: staging
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify target has not diverged from validated base
+        shell: bash
+        run: |
+          set -euo pipefail
+          handoff="staging/source-handoff/bilibili-v23-tencent-v25"
+          base_sha="$(tr -d '\r\n' < "$handoff/BASE_SOURCE_SHA.txt")"
+          [[ "$base_sha" == "a7b8c55935dd35e62ac046ba0193f2204456eb6a" ]]
+          git -C source cat-file -e "$base_sha^{commit}"
+          git -C source diff --quiet "$base_sha" HEAD -- \
+            src/zh/tencentcomics \
+            docs/sources/tencentcomics.md || {
+              echo "::error::Tencent source changed after validated v25 handoff base $base_sha"; exit 1;
+            }
+          grep -Fq 'versionCode = 24' source/src/zh/tencentcomics/build.gradle.kts
+          test -f "$handoff/test/apk/tachiyomi-zh.tencentcomics-v1.4.25.apk" || true
+
+      - name: Apply exact validated Tencent v25 payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          handoff="staging/source-handoff/bilibili-v23-tencent-v25"
+          cp -a "$handoff/src/zh/tencentcomics/." source/src/zh/tencentcomics/
+          cp "$handoff/docs/sources/tencentcomics.md" source/docs/sources/tencentcomics.md
+          grep -F 'versionCode = 25' source/src/zh/tencentcomics/build.gradle.kts
+          grep -F 'private fun markdownCommentImage' source/src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+          grep -F '.map(::markdownCommentImage)' source/src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+          python3 source/scripts/validate_sources.py
+          git -C source diff --check
+
+      - name: Commit Tencent v25 to private main
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/zh/tencentcomics docs/sources/tencentcomics.md
+          git diff --cached --check
+          git diff --cached --quiet && { echo "::error::No Tencent v25 changes to apply"; exit 1; }
+          git commit -m "fix(tencentcomics): render transformed comment images as media"
+          git pull --rebase origin main
+          git push origin HEAD:main
