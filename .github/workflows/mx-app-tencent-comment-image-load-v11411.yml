@@ -1,0 +1,237 @@
+name: Patch MX 1.14.11 Tencent comment image loading
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/mx-app-tencent-comment-image-load-v11411.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mx-app-tencent-comment-image-load-v11411
+  cancel-in-progress: false
+
+jobs:
+  patch-and-verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - name: Check required secret
+        shell: bash
+        env:
+          MX_APP_PUBLISH_TOKEN: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_APP_PUBLISH_TOKEN" ]] || { echo "::error::Missing MX_APP_PUBLISH_TOKEN"; exit 1; }
+
+      - name: Checkout MX app feature branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-app
+          ref: fix/tencent-comment-reader-theme-20260906
+          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Verify starting point
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "25b6b8e8ea1aac8aa01f891668b16e172176e210"
+          grep -F 'versionCode = 90' app/build.gradle.kts
+          grep -F 'versionName = "1.14.10"' app/build.gradle.kts
+
+      - name: Patch Tencent comment image loading
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          screen = Path('app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt')
+          text = screen.read_text(encoding='utf-8')
+
+          old_imports = '''import androidx.compose.ui.layout.ContentScale\nimport androidx.compose.ui.text.font.FontWeight\nimport androidx.compose.ui.text.style.TextOverflow\nimport androidx.compose.ui.unit.dp\nimport coil3.compose.AsyncImage\n'''
+          new_imports = '''import androidx.compose.ui.layout.ContentScale\nimport androidx.compose.ui.platform.LocalContext\nimport androidx.compose.ui.text.font.FontWeight\nimport androidx.compose.ui.text.style.TextOverflow\nimport androidx.compose.ui.unit.dp\nimport coil3.compose.AsyncImage\nimport coil3.network.NetworkHeaders\nimport coil3.network.httpHeaders\nimport coil3.request.ImageRequest\n'''
+          if old_imports not in text:
+              raise SystemExit('CommentScreen import anchor not found')
+          text = text.replace(old_imports, new_imports, 1)
+
+          old_block = '''                richContent.imageUrls.forEach { imageUrl ->\n                    var imageLoadFailed by remember(imageUrl) { mutableStateOf(false) }\n                    if (imageLoadFailed) {\n                        Text(\n                            text = imageUrl,\n                            style = MaterialTheme.typography.bodySmall,\n                            color = MaterialTheme.colorScheme.onSurfaceVariant,\n                        )\n                    } else {\n                        AsyncImage(\n                            model = imageUrl,\n                            contentDescription = null,\n                            modifier = Modifier\n                                .fillMaxWidth()\n                                .clip(MaterialTheme.shapes.medium),\n                            contentScale = ContentScale.FillWidth,\n                            onError = { imageLoadFailed = true },\n                        )\n                    }\n                }\n'''
+          new_block = '''                val context = LocalContext.current\n                richContent.imageUrls.forEach { imageUrl ->\n                    val candidates = remember(imageUrl) { commentImageLoadCandidates(imageUrl) }\n                    var candidateIndex by remember(imageUrl) { mutableStateOf(0) }\n                    val candidate = candidates.getOrNull(candidateIndex)\n                    if (candidate == null) {\n                        Text(\n                            text = imageUrl,\n                            style = MaterialTheme.typography.bodySmall,\n                            color = MaterialTheme.colorScheme.onSurfaceVariant,\n                        )\n                    } else {\n                        val model = remember(context, candidate) {\n                            ImageRequest.Builder(context)\n                                .data(candidate.url)\n                                .apply {\n                                    if (candidate.headers.isNotEmpty()) {\n                                        httpHeaders(\n                                            NetworkHeaders.Builder()\n                                                .apply {\n                                                    candidate.headers.forEach { (name, value) ->\n                                                        set(name, value)\n                                                    }\n                                                }\n                                                .build(),\n                                        )\n                                    }\n                                }\n                                .build()\n                        }\n                        AsyncImage(\n                            model = model,\n                            contentDescription = null,\n                            modifier = Modifier\n                                .fillMaxWidth()\n                                .clip(MaterialTheme.shapes.medium),\n                            contentScale = ContentScale.FillWidth,\n                            onError = { candidateIndex++ },\n                        )\n                    }\n                }\n'''
+          if old_block not in text:
+              raise SystemExit('Comment image rendering block not found')
+          text = text.replace(old_block, new_block, 1)
+
+          anchor = '''private fun formatCommentTime(timestamp: Long): String {\n'''
+          helpers = r'''internal data class CommentImageLoadCandidate(
+              val url: String,
+              val headers: Map<String, String> = emptyMap(),
+          )
+
+          internal fun commentImageLoadCandidates(url: String): List<CommentImageLoadCandidate> {
+              val normalized = normalizeCommentUrl(url)
+              val uri = runCatching { URI(normalized) }.getOrNull()
+              val host = uri?.host?.lowercase()?.trimEnd('.').orEmpty()
+              val isTencentImage = host == "manhua.acimg.cn" || host.endsWith(".acimg.cn")
+              val headers = if (isTencentImage) {
+                  mapOf(
+                      "Referer" to COMMENT_TENCENT_IMAGE_REFERER,
+                      "User-Agent" to COMMENT_TENCENT_IMAGE_USER_AGENT,
+                  )
+              } else {
+                  emptyMap()
+              }
+              val urls = buildList {
+                  add(normalized)
+                  if (isTencentImage) {
+                      tencentOriginalCommentImageUrl(uri)
+                          ?.takeIf { it != normalized }
+                          ?.let(::add)
+                  }
+              }
+              return urls.distinct().map { candidateUrl ->
+                  CommentImageLoadCandidate(candidateUrl, headers)
+              }
+          }
+
+          private fun tencentOriginalCommentImageUrl(uri: URI?): String? {
+              uri ?: return null
+              val scheme = uri.scheme ?: return null
+              val authority = uri.rawAuthority ?: return null
+              val rawPath = uri.rawPath.orEmpty()
+              val originalPath = COMMENT_TENCENT_TRANSFORMED_IMAGE_PATH_REGEX
+                  .matchEntire(rawPath)
+                  ?.groupValues
+                  ?.getOrNull(1)
+                  ?: return null
+              return "$scheme://$authority$originalPath"
+          }
+
+          private const val COMMENT_TENCENT_IMAGE_REFERER = "https://ac.qq.com/"
+          private const val COMMENT_TENCENT_IMAGE_USER_AGENT =
+              "Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Mobile Safari/537.36"
+          private val COMMENT_TENCENT_TRANSFORMED_IMAGE_PATH_REGEX = Regex(
+              "^(.*\\.(?:jpe?g|png|webp|gif|avif))(?:/[^/]+)$",
+              RegexOption.IGNORE_CASE,
+          )
+
+          '''
+          if anchor not in text:
+              raise SystemExit('Comment helper anchor not found')
+          text = text.replace(anchor, helpers + anchor, 1)
+          screen.write_text(text, encoding='utf-8')
+
+          tests = Path('app/src/test/java/eu/kanade/presentation/manga/comments/CommentRichContentTest.kt')
+          test_text = tests.read_text(encoding='utf-8')
+          if 'tencent transformed image candidates carry referer and original fallback' in test_text:
+              raise SystemExit('Tencent image candidate tests already present')
+          insert = r'''
+              @Test
+              fun `tencent transformed image candidates carry referer and original fallback`() {
+                  val transformed =
+                      "https://manhua.acimg.cn/manhua/0/15_09_39_13170f3f334f7e005496d9311df42127.jpg/0?tp=sharp"
+                  val candidates = commentImageLoadCandidates(transformed)
+                  assertEquals(2, candidates.size)
+                  assertEquals(transformed, candidates[0].url)
+                  assertEquals(
+                      "https://manhua.acimg.cn/manhua/0/15_09_39_13170f3f334f7e005496d9311df42127.jpg",
+                      candidates[1].url,
+                  )
+                  assertEquals("https://ac.qq.com/", candidates[0].headers["Referer"])
+                  assertEquals(candidates[0].headers, candidates[1].headers)
+              }
+
+              @Test
+              fun `ordinary image candidates remain unchanged without forced headers`() {
+                  val url = "https://i0.hdslb.com/bfs/new_dyn/0123456789abcdef"
+                  val candidates = commentImageLoadCandidates(url)
+                  assertEquals(1, candidates.size)
+                  assertEquals(url, candidates.single().url)
+                  assertEquals(emptyMap<String, String>(), candidates.single().headers)
+              }
+          '''
+          close = test_text.rfind('\n}')
+          if close < 0:
+              raise SystemExit('Test class closing brace not found')
+          tests.write_text(test_text[:close] + '\n' + insert + test_text[close:], encoding='utf-8')
+
+          gradle = Path('app/build.gradle.kts')
+          gradle_text = gradle.read_text(encoding='utf-8')
+          gradle_text = gradle_text.replace('versionCode = 90', 'versionCode = 91', 1)
+          gradle_text = gradle_text.replace('versionName = "1.14.10"', 'versionName = "1.14.11"', 1)
+          if 'versionCode = 91' not in gradle_text or 'versionName = "1.14.11"' not in gradle_text:
+              raise SystemExit('Version bump failed')
+          gradle.write_text(gradle_text, encoding='utf-8')
+
+          docs = Path('docs/COMMENTS.md')
+          docs_text = docs.read_text(encoding='utf-8') if docs.exists() else '# MX 评论功能维护记录\n'
+          note = r'''
+
+          ## 2026-09-06 腾讯评论图片加载二次修复
+
+          用户实机验证 MX 1.14.10 后确认：腾讯评论中的 `manhua.acimg.cn/...jpg/0?tp=sharp` 已能被富文本解析器识别为图片，但 Coil 网络加载失败时仍会回退显示原始 URL。
+
+          MX 1.14.11 在评论图片请求层增加：
+
+          - `acimg.cn` 图片请求附带 `Referer: https://ac.qq.com/` 与浏览器 User-Agent，避免腾讯图片 CDN 的 Referrer/防盗链限制。
+          - 对 `...jpg/0?tp=sharp` 等转换地址保留原地址优先加载；若加载失败，再尝试去掉转换后缀的原图 `...jpg`。
+          - 非腾讯评论图片不强制增加腾讯请求头，也不改变原 URL。
+
+          CI 单元测试只验证请求候选与请求头生成；最终图片能否在腾讯当前 CDN 正常显示仍以 Android 实机反馈为准。
+          '''
+          if '腾讯评论图片加载二次修复' not in docs_text:
+              docs.write_text(docs_text.rstrip() + note + '\n', encoding='utf-8')
+          PY
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Format
+        run: ./gradlew spotlessApply
+
+      - name: Verify formatting
+        run: ./gradlew spotlessCheck
+
+      - name: Run comment unit tests
+        run: ./gradlew testReleaseUnitTest --tests '*CommentRichContentTest*'
+
+      - name: Build debug APK
+        run: ./gradlew assembleDebug -Pdisable-code-shrink
+
+      - name: Verify patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F 'versionCode = 91' app/build.gradle.kts
+          grep -F 'versionName = "1.14.11"' app/build.gradle.kts
+          grep -F 'COMMENT_TENCENT_IMAGE_REFERER' app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt
+          grep -F 'tencent transformed image candidates carry referer and original fallback' app/src/test/java/eu/kanade/presentation/manga/comments/CommentRichContentTest.kt
+          git diff --check
+
+      - name: Commit verified source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/build.gradle.kts app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt app/src/test/java/eu/kanade/presentation/manga/comments/CommentRichContentTest.kt docs/COMMENTS.md
+          git commit -m "fix: load Tencent comment images with CDN headers"
+          git push origin HEAD:fix/tencent-comment-reader-theme-20260906
+          echo "SOURCE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Summary
+        shell: bash
+        run: |
+          echo "### MX 1.14.11 Tencent comment image fix" >> "$GITHUB_STEP_SUMMARY"
+          echo "Source commit: \`$SOURCE_SHA\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Spotless, targeted unit tests, and Debug build passed before push." >> "$GITHUB_STEP_SUMMARY"
