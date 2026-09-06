@@ -1,0 +1,93 @@
+name: MX 1.14.10 Tencent reader theme verify v2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/mx-app-tencent-reader-theme-v11410-verify-v2.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mx-app-tencent-reader-theme-v11410-v2
+  cancel-in-progress: true
+
+jobs:
+  verify-and-commit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout MX feature branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-app
+          ref: fix/tencent-comment-reader-theme-20260906
+          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply patch and correct theme overload
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F 'versionCode = 89' app/build.gradle.kts
+          python3 tools/apply_tencent_comment_reader_theme.py
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt')
+          text = path.read_text(encoding='utf-8')
+          old = '        TachiyomiTheme(\n            typography = MaterialTheme.typography.copy(\n'
+          new = '        TachiyomiTheme(\n            seedColor = null,\n            typography = MaterialTheme.typography.copy(\n'
+          if text.count(old) != 1:
+              raise SystemExit(f'expected exactly one reader theme match, got {text.count(old)}')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+          git rm tools/apply_tencent_comment_reader_theme.py .github/workflows/apply-tencent-comment-reader-theme.yml
+          grep -F 'versionCode = 90' app/build.gradle.kts
+          grep -F 'versionName = "1.14.10"' app/build.gradle.kts
+          grep -F '"acimg.cn"' app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt
+          grep -F '(?=/|[?#]|$)' app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt
+          grep -F 'tencent transformed acimg urls become rich images' app/src/test/java/eu/kanade/presentation/manga/comments/CommentRichContentTest.kt
+          grep -F 'seedColor = null' app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt
+          ! grep -Fq 'seedColor = seedColorState().takeIf { themeCoverBased }' app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt
+          git diff --check
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Format and check
+        working-directory: source
+        run: |
+          ./gradlew spotlessApply
+          ./gradlew spotlessCheck
+
+      - name: Run unit tests
+        working-directory: source
+        run: ./gradlew testReleaseUnitTest
+
+      - name: Build debug APK
+        working-directory: source
+        run: ./gradlew assembleDebug -Pdisable-code-shrink
+
+      - name: Commit verified source
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git diff --cached --quiet && { echo "::error::No changes to commit"; exit 1; }
+          git commit -m "fix: render Tencent transformed images and keep reader on app theme"
+          git push origin HEAD:fix/tencent-comment-reader-theme-20260906
