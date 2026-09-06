@@ -58,7 +58,7 @@ jobs:
           from pathlib import Path
           from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
           from elftools.elf.elffile import ELFFile
-          import re,bisect
+          import re
 
           safe_strings={
               'userName','username','password','passWord','pwd','deviceId','loginType','type','platform','android',
@@ -100,8 +100,6 @@ jobs:
           with open('/tmp/app-lib/libapp.so','rb') as f:
               elf=ELFFile(f); sec=elf.get_section_by_name('.text'); base=int(sec['sh_addr']); data=sec.data()
           md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.skipdata=True
-          all_ins=list(md.disasm(data,base))
-          index={x.address:i for i,x in enumerate(all_ins)}
 
           def pp_annotation(ins,pending):
               op=ins.op_str.lower(); ann=''
@@ -128,12 +126,9 @@ jobs:
                   if full or ann or ins.mnemonic in ('bl','blr','ret','b','b.eq','b.ne','cbz','cbnz','tbz','tbnz') or ins.mnemonic.startswith('st'):
                       print(f'0x{ins.address:x} {ins.mnemonic:<7} {ins.op_str}{ann}')
 
-          # Actual literal login-route reference and the surrounding request construction.
           dump('literal login route callsite',0x7e2e80,0x7e3420,True)
-          # Exact username/password references found in previous xref runs.
           dump('username reference region',0x501380,0x501560,True)
           dump('password reference region',0x5058c0,0x505ac0,True)
-          # Network helper near the route-set/device-id checks, useful for separating interceptor logic from request DTO logic.
           dump('route set and device id region',0xaaf220,0xaaf3a4,True)
 
           print('\n=== BLUTTER FUNCTIONS NEAR TARGETS ===')
