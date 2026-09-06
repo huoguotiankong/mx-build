@@ -88,17 +88,10 @@ jobs:
               sec=elf.get_section_by_name('.text')
               if sec is None:
                   sec=max((s for s in elf.iter_sections() if int(s['sh_flags']) & 0x4),key=lambda s:int(s['sh_size']))
-              text_va=int(sec['sh_addr'])
-              text=sec.data()
+              text_va=int(sec['sh_addr']); text=sec.data()
 
-          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
-          md.skipdata=True
-          target_offsets=set(targets.values())
-          pending={}
-          hits=[]
-
-          # Dart AOT frequently materializes PP-relative addresses as either direct
-          # ldr/ldur [x27,#imm] or add tmp,x27,#imm{,lsl#12} followed by a load.
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.skipdata=True
+          target_offsets=set(targets.values()); pending={}; hits=[]
           for ins in md.disasm(text,text_va):
               if ins.mnemonic.startswith('.'):
                   pending.clear(); continue
@@ -106,66 +99,65 @@ jobs:
               op=ins.op_str.lower()
               m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
               if ins.mnemonic=='add' and m:
-                  pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),12)
-                  continue
+                  pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),12); continue
               if ins.mnemonic in ('ldr','ldur','ldrsw'):
                   m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
                   if not m: continue
-                  base_reg=m.group(2)
-                  disp=int(m.group(3),0) if m.group(3) else 0
-                  off=disp if base_reg=='x27' else (pending[base_reg][0]+disp if base_reg in pending else None)
-                  if off in target_offsets:
-                      hits.append((int(ins.address),off,ins.mnemonic,ins.op_str))
+                  br=m.group(2); disp=int(m.group(3),0) if m.group(3) else 0
+                  off=disp if br=='x27' else (pending[br][0]+disp if br in pending else None)
+                  if off in target_offsets: hits.append((int(ins.address),off,ins.mnemonic,ins.op_str))
 
           rev={v:k for k,v in targets.items()}
           print('=== RESOLVED LOAD REFERENCES ===')
           print('HIT_COUNT='+str(len(hits)))
-          for addr,off,mn,op in hits:
-              print(f'REF {rev[off]} PP+0x{off:x} at=0x{addr:x} ins={mn} {op}')
+          for addr,off,mn,op in hits: print(f'REF {rev[off]} PP+0x{off:x} at=0x{addr:x} ins={mn} {op}')
 
-          # Map each hit to the nearest Blutter-emitted function by address marker.
-          funcs=[]
-          for path in Path('/tmp/blutter-out/asm').rglob('*.dart'):
-              try: lines=path.read_text('utf-8',errors='replace').splitlines()
-              except Exception: continue
-              for i,line in enumerate(lines):
-                  m=re.search(r'\*\* addr:\s*(0x[0-9a-fA-F]+),\s*size:\s*(0x[0-9a-fA-F]+)',line)
-                  if not m: continue
-                  start=int(m.group(1),16); size=int(m.group(2),16)
-                  funcs.append((start,start+size,path,i,lines))
-          funcs.sort(key=lambda x:x[0])
-
+          print('=== DIRECT BLUTTER ADDRESS CONTEXT ===')
+          asm_files=[]
+          for p in Path('/tmp/blutter-out/asm').rglob('*.dart'):
+              try: asm_files.append((p,p.read_text('utf-8',errors='replace').splitlines()))
+              except Exception: pass
           sensitive=re.compile(r'(?i)(token|secret|password|cookie|authorization|bearer|private|clientp12|certificate|proof|signature|sign/key)')
-          emitted=set(); dumped=0
-          print('=== FUNCTION WINDOWS ===')
+          emitted=set(); total=0
           for addr,off,_,_ in hits:
-              owner=None
-              for item in funcs:
-                  if item[0] <= addr < item[1]: owner=item; break
-              if owner is None:
-                  print(f'NO_FUNCTION ref={rev[off]} addr=0x{addr:x}')
-                  continue
-              start,end,path,idx,lines=owner
-              key=(str(path),start,end)
-              if key in emitted: continue
-              emitted.add(key)
-              print(f'FUNCTION file={path.name} addr=0x{start:x}-0x{end:x} trigger={rev[off]} ref=0x{addr:x}')
-              # Dump only lines containing route/config/URL/control-flow clues, plus a
-              # short surrounding context around the reference address.
-              ref_index=None
-              addr_hex=f'0x{addr:x}'
-              for n in range(idx,min(len(lines),idx+1800)):
-                  if addr_hex in lines[n].lower(): ref_index=n; break
-                  if n>idx and '** addr:' in lines[n]: break
-              lo=max(idx,(ref_index or idx)-90); hi=min(len(lines),(ref_index or idx)+150)
-              for n in range(lo,hi):
-                  s=lines[n]
-                  if sensitive.search(s):
-                      s=re.sub(r'"[^"]*"','"<redacted>"',s)
-                  if len(s)>420: s=s[:420]+'...'
-                  print(s)
-                  dumped+=1
-                  if dumped>=1800: break
-              if dumped>=1800: break
-          print('DUMPED_LINES='+str(dumped))
+              addr_s=f'0x{addr:x}'
+              matched=False
+              for p,lines in asm_files:
+                  idxs=[i for i,s in enumerate(lines) if addr_s in s.lower()]
+                  for i in idxs[:2]:
+                      matched=True
+                      key=(str(p),i)
+                      if key in emitted: continue
+                      emitted.add(key)
+                      print(f'CONTEXT ref={rev[off]} addr={addr_s} file={p.name} line={i+1}')
+                      lo=max(0,i-110); hi=min(len(lines),i+190)
+                      for n in range(lo,hi):
+                          s=lines[n]
+                          if sensitive.search(s): s=re.sub(r'"[^"]*"','"<redacted>"',s)
+                          if len(s)>420: s=s[:420]+'...'
+                          print(s)
+                          total+=1
+                          if total>=2200: break
+                      if total>=2200: break
+                  if total>=2200: break
+              if not matched: print(f'NO_ASM_TEXT ref={rev[off]} addr={addr_s}')
+              if total>=2200: break
+          print('CONTEXT_LINES='+str(total))
+
+          print('=== STRING-LITERAL CONTEXTS ===')
+          patterns=('Get app config failed','AppConfig','baseImgUrl','freeUrl','customerUrl','officialUrl','promotionUrl','getAdConfig','homepage/interstitial')
+          shown=0
+          for p,lines in asm_files:
+              for i,s in enumerate(lines):
+                  if not any(x.lower() in s.lower() for x in patterns): continue
+                  print(f'LITERAL file={p.name} line={i+1}: {s[:400]}')
+                  for n in range(max(0,i-30),min(len(lines),i+55)):
+                      z=lines[n]
+                      if sensitive.search(z): z=re.sub(r'"[^"]*"','"<redacted>"',z)
+                      print(z[:420])
+                      shown+=1
+                      if shown>=1200: break
+                  if shown>=1200: break
+              if shown>=1200: break
+          print('LITERAL_LINES='+str(shown))
           PY
