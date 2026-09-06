@@ -1,0 +1,103 @@
+name: Scan Qingman Bootstrap PP References
+
+on:
+  push:
+    paths:
+      - '.github/workflows/probe-qingman-pprefs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools python3-capstone cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+      - name: Restore analyzer cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+      - name: Scan PP references
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/apk_url
+          import json,urllib.request
+          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
+          print(o['data']['datas']['android']['downloadUrl'])
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qingman.apk
+          mkdir -p /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/apk-extract
+          cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter
+          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1 || true
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          from elftools.elf.elffile import ELFFile
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+
+          probe_addr=0x515780
+          pp={}
+          for line in Path('/tmp/blutter-out/pp.txt').read_text(encoding='utf-8',errors='replace').splitlines():
+              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s*(.*)$',line)
+              if m: pp[int(m.group(1),16)]=m.group(2)
+          targets={0x8e10,0x8e30,0x8e38,0x8e40,0x90a0,0x96d8,0xbfd0,0xbfd8,0xbfe0,0xbfe8,0xbff0,0xbff8,0xc000,0xc008,0xc010,0xc018,0xc020,0xc028,0xc030,0xc038,0xc040,0xc048,0xc050,0xc058,0xc060,0xc090,0xc098,0xc0a0,0xc0a8,0xc0b8,0xc128,0xc138,0xc140,0xc148,0xc150}
+          safe=('bootstrap','nonce','sign','apidomain','appaccesstoken','content-type','timestamp','deviceid','requestid','canonicalrequest','x-qm-','x-timestamp','x-signature','body','code','msg','field <upb.','anonymousclosure','type: map')
+          def label(off):
+              s=pp.get(off,'')
+              return s if any(x in s.lower() for x in safe) else '<structural target>'
+
+          with open('/tmp/app-lib/libapp.so','rb') as f:
+              elf=ELFFile(f)
+              sec=next(s for s in elf.iter_sections() if s['sh_addr'] <= probe_addr < s['sh_addr']+s['sh_size'])
+              base=sec['sh_addr']; data=sec.data(); name=sec.name
+          print(f'code_section={name} base=0x{base:x} size=0x{len(data):x}')
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
+          ins=list(md.disasm(data,base))
+          hits=[]
+          pending={}
+          for i,x in enumerate(ins):
+              pending={r:(b,n-1) for r,(b,n) in pending.items() if n>1}
+              op=x.op_str.lower()
+              m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
+              if x.mnemonic=='add' and m: pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),6)
+              if x.mnemonic in ('ldr','ldur','ldrsw'):
+                  m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
+                  if m:
+                      br=m.group(2); disp=int(m.group(3),0) if m.group(3) else 0
+                      off=disp if br=='x27' else (pending[br][0]+disp if br in pending else None)
+                      if off in targets: hits.append((i,x.address,off))
+          print('=== hits ===')
+          for _,a,o in hits: print(f'0x{a:x} PP+0x{o:x} {label(o)}')
+          print('=== focused windows ===')
+          interesting=[h for h in hits if h[2] in {0xbfd0,0xbfd8,0xbfe0,0xbfe8,0xbff0,0xbff8,0xc000,0xc008,0xc010,0xc018,0xc030,0xc038,0xc128,0xc138,0xc140,0xc150}]
+          ranges=[]
+          for i,_,_ in interesting:
+              a=max(0,i-26); b=min(len(ins),i+38)
+              if ranges and a<=ranges[-1][1]+8: ranges[-1]=(ranges[-1][0],max(ranges[-1][1],b))
+              else:ranges.append((a,b))
+          hitmap={a:(o,label(o)) for _,a,o in hits}
+          for a,b in ranges:
+              print(f'--- 0x{ins[a].address:x}..0x{ins[b-1].address:x} ---')
+              for x in ins[a:b]:
+                  extra=''
+                  if x.address in hitmap:
+                      o,d=hitmap[x.address]; extra=f' ; PP+0x{o:x} {d}'
+                  print(f'{x.address:08x}: {x.mnemonic:<7} {x.op_str}{extra}')
+          print('hit_count=',len(hits),'interesting=',len(interesting))
+          PY
