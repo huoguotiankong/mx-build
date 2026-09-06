@@ -288,3 +288,5 @@ jobs:
         if: always()
         shell: bash
         run: rm -f "$RUNNER_TEMP/mx-app.jks" "$RUNNER_TEMP/mx-private-key-probe.p12"
+
+# Fresh diagnostic run marker: 2026-09-06
