@@ -44,10 +44,12 @@ jobs:
             set -eu
             adb wait-for-device
             adb shell getprop sys.boot_completed
-            adb install -r /tmp/qingman.apk
-            PKG="$(adb shell pm list packages -3 | sed -n 's/^package://p' | tr -d '\r' | head -1)"
+            AAPT="$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools" -type f -name aapt | sort -V | tail -1)"
+            test -x "$AAPT"
+            PKG="$("$AAPT" dump badging /tmp/qingman.apk | sed -n "s/package: name='\([^']*\)'.*/\1/p" | head -1)"
             echo "package=$PKG"
             test -n "$PKG"
+            adb install -r /tmp/qingman.apk
             adb logcat -c
             adb shell am force-stop "$PKG" || true
             adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 >/tmp/monkey.log 2>&1 || true
