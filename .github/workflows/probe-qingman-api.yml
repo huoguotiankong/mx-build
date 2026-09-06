@@ -14,52 +14,51 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Probe Qingman bootstrap contract
+      - name: Probe Qingman bootstrap required fields
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import json, ssl, urllib.error, urllib.parse, urllib.request
+          import json, ssl, time, urllib.error, urllib.request, uuid
           BOOT='https://mu8xm4cx.zermh.com/bootstrap/domain'
           COMMON={'Accept':'application/json, text/plain, */*','User-Agent':'qingman/4.4.3 (Android)','appVersion':'4.4.3','platform':'android'}
-          SENSITIVE=('token','key','secret','signature','sign','proof','guard','access')
-          def redact(k,v):
-              n=k.lower().replace('_','').replace('-','')
-              return '<redacted>' if any(x in n for x in SENSITIVE) else v
-          def summary(v, depth=0):
-              if depth>5:return '<depth-limit>'
-              if isinstance(v,dict):
-                  out={'__keys__':list(v)}
-                  for k,x in v.items():
-                      if isinstance(x,(dict,list)): out[k]=summary(x,depth+1)
-                      elif k.lower() in {'code','status','msg','message','error','success','domain','domains','host','hosts','baseurl','apiurl','url','data','version'}: out[k]=redact(k,x)
-                  return out
-              if isinstance(v,list): return {'__len__':len(v),'first':summary(v[0],depth+1) if v else None}
-              return v
-          def req(label, body=None, ctype=None, headers=None, method='POST'):
-              h=dict(COMMON); h.update(headers or {})
-              if ctype:h['Content-Type']=ctype
-              r=urllib.request.Request(BOOT,data=body,headers=h,method=method)
-              print('\n===',label,'===')
+          device='probe-' + uuid.uuid4().hex
+          now=str(int(time.time()))
+          def req(label, payload):
+              body=json.dumps(payload,separators=(',',':')).encode()
+              h=dict(COMMON); h['Content-Type']='application/json'
+              r=urllib.request.Request(BOOT,data=body,headers=h,method='POST')
               try:
                   with urllib.request.urlopen(r,timeout=20,context=ssl.create_default_context()) as p:
-                      raw=p.read(1024*1024); status=p.status; rh=dict(p.headers)
+                      raw=p.read(65536); status=p.status
               except urllib.error.HTTPError as e:
-                  raw=e.read(1024*1024); status=e.code; rh=dict(e.headers)
+                  raw=e.read(65536); status=e.code
               except Exception as e:
-                  print('transport_error',type(e).__name__,str(e)); return
-              print('status=',status,'content_type=',rh.get('Content-Type'),'allow=',rh.get('Allow'),'bytes=',len(raw))
+                  print(label, 'transport_error', type(e).__name__, str(e)); return
               txt=raw.decode('utf-8','replace')
-              try: print('json_summary=',json.dumps(summary(json.loads(txt)),ensure_ascii=False,indent=2)[:16000])
-              except Exception: print('body_prefix=',repr(txt[:1500]))
-          req('OPTIONS',None,None,method='OPTIONS')
-          req('POST empty bytes',b'',None)
-          req('POST json empty',b'{}','application/json')
-          payload={'appVersion':'4.4.3','platform':'android'}
-          req('POST json appVersion platform',json.dumps(payload).encode(),'application/json')
-          form=urllib.parse.urlencode(payload).encode()
-          req('POST form appVersion platform',form,'application/x-www-form-urlencoded')
-          payload2={'appVersion':'4.4.3','platform':'android','channel':'qm1','registerChannel':'qm1'}
-          req('POST json app channel',json.dumps(payload2).encode(),'application/json')
-          req('POST form app channel',urllib.parse.urlencode(payload2).encode(),'application/x-www-form-urlencoded')
+              try:
+                  obj=json.loads(txt)
+                  # Do not print any returned token/key/proof/signature values.
+                  out={k:v for k,v in obj.items() if k.lower() in {'code','status','msg','message','error','success'}}
+                  if isinstance(obj.get('data'),dict): out['data_keys']=list(obj['data'].keys())
+                  elif obj.get('data') is not None: out['data_type']=type(obj['data']).__name__
+                  print(label, 'status=',status, json.dumps(out,ensure_ascii=False))
+              except Exception:
+                  print(label, 'status=',status, 'body_prefix=',repr(txt[:200]))
+          base={'appVersion':'4.4.3','platform':'android'}
+          cases=[
+            ('deviceId', {**base,'deviceId':device}),
+            ('device_id', {**base,'device_id':device}),
+            ('deviceId versionCode', {**base,'deviceId':device,'versionCode':'443'}),
+            ('deviceId versionCode channel', {**base,'deviceId':device,'versionCode':'443','channel':'qm1'}),
+            ('deviceId registerChannel', {**base,'deviceId':device,'registerChannel':'qm1'}),
+            ('deviceId clientIp', {**base,'deviceId':device,'clientIp':'127.0.0.1'}),
+            ('deviceId timestamp', {**base,'deviceId':device,'timestamp':now}),
+            ('deviceId current_timestamp', {**base,'deviceId':device,'current_timestamp':now}),
+            ('deviceId nonce timestamp', {**base,'deviceId':device,'nonce':uuid.uuid4().hex,'timestamp':now}),
+            ('deviceId package', {**base,'deviceId':device,'packageName':'com.qingman.app'}),
+            ('deviceId appKey placeholder', {**base,'deviceId':device,'appKey':'android'}),
+            ('all metadata', {**base,'deviceId':device,'versionCode':'443','channel':'qm1','registerChannel':'qm1','packageName':'com.qingman.app','clientIp':'127.0.0.1','nonce':uuid.uuid4().hex,'timestamp':now}),
+          ]
+          for label,payload in cases: req(label,payload)
           PY
