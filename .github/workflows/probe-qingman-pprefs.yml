@@ -56,11 +56,23 @@ jobs:
           for line in Path('/tmp/blutter-out/pp.txt').read_text(encoding='utf-8',errors='replace').splitlines():
               m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s*(.*)$',line)
               if m: pp[int(m.group(1),16)]=m.group(2)
-          targets={0x8e10,0x8e30,0x8e38,0x8e40,0x90a0,0x96d8,0xbfd0,0xbfd8,0xbfe0,0xbfe8,0xbff0,0xbff8,0xc000,0xc008,0xc010,0xc018,0xc020,0xc028,0xc030,0xc038,0xc040,0xc048,0xc050,0xc058,0xc060,0xc090,0xc098,0xc0a0,0xc0a8,0xc0b8,0xc128,0xc138,0xc140,0xc148,0xc150}
-          safe=('bootstrap','nonce','sign','apidomain','appaccesstoken','content-type','timestamp','deviceid','requestid','canonicalrequest','x-qm-','x-timestamp','x-signature','body','code','msg','field <upb.','anonymousclosure','type: map')
+
+          targets={
+              0x3740,0x3748,
+              0x8e10,0x8e30,0x8e38,0x8e40,0x90a0,0x96d8,
+              0xbfd0,0xbfd8,0xbfe0,0xbfe8,0xbff0,0xbff8,
+              0xc000,0xc008,0xc010,0xc018,0xc020,0xc028,0xc030,0xc038,0xc040,0xc048,0xc050,0xc058,0xc060,
+              0xc090,0xc098,0xc0a0,0xc0a8,0xc0b8,0xc128,0xc138,0xc140,0xc148,0xc150,
+              0x1ee28,0x1ee38,0x2be28,
+          }
+          focus=set(targets)
+          safe=('bootstrap','nonce','sign','apidomain','appaccesstoken','content-type','timestamp','deviceid','requestid','canonicalrequest','x-qm-','x-timestamp','x-signature','body','code','msg','field <upb.','anonymousclosure','type: map','api 域名','回退内置域名','重试','qingman.mom')
           def label(off):
               s=pp.get(off,'')
               return s if any(x in s.lower() for x in safe) else '<structural target>'
+
+          print('=== target pool labels ===')
+          for o in sorted(targets): print(f'PP+0x{o:x} {label(o)}')
 
           with open('/tmp/app-lib/libapp.so','rb') as f:
               elf=ELFFile(f)
@@ -76,13 +88,12 @@ jobs:
           for x in md.disasm(data,base):
               count+=1
               if x.mnemonic.startswith('.'):
-                  pending.clear()
-                  continue
+                  pending.clear(); continue
               pending={r:(b,n-1) for r,(b,n) in pending.items() if n>1}
               op=x.op_str.lower()
               m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
               if x.mnemonic=='add' and m:
-                  pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),6)
+                  pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),8)
               if x.mnemonic in ('ldr','ldur','ldrsw'):
                   m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
                   if m:
@@ -93,11 +104,11 @@ jobs:
           print('=== hits ===')
           for a,o in hits: print(f'0x{a:x} PP+0x{o:x} {label(o)}')
 
-          interesting=[h for h in hits if h[1] in {0xbfd0,0xbfd8,0xbfe0,0xbfe8,0xbff0,0xbff8,0xc000,0xc008,0xc010,0xc018,0xc030,0xc038,0xc128,0xc138,0xc140,0xc150}]
           print('=== focused windows ===')
           windows=[]
-          for a,_ in interesting:
-              lo=max(base,(a-0x90)&~3); hi=min(base+len(data),(a+0x110)&~3)
+          for a,o in hits:
+              if o not in focus: continue
+              lo=max(base,(a-0x140)&~3); hi=min(base+len(data),(a+0x260)&~3)
               if windows and lo <= windows[-1][1]+0x20: windows[-1]=(windows[-1][0],max(windows[-1][1],hi))
               else: windows.append((lo,hi))
           hitmap={a:(o,label(o)) for a,o in hits}
@@ -110,5 +121,5 @@ jobs:
                   if x.address in hitmap:
                       o,d=hitmap[x.address]; extra=f' ; PP+0x{o:x} {d}'
                   print(f'{x.address:08x}: {x.mnemonic:<7} {x.op_str}{extra}')
-          print('hit_count=',len(hits),'interesting=',len(interesting))
+          print('hit_count=',len(hits),'windows=',len(windows))
           PY
