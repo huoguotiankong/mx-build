@@ -43,16 +43,18 @@ jobs:
           script: |
             set -eu
             adb install -r /tmp/qingman.apk
-            PKG="$(aapt dump badging /tmp/qingman.apk | sed -n "s/package: name='\([^']*\)'.*/\1/p")"
-            ACT="$(aapt dump badging /tmp/qingman.apk | sed -n "s/launchable-activity: name='\([^']*\)'.*/\1/p")"
+            PKG="$(adb shell pm list packages -3 | sed -n 's/^package://p' | tr -d '\r' | head -1)"
             echo "package=$PKG"
-            echo "activity=$ACT"
+            test -n "$PKG"
             adb logcat -c
             adb shell am force-stop "$PKG" || true
-            adb shell am start -n "$PKG/$ACT"
-            sleep 50
+            adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 >/tmp/monkey.log 2>&1 || true
+            cat /tmp/monkey.log | tail -30
+            sleep 70
             echo '=== safe bootstrap runtime lines ==='
             adb logcat -d -v brief \
-              | grep -E 'bootstrap: (code=|apiDomain 已应用|apiDomain 解析失败|下发失败|原生签名失败|proof 生成失败|解密失败|命中风控)' \
+              | grep -E 'bootstrap: (code=|apiDomain 已应用|apiDomain 解析失败|下发失败|原生签名失败|proof 生成失败|解密失败|命中风控|未下发 appAccessToken|appAccessToken 已应用)' \
               | sed -E 's/(token|access|proof|signature|sign)[=:][^ ]+/\1=<redacted>/Ig' \
-              | tail -120 || true
+              | tail -160 || true
+            echo '=== app process state ==='
+            adb shell pidof "$PKG" || true
