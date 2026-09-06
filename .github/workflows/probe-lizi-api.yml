@@ -19,9 +19,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          echo '=== DNS ==='
+          for host in bkbfblh.xn--vhqr42drhf5k7b.com adnet.lizimh.com adnet.lizi.lat admod.lizi.lat lizimh.com; do
+            echo "--- $host ---"
+            getent ahosts "$host" || true
+          done
           python3 - <<'PY'
-          import urllib.request, urllib.parse
-          base='http://bkbfblh.xn--vhqr42drhf5k7b.com'
+          import ssl,urllib.request, urllib.parse
+          bases=[
+            'http://bkbfblh.xn--vhqr42drhf5k7b.com',
+            'https://bkbfblh.xn--vhqr42drhf5k7b.com',
+            'https://adnet.lizimh.com',
+            'https://adnet.lizi.lat',
+            'https://admod.lizi.lat',
+          ]
           paths=[
             'app/api/health',
             'app/api/config',
@@ -32,13 +43,16 @@ jobs:
             'app/api/search/full?q='+urllib.parse.quote('海贼王'),
           ]
           headers={'User-Agent':'Dart/3.0 (dart:io)','Accept':'application/json'}
-          for path in paths:
-              u=base+'/'+path
-              try:
-                  q=urllib.request.Request(u,headers=headers)
-                  with urllib.request.urlopen(q,timeout=20) as r:
-                      body=r.read(100000).decode('utf-8','replace')
-                      print('PROBE',u,'STATUS',r.status,'TYPE',r.headers.get('content-type'),'BODY',body[:12000])
-              except Exception as e:
-                  print('PROBE',u,'ERROR',type(e).__name__,e)
+          for base in bases:
+              print('=== BASE',base,'===')
+              for path in paths:
+                  u=base+'/'+path
+                  try:
+                      q=urllib.request.Request(u,headers=headers)
+                      ctx=ssl._create_unverified_context() if u.startswith('https://') else None
+                      with urllib.request.urlopen(q,timeout=12,context=ctx) as r:
+                          body=r.read(120000).decode('utf-8','replace')
+                          print('PROBE',u,'STATUS',r.status,'TYPE',r.headers.get('content-type'),'FINAL',r.geturl(),'BODY',body[:12000])
+                  except Exception as e:
+                      print('PROBE',u,'ERROR',type(e).__name__,e)
           PY
