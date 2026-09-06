@@ -1,0 +1,75 @@
+name: Diagnose Dongman comments pagination and avatars
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/diagnose-dongman-comments-pagination.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Probe live comment API
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://apis.dongmanmanhua.cn/v2/comment'
+          ua='Dongman/Android'
+          for size in 10 20 50; do
+            for page in 1 2 3; do
+              curl -fsSL --compressed -H 'Accept: application/json' -H "User-Agent: $ua" \
+                "$base?titleNo=2795&episodeNo=1&pageNo=$page&pageSize=$size" \
+                -o "/tmp/c-${size}-${page}.json"
+            done
+          done
+          python3 - <<'PY'
+          import json, re
+          from pathlib import Path
+
+          def summarize(path):
+              d=json.load(open(path,encoding='utf-8'))
+              data=d.get('data') or {}
+              best=data.get('bestList') or []
+              regular=data.get('commentList') or []
+              ids=[x.get('_id') for x in regular if isinstance(x,dict)]
+              scalar={k:v for k,v in data.items() if not isinstance(v,(dict,list))}
+              print('\nFILE',Path(path).name,'code',d.get('code'),'data_scalars',scalar)
+              print('counts best',len(best),'regular',len(regular),'first',ids[:2],'last',ids[-2:])
+              return d
+
+          samples=[]
+          for size in (10,20,50):
+              all_ids=[]
+              for page in (1,2,3):
+                  d=summarize(f'/tmp/c-{size}-{page}.json')
+                  data=d.get('data') or {}
+                  all_ids += [x.get('_id') for x in (data.get('commentList') or []) if isinstance(x,dict)]
+                  if not samples and (data.get('commentList') or []): samples.append((data.get('commentList') or [])[0])
+                  if len(samples)<2 and (data.get('bestList') or []): samples.append((data.get('bestList') or [])[0])
+              print('SIZE',size,'unique_regular_across_3_pages',len(set(filter(None,all_ids))),'total_rows',len(all_ids))
+
+          print('\nCOMMENT FIELD INSPECTION')
+          seen=set()
+          for i,c in enumerate(samples[:2],1):
+              if not isinstance(c,dict): continue
+              print('sample',i,'keys',sorted(c.keys()))
+              for k,v in c.items():
+                  kl=k.lower()
+                  if any(t in kl for t in ('avatar','profile','image','photo','picture','user','member','neo','icon','thumb')):
+                      print(' candidate',k,repr(v)[:1000])
+              # recursively report URL-bearing paths without dumping comment text
+              def walk(v,path=''):
+                  if isinstance(v,dict):
+                      for k,x in v.items(): walk(x, f'{path}.{k}' if path else k)
+                  elif isinstance(v,list):
+                      for j,x in enumerate(v[:5]): walk(x,f'{path}[{j}]')
+                  elif isinstance(v,str) and (v.startswith('http://') or v.startswith('https://') or re.search(r'\.(png|jpe?g|webp)(\?|$)',v,re.I)):
+                      print(' url',path,repr(v))
+              walk(c)
+          PY
