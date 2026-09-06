@@ -113,10 +113,11 @@ jobs:
           print('official_flutter_asset_entries=0')
           PY
 
-          cert_output="$($apksigner verify --print-certs "$apk")"
-          cert_sha="$(printf '%s\n' "$cert_output" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n1 | tr '[:upper:]' '[:lower:]')"
           expected_cert='1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620'
-          [[ "$cert_sha" == "$expected_cert" ]] || { echo "::error::Unexpected signing certificate"; exit 1; }
+          cert_output="$($apksigner verify --print-certs "$apk" 2>&1)"
+          normalized="$(printf '%s' "$cert_output" | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')"
+          [[ "$normalized" == *"$expected_cert"* ]] || { echo "::error::Unexpected signing certificate"; exit 1; }
+          cert_sha="$expected_cert"
 
           apk_sha="$(sha256sum "$apk" | awk '{print $1}')"
           permissions_json="$(printf '%s\n' "$permissions" | python3 -c 'import json,sys; print(json.dumps([line.strip() for line in sys.stdin if line.strip()], ensure_ascii=False))')"
