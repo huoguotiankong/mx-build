@@ -1,0 +1,92 @@
+name: Map Qingman Dart IO Method Neighborhood
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-dartio-neighborhood.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+
+      - name: Restore analyzer cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+
+      - name: Patch analyzer for code metadata only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('/tmp/blutter/blutter/src/main.cpp')
+          s=p.read_text()
+          anchor='\t\tapp.EnterScope();\n#ifndef NO_CODE_ANALYSIS\n'
+          block=(
+              '\t\tapp.EnterScope();\n'
+              '\t\t{\n'
+              '\t\t\tstd::cout << "=== CODE_METADATA_NEIGHBORHOOD ===\\n";\n'
+              '\t\t\tfor (uint64_t a = 0xaac900; a < 0xaacc00; a += 4) {\n'
+              '\t\t\t\tauto* fn = app.GetFunction(a);\n'
+              '\t\t\t\tif (!fn || fn->Address() != a) continue;\n'
+              '\t\t\t\tstd::cout << "addr=0x" << std::hex << a << std::dec\n'
+              '\t\t\t\t          << " name=" << fn->FullName() << " size=0x" << std::hex << fn->Size() << std::dec\n'
+              '\t\t\t\t          << " stub=" << fn->IsStub();\n'
+              '\t\t\t\tif (!fn->IsStub()) {\n'
+              '\t\t\t\t\tauto* f = fn->AsFunction();\n'
+              '\t\t\t\t\tstd::cout << " params=" << f->NumParam()\n'
+              '\t\t\t\t\t          << " optional=" << f->NumOptionalParam()\n'
+              '\t\t\t\t\t          << " named=" << f->HasNamedParam()\n'
+              '\t\t\t\t\t          << " async=" << f->IsAsync()\n'
+              '\t\t\t\t\t          << " native=" << f->IsNative();\n'
+              '\t\t\t\t}\n'
+              '\t\t\t\tstd::cout << "\\n";\n'
+              '\t\t\t}\n'
+              '\t\t}\n'
+              '#ifndef NO_CODE_ANALYSIS\n'
+          )
+          if anchor not in s: raise SystemExit('main.cpp anchor not found')
+          p.write_text(s.replace(anchor,block,1))
+          PY
+          rm -f /tmp/blutter/bin/blutter_dartvm3.12.2_android_arm64
+
+      - name: Run metadata probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/apk_url
+          import json,urllib.request,sys
+          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
+          a=o['data']['datas']['android']
+          print(a['downloadUrl'])
+          print('OFFICIAL_VERSION='+str(a.get('version','')),file=sys.stderr)
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(head -1 /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          mkdir -p /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/apk-extract
+          cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter
+          python3 blutter.py /tmp/app-lib /tmp/blutter-out | tee /tmp/blutter-run.log
+          echo '=== extracted code metadata ==='
+          grep -E 'CODE_METADATA_NEIGHBORHOOD|addr=0x' /tmp/blutter-run.log || true
