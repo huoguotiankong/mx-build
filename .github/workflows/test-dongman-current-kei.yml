@@ -1,0 +1,76 @@
+name: Test Dongman current KeiSource
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/test-dongman-current-kei.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout mx-dev source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: 4b0ba9b945234520918610701642bb0fe7da8cf8
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          persist-credentials: false
+
+      - name: Checkout current Keiyoushi
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Overlay module and apply compatibility patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf upstream/src/zh/dongmanmanhuaplus
+          cp -a source/src/zh/dongmanmanhuaplus upstream/src/zh/dongmanmanhuaplus
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('upstream/src/zh/dongmanmanhuaplus/src/eu/kanade/tachiyomi/extension/zh/dongmanmanhuaplus/DongmanManhuaPlus.kt')
+          s = p.read_text()
+          old1 = '''        Preference(screen.context).apply {\n            key = LOGIN_ACTION_PREF'''
+          new1 = '''        EditTextPreference(screen.context).apply {\n            key = LOGIN_ACTION_PREF'''
+          old2 = '''        Preference(screen.context).apply {\n            title = "付费章节正文替换"\n            summary = "已启用 MX 章节替换入口。官方账号已解锁/已购买章节优先读取咚漫官方内容；未解锁章节可由 MX 选择其它已安装且可访问的漫画源替换，不绕过源站付费限制。"\n            isSelectable = false\n        }.also(screen::addPreference)'''
+          new2 = '''        EditTextPreference(screen.context).apply {\n            title = "付费章节正文替换"\n            summary = "已启用 MX 章节替换入口。官方账号已解锁/已购买章节优先读取咚漫官方内容；未解锁章节可由 MX 选择其它已安装且可访问的漫画源替换，不绕过源站付费限制。"\n            setOnPreferenceClickListener { true }\n        }.also(screen::addPreference)'''
+          old3 = '''    override fun getFilterList(): FilterList = FilterList(\n        GenreFilter(),\n        SortFilter(),\n    )'''
+          new3 = '''    override fun getFilterList(data: JsonElement?): FilterList = FilterList(\n        GenreFilter(),\n        SortFilter(),\n    )'''
+          for old, new, name in [(old1,new1,'login preference'),(old2,new2,'info preference'),(old3,new3,'KeiSource filters')]:
+              if old not in s:
+                  raise SystemExit(f'missing expected block: {name}')
+              s = s.replace(old, new, 1)
+          p.write_text(s)
+          PY
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Compile patched module
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:dongmanmanhuaplus:spotlessCheck :src:zh:dongmanmanhuaplus:compileReleaseKotlin
+
+      - name: Export patched source
+        uses: actions/upload-artifact@v4
+        with:
+          name: dongman-current-kei-patched-source
+          path: upstream/src/zh/dongmanmanhuaplus/src/eu/kanade/tachiyomi/extension/zh/dongmanmanhuaplus/DongmanManhuaPlus.kt
+          if-no-files-found: error
