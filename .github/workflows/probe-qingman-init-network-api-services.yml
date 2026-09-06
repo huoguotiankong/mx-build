@@ -1,0 +1,95 @@
+name: Trace Qingman Network And API Service Init
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-init-network-api-services.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+      - name: Restore analyzer cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+      - name: Trace service initializer bodies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/apk_url
+          import json,urllib.request,sys
+          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
+          a=o['data']['datas']['android']
+          print(a['downloadUrl'])
+          print('OFFICIAL_VERSION='+str(a.get('version','')),file=sys.stderr)
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(head -1 /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          mkdir -p /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/apk-extract
+          cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter
+          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          sensitive=re.compile(r'(?i)(token|secret|password|cookie|authorization|bearer|private|clientp12|certificate|proof|signature|sign/key|k1a|k1b|k2a|k2b|k3a|k3b|seed)')
+          needles=('_RPh@1419346394','_SPh@1419346394','initNetworkServices','initApiServices','API services registration begin','QxNet adapter configured')
+          print('=== METADATA HITS ===')
+          for root in ('/tmp/blutter-out/objs.txt','/tmp/blutter-out/pp.txt'):
+              lines=Path(root).read_text('utf-8',errors='replace').splitlines()
+              for i,s in enumerate(lines):
+                  if not any(n.lower() in s.lower() for n in needles): continue
+                  for j in range(max(0,i-14),min(len(lines),i+35)):
+                      z=lines[j]
+                      if sensitive.search(z): z='<redacted-sensitive-line>'
+                      print(f'{Path(root).name}:{j+1}: {z[:650]}')
+
+          print('=== ASM FUNCTION HITS ===')
+          total=0; emitted=set()
+          for p in Path('/tmp/blutter-out/asm').rglob('*.dart'):
+              try: lines=p.read_text('utf-8',errors='replace').splitlines()
+              except Exception: continue
+              idxs=[i for i,s in enumerate(lines) if any(n.lower() in s.lower() for n in needles)]
+              for i in idxs:
+                  start=i
+                  while start>0 and '** addr:' not in lines[start]: start-=1
+                  if '** addr:' not in lines[start]: start=max(0,i-60)
+                  end=len(lines)
+                  for j in range(start+1,len(lines)):
+                      if '** addr:' in lines[j]: end=j; break
+                  key=(str(p),start,end)
+                  if key in emitted: continue
+                  emitted.add(key)
+                  print(f'FUNCTION file={p.name} lines={start+1}-{end} hit={i+1}')
+                  for j in range(start,min(end,start+1200)):
+                      z=lines[j]
+                      if sensitive.search(z): z=re.sub(r'"[^"]*"','"<redacted>"',z)
+                      if len(z)>500: z=z[:500]+'...'
+                      print(z)
+                      total+=1
+                      if total>=3000: break
+                  if total>=3000: break
+              if total>=3000: break
+          print('PRINTED_LINES='+str(total))
+          PY
