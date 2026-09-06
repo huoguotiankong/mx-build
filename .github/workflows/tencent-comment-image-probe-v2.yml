@@ -1,0 +1,42 @@
+name: Probe Tencent comment image MIME alternatives
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/tencent-comment-image-probe-v2.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Probe MIME alternatives
+        shell: bash
+        run: |
+          set -u
+          bases=(
+            'https://manhua.acimg.cn/manhua/0/05_16_49_f1ebabbb7cddf4f34cb4805f1e02b306.jpg/0'
+            'https://manhua.acimg.cn/manhua/0/15_09_39_13170f3f334f7e005496d9311df42127.jpg/0'
+          )
+          probe() {
+            local label="$1" url="$2"
+            local result
+            result=$(curl -sS -L --range 0-4095 --max-time 20 -o "$RUNNER_TEMP/body.bin" \
+              -w '%{http_code}|%{content_type}|%{size_download}|%{url_effective}' "$url" 2>&1) || true
+            magic=$(file -b --mime-type "$RUNNER_TEMP/body.bin" 2>/dev/null || true)
+            printf '%s|header=%s|magic=%s\n' "$label" "$result" "$magic"
+          }
+          i=0
+          for base in "${bases[@]}"; do
+            i=$((i + 1))
+            probe "url${i}-slash0" "$base"
+            probe "url${i}-sharp" "$base?tp=sharp"
+            probe "url${i}-jpg" "$base?tp=jpg"
+            probe "url${i}-webp" "$base?tp=webp"
+            probe "url${i}-avif" "$base?tp=avif"
+          done
