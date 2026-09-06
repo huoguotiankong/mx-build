@@ -31,22 +31,20 @@ jobs:
           unzip -q -j /tmp/qingman.apk 'lib/arm64-v8a/libqx_security.so' -d /tmp/qm-native
           test -s /tmp/qm-native/libqx_security.so
 
-      - name: Reproduce bootstrap request from native algorithm
+      - name: Reproduce and decrypt bootstrap response
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq python3-pyelftools >/dev/null
+          sudo apt-get install -y -qq python3-pyelftools python3-cryptography >/dev/null
           python3 - <<'PY'
-          import hashlib, json, os, re, time, urllib.error, urllib.request, uuid
+          import base64, hashlib, json, re, time, urllib.error, urllib.request, uuid
+          from cryptography.hazmat.primitives.ciphers.aead import AESGCM
           from elftools.elf.elffile import ELFFile
 
           URL='https://mu8xm4cx.zermh.com/bootstrap/domain'
           SO='/tmp/qm-native/libqx_security.so'
 
-          # The official app stores the bootstrap signing constant obfuscated in
-          # libqx_security.so. Derive it in-memory from the current APK and never
-          # print or persist the plaintext signing material.
           with open(SO,'rb') as f:
               elf=ELFFile(f)
               def read_va(va,n):
@@ -59,83 +57,108 @@ jobs:
                           return f.read(n)
                   raise RuntimeError(f'VA 0x{va:x} is not file-backed')
               seed = read_va(0x14a40,16) + read_va(0x14af0,16)
-              cipher = read_va(0x17d1f,33)
+              sign_cipher = read_va(0x17d1f,33)
+              aes_cipher = read_va(0x17d40,32)
 
           base=hashlib.sha256(seed).digest()
-          stream=b''
-          counter=0
-          while len(stream)<len(cipher):
-              stream += hashlib.sha256(base + bytes([1]) + counter.to_bytes(4,'big')).digest()
-              counter += 1
-          secret=bytes(a^b for a,b in zip(cipher,stream))
-          try:
-              secret.decode('ascii')
-          except Exception as e:
-              raise RuntimeError('bootstrap signing material derivation failed') from e
-          print('native_bootstrap_sign_material=derived')
+          def deobfuscate(cipher,kind):
+              stream=b''; counter=0
+              while len(stream)<len(cipher):
+                  stream += hashlib.sha256(base + bytes([kind]) + counter.to_bytes(4,'big')).digest()
+                  counter += 1
+              return bytes(a^b for a,b in zip(cipher,stream))
+
+          sign_material=deobfuscate(sign_cipher,1)
+          aes_key=deobfuscate(aes_cipher,2)
+          if len(aes_key)!=32:
+              raise RuntimeError('bootstrap AES material derivation failed')
+          print('native_bootstrap_material=derived')
 
           def sign(ts,nonce,did):
-              return hashlib.sha256(ts.encode()+nonce.encode()+did.encode()+secret).hexdigest()
+              return hashlib.sha256(ts.encode()+nonce.encode()+did.encode()+sign_material).hexdigest()
 
-          def sanitize(raw):
-              text=raw.decode('utf-8','replace')
-              try:
-                  obj=json.loads(text)
-                  def walk(v):
-                      if isinstance(v,dict):
-                          out={}
-                          for k,x in v.items():
-                              lk=k.lower()
-                              if any(t in lk for t in ('token','proof','signature')) or lk in ('sign','access'):
-                                  out[k]='<redacted>'
-                              else:
-                                  out[k]=walk(x)
-                          return out
-                      if isinstance(v,list): return [walk(x) for x in v]
-                      return v
-                  return json.dumps(walk(obj),ensure_ascii=False,separators=(',',':'))[:3000]
-              except Exception:
-                  text=re.sub(r'(?i)(token|access|proof|signature|sign)[=:][^ ,}\]]+',r'\1=<redacted>',text)
-                  return text[:3000]
+          def redact_obj(v):
+              if isinstance(v,dict):
+                  out={}
+                  for k,x in v.items():
+                      lk=k.lower()
+                      if any(t in lk for t in ('token','proof','signature')) or lk in ('sign','access'):
+                          out[k]='<redacted>'
+                      else:
+                          out[k]=redact_obj(x)
+                  return out
+              if isinstance(v,list): return [redact_obj(x) for x in v]
+              return v
 
           ts=str(int(time.time()*1000))
-          u=uuid.uuid4()
-          candidates=[
-              ('hex32/nonce32', u.hex, uuid.uuid4().hex),
-              ('uuid-prefix/nonce32', 'uuid_'+u.hex, uuid.uuid4().hex),
-              ('uuid-dashed/nonce32', str(u), uuid.uuid4().hex),
-              ('androidid16/nonce32', u.hex[:16], uuid.uuid4().hex),
-              ('hex32/nonce16', u.hex, uuid.uuid4().hex[:16]),
-              ('hex32/nonce-dashed', u.hex, str(uuid.uuid4())),
-          ]
+          did=uuid.uuid4().hex
+          nonce=uuid.uuid4().hex
+          sig=sign(ts,nonce,did)
+          body=json.dumps({'timestamp':ts,'nonce':nonce,'sign':sig,'deviceId':did},separators=(',',':')).encode()
+          headers={
+              'Content-Type':'application/json',
+              'Accept':'application/json, text/plain, */*',
+              'User-Agent':'qingman/4.4.5 (Android)',
+              'appVersion':'4.4.5',
+              'platform':'android',
+              'X-Device-Id':did,
+          }
+          req=urllib.request.Request(URL,data=body,headers=headers,method='POST')
+          try:
+              with urllib.request.urlopen(req,timeout=20) as r:
+                  raw=r.read(32768); status=r.status
+          except urllib.error.HTTPError as e:
+              status=e.code; raw=e.read(32768)
+          resp=json.loads(raw.decode('utf-8','replace'))
+          print(f'bootstrap_http={status} code={resp.get("code")} msg={resp.get("msg")}')
+          enc=resp.get('data')
+          if not isinstance(enc,str) or not enc:
+              raise RuntimeError('bootstrap did not return encrypted data')
+          payload=base64.urlsafe_b64decode(enc + '='*((4-len(enc)%4)%4))
+          if len(payload)<29:
+              raise RuntimeError('bootstrap encrypted payload too short')
+          iv=payload[:12]
+          cipher_and_tag=payload[12:]
 
-          found=False
-          for label,did,nonce in candidates:
-              sig=sign(ts,nonce,did)
-              body=json.dumps({'timestamp':ts,'nonce':nonce,'sign':sig,'deviceId':did},separators=(',',':')).encode()
-              headers={
-                  'Content-Type':'application/json',
-                  'Accept':'application/json, text/plain, */*',
-                  'User-Agent':'qingman/4.4.5 (Android)',
-                  'appVersion':'4.4.5',
-                  'platform':'android',
-                  'X-Device-Id':did,
-              }
-              req=urllib.request.Request(URL,data=body,headers=headers,method='POST')
+          aad_candidates=[
+              ('timestamp|nonce',ts,nonce),
+              ('nonce|timestamp',nonce,ts),
+              ('timestamp|deviceId',ts,did),
+              ('deviceId|timestamp',did,ts),
+              ('nonce|deviceId',nonce,did),
+              ('deviceId|nonce',did,nonce),
+          ]
+          plaintext=None; aad_label=None
+          for label,a,b in aad_candidates:
+              aad=(a+'|'+b).encode()
               try:
-                  with urllib.request.urlopen(req,timeout=20) as r:
-                      raw=r.read(16384); status=r.status
-              except urllib.error.HTTPError as e:
-                  status=e.code; raw=e.read(16384)
-              except Exception as e:
-                  print(f'=== {label} transport_error={type(e).__name__} ===')
-                  continue
-              safe=sanitize(raw)
-              print(f'=== {label} http={status} ===')
-              print(safe)
-              if 'apiDomain' in safe or 'apidomain' in safe.lower():
-                  found=True
-                  print(f'BOOTSTRAP_API_DOMAIN_FOUND via={label}')
+                  plaintext=AESGCM(aes_key).decrypt(iv,cipher_and_tag,aad)
+                  aad_label=label
                   break
-          print('bootstrap_api_domain_found='+str(found).lower())
+              except Exception:
+                  pass
+          if plaintext is None:
+              raise RuntimeError('bootstrap AES-GCM AAD candidates did not authenticate')
+          print('bootstrap_decrypt_aad='+aad_label)
+          text=plaintext.decode('utf-8')
+          obj=json.loads(text)
+          safe=redact_obj(obj)
+          print('bootstrap_plain='+json.dumps(safe,ensure_ascii=False,separators=(',',':'))[:4000])
+
+          def find_api_domain(v):
+              if isinstance(v,dict):
+                  for k,x in v.items():
+                      if k.lower()=='apidomain' and isinstance(x,str) and x:
+                          return x
+                      z=find_api_domain(x)
+                      if z: return z
+              elif isinstance(v,list):
+                  for x in v:
+                      z=find_api_domain(x)
+                      if z: return z
+              return None
+          domain=find_api_domain(obj)
+          if not domain:
+              raise RuntimeError('bootstrap plaintext has no apiDomain')
+          print('BOOTSTRAP_API_DOMAIN='+domain)
           PY
