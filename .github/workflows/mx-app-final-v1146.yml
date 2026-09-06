@@ -57,23 +57,15 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch origin \
-            integration/mx-final-ehentai-comment-rich-20260905-v2:refs/remotes/origin/mx-eh-final
+          git fetch origin integration/mx-final-ehentai-comment-rich-20260905-v2:refs/remotes/origin/mx-eh-final
           git merge --no-edit --no-ff -X theirs origin/mx-eh-final
-
-          # The two integration lines edited these files independently. The ort auto-merge can
-          # splice neighbouring Kotlin blocks together even when no conflict marker remains.
-          # Use the already validated EHentai/Tencent versions for the interaction-heavy overlap,
-          # while all library/category/performance-only files remain from the library branch.
           git checkout origin/mx-eh-final -- \
             app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt \
             app/src/main/java/eu/kanade/presentation/manga/components/MangaDetailInfoSection.kt \
             app/src/main/java/eu/kanade/tachiyomi/ui/manga/comments/CommentScreen.kt \
             app/src/test/java/eu/kanade/presentation/manga/comments/CommentRichContentTest.kt \
-            docs/COMMENTS.md \
-            docs/MANGA_DETAILS.md \
+            docs/COMMENTS.md docs/MANGA_DETAILS.md \
             source-api/src/commonMain/kotlin/eu/kanade/tachiyomi/source/mx/MangaRatingSource.kt
-
           git diff --check
           test -f app/src/main/java/eu/kanade/tachiyomi/source/online/all/EHentaiMxFeatureProvider.kt
           test -f app/src/main/java/eu/kanade/presentation/library/components/LibraryToolbar.kt
@@ -95,10 +87,8 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-
       - name: Format and run release unit tests
         working-directory: source
         shell: bash
@@ -120,25 +110,13 @@ jobs:
           bundle = json.loads(os.environ["MX_APP_SIGNING_BUNDLE"])
           required = ("signingKey", "alias", "storePassword")
           missing = [key for key in required if not bundle.get(key)]
-          if missing:
-              raise SystemExit(f"Signing bundle missing fields: {', '.join(missing)}")
+          if missing: raise SystemExit(f"Signing bundle missing fields: {', '.join(missing)}")
           path = Path(os.environ["RUNNER_TEMP"]) / "mx-app-final.jks"
           path.write_bytes(base64.b64decode(bundle["signingKey"]))
-          # The stable MX JKS was created with one password for both the store and
-          # alias private key. Older successful MX Preview workflows deliberately
-          # use storePassword for both. Do not consume an optional/stale keyPassword
-          # field from the bundle here, because that lets certificate export succeed
-          # while packagePreview later fails when decrypting alias `mx`.
           store_password = str(bundle["storePassword"])
-          values = {
-              "MX_KEYSTORE_PATH": str(path),
-              "MX_KEY_ALIAS": str(bundle["alias"]),
-              "MX_KEYSTORE_PASSWORD": store_password,
-              "MX_STORE_PASSWORD": store_password,
-              "MX_KEY_PASSWORD": store_password,
-          }
+          values = {"MX_KEYSTORE_PATH":str(path),"MX_KEY_ALIAS":str(bundle["alias"]),"MX_KEYSTORE_PASSWORD":store_password,"MX_STORE_PASSWORD":store_password,"MX_KEY_PASSWORD":store_password}
           with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as f:
-              for name, value in values.items():
+              for name,value in values.items():
                   print(f"::add-mask::{value}")
                   f.write(f"{name}<<__MX_FINAL_SIGN_EOF__\n{value}\n__MX_FINAL_SIGN_EOF__\n")
           PY
@@ -150,38 +128,32 @@ jobs:
           expected="c230be9c78bf5d28a101c2cb785923b899aa569ead15961309dea8bbcb34ec33"
           actual="$(keytool -exportcert -alias "$MX_KEY_ALIAS" -keystore "$MX_KEYSTORE_PATH" -storepass "$MX_KEYSTORE_PASSWORD" | sha256sum | awk '{print $1}' | tr '[:upper:]' '[:lower:]')"
           [[ "$actual" == "$expected" ]] || { echo "::error::MX signing certificate mismatch"; exit 1; }
-
-          # Validate that the same credentials can actually decrypt the private key,
-          # not merely read the public certificate from the keystore.
-          probe="$RUNNER_TEMP/mx-signing-probe.p12"
+          probe="$RUNNER_TEMP/mx-signing-probe.p12"; rm -f "$probe"
+          keytool -importkeystore -srckeystore "$MX_KEYSTORE_PATH" -srcstorepass "$MX_KEYSTORE_PASSWORD" -srcalias "$MX_KEY_ALIAS" -srckeypass "$MX_KEY_PASSWORD" -destkeystore "$probe" -deststoretype PKCS12 -deststorepass "$MX_KEYSTORE_PASSWORD" -destkeypass "$MX_KEY_PASSWORD" -noprompt >/dev/null
           rm -f "$probe"
-          keytool -importkeystore \
-            -srckeystore "$MX_KEYSTORE_PATH" \
-            -srcstorepass "$MX_KEYSTORE_PASSWORD" \
-            -srcalias "$MX_KEY_ALIAS" \
-            -srckeypass "$MX_KEY_PASSWORD" \
-            -destkeystore "$probe" \
-            -deststoretype PKCS12 \
-            -deststorepass "$MX_KEYSTORE_PASSWORD" \
-            -destkeypass "$MX_KEY_PASSWORD" \
-            -noprompt >/dev/null
-          rm -f "$probe"
-
           echo "MX_SIGNING_FINGERPRINT=$actual" >> "$GITHUB_ENV"
 
       - name: Build final Preview APK
         working-directory: source
         shell: bash
         run: |
-          set -euo pipefail
+          set -o pipefail
           ./gradlew assemblePreview \
             -Dorg.gradle.jvmargs="-Xmx4g -Dfile.encoding=UTF-8 --add-opens=java.base/java.io=ALL-UNNAMED" \
-            -Pdisable-code-shrink \
-            --no-configuration-cache \
+            -Pdisable-code-shrink --no-configuration-cache --stacktrace --console=plain \
             -Pandroid.injected.signing.store.file="$MX_KEYSTORE_PATH" \
             -Pandroid.injected.signing.store.password="$MX_KEYSTORE_PASSWORD" \
             -Pandroid.injected.signing.key.alias="$MX_KEY_ALIAS" \
-            -Pandroid.injected.signing.key.password="$MX_KEY_PASSWORD"
+            -Pandroid.injected.signing.key.password="$MX_KEY_PASSWORD" 2>&1 | tee "$RUNNER_TEMP/mx-final-build.log"
+
+      - name: Upload build failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: MX-manga-v1.14.6-build-diagnostics
+          path: ${{ runner.temp }}/mx-final-build.log
+          if-no-files-found: warn
+          retention-days: 3
 
       - name: Normalize APK name and verify certificate
         id: apk
@@ -194,12 +166,7 @@ jobs:
           output="source/app/build/outputs/apk/preview/MX-manga-v1.14.6-final.apk"
           if [[ "$apk" != "$output" ]]; then cp "$apk" "$output"; fi
           signed="${output%.apk}.signed.apk"
-          "$apksigner" sign \
-            --ks "$MX_KEYSTORE_PATH" \
-            --ks-key-alias "$MX_KEY_ALIAS" \
-            --ks-pass env:MX_KEYSTORE_PASSWORD \
-            --key-pass env:MX_KEY_PASSWORD \
-            --out "$signed" "$output"
+          "$apksigner" sign --ks "$MX_KEYSTORE_PATH" --ks-key-alias "$MX_KEY_ALIAS" --ks-pass env:MX_KEYSTORE_PASSWORD --key-pass env:MX_KEY_PASSWORD --out "$signed" "$output"
           mv "$signed" "$output"
           "$apksigner" verify --verbose "$output"
           cert_output="$("$apksigner" verify --print-certs "$output" 2>&1)"
@@ -216,7 +183,6 @@ jobs:
           git -C source log -10 --oneline > final-metadata/merged-commits.txt
           git -C source status --short > final-metadata/working-tree.txt
           printf 'versionName=1.14.6\nversionCode=86\nsigning=%s\n' "$MX_SIGNING_FINGERPRINT" > final-metadata/build.txt
-
       - name: Upload final MX APK
         uses: actions/upload-artifact@v4
         with:
@@ -224,7 +190,6 @@ jobs:
           path: source/app/build/outputs/apk/preview/MX-manga-v1.14.6-final.apk
           if-no-files-found: error
           retention-days: 14
-
       - name: Upload final integration metadata
         if: always()
         uses: actions/upload-artifact@v4
@@ -233,7 +198,6 @@ jobs:
           path: final-metadata
           if-no-files-found: warn
           retention-days: 14
-
       - name: Cleanup signing material
         if: always()
         shell: bash
