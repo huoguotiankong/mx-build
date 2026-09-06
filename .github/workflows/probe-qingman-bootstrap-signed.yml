@@ -19,7 +19,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq python3-pyelftools python3-capstone >/dev/null
+          sudo apt-get install -y -qq python3-pyelftools >/dev/null
           python3 - <<'PY' > /tmp/apk_url
           import json,urllib.request
           o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
@@ -28,108 +28,73 @@ jobs:
           curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qingman.apk
           unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libqx_security.so' -d /tmp/qm
           python3 - <<'PY'
-          import hashlib,json,re,secrets,time,urllib.request,urllib.error,uuid
+          import hashlib,json,secrets,time,urllib.request,urllib.error,uuid
           from itertools import permutations
           from pathlib import Path
           from elftools.elf.elffile import ELFFile
-          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
 
           so=Path('/tmp/qm/lib/arm64-v8a/libqx_security.so')
           raw=so.read_bytes()
-          print('native_sha256=',hashlib.sha256(raw).hexdigest())
-          needle=b'bootstrapSign\x00'
-          pos=raw.find(needle)
-          if pos<0: raise SystemExit('bootstrapSign name not found')
+          digest=hashlib.sha256(raw).hexdigest()
+          expected='0b187ca2fb5d98d8dc604b53bf01c44669f25c95f568e859c1498f3dfc078148'
+          print('native_sha256=',digest)
+          if digest != expected:
+              raise SystemExit('native security library changed; refuse fixed-layout extraction')
+
+          # The verified native build constructs bootstrapSign from a 33-byte
+          # internal prefix at this virtual address. Keep the bytes transient:
+          # never print or persist them.
+          prefix_va=0x17d1f
           with so.open('rb') as f:
               elf=ELFFile(f)
-              name_va=None
-              for sec in elf.iter_sections():
-                  off=int(sec['sh_offset']); size=int(sec['sh_size'])
-                  if off <= pos < off+size:
-                      name_va=int(sec['sh_addr'])+(pos-off); break
-              if name_va is None: raise SystemExit('name VA not found')
-              table=None; fn=None
-              rels=[]
-              for sec in elf.iter_sections():
-                  if sec.header['sh_type'] not in ('SHT_RELA','SHT_REL'): continue
-                  for rel in sec.iter_relocations():
-                      add=rel.entry.get('r_addend',None)
-                      if add is not None: rels.append((int(rel['r_offset']),int(add)))
-              for ro,add in rels:
-                  if add==name_va: table=ro; break
-              if table is None: raise SystemExit('JNI method table not found')
-              for ro,add in rels:
-                  if ro==table+16: fn=add; break
-              if fn is None: raise SystemExit('bootstrapSign function not found')
-              code_sec=next((s for s in elf.iter_sections() if int(s['sh_addr'])<=fn<int(s['sh_addr'])+s['sh_size']),None)
-              if code_sec is None: raise SystemExit('code section not found')
-              code=code_sec.data()[fn-int(code_sec['sh_addr']):fn-int(code_sec['sh_addr'])+0x500]
-              md=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
-              ins=list(md.disasm(code,fn))
-              prefix_va=None
-              for i,x in enumerate(ins):
-                  if x.mnemonic=='adr' and x.op_str.startswith('x2,'):
-                      m=re.search(r'#?(0x[0-9a-f]+)',x.op_str)
-                      if not m: continue
-                      for y in ins[i+1:i+8]:
-                          if y.mnemonic=='mov' and y.op_str.replace(' ','') in ('w3,#0x21','w3,#33'):
-                              prefix_va=int(m.group(1),16); break
-                  if prefix_va is not None: break
-              if prefix_va is None: raise SystemExit('signature prefix locator not found')
               prefix=None
               for sec in elf.iter_sections():
                   sva=int(sec['sh_addr']); ssize=int(sec['sh_size'])
-                  if sva<=prefix_va<prefix_va+33<=sva+ssize:
+                  if sva <= prefix_va and prefix_va+33 <= sva+ssize:
                       d=sec.data(); prefix=d[prefix_va-sva:prefix_va-sva+33]; break
-              if prefix is None or len(prefix)!=33: raise SystemExit('signature prefix bytes not found')
-          print(f'bootstrapSign_fn=0x{fn:x} prefix_len={len(prefix)}')
+          if prefix is None or len(prefix)!=33:
+              raise SystemExit('signature prefix bytes not found')
+          print('native_layout_verified=true prefix_len=33')
 
           endpoint='https://mu8xm4cx.zermh.com/bootstrap/domain'
           ts=str(int(time.time()*1000))
           nonce=secrets.token_hex(16)
           device=uuid.uuid4().hex
           values={'timestamp':ts,'nonce':nonce,'deviceId':device}
-          orders=list(permutations(('timestamp','nonce','deviceId')))
           headers={
               'Content-Type':'application/json',
               'Accept':'application/json, text/plain, */*',
               'User-Agent':'qingman/4.4.5 (Android)',
               'appVersion':'4.4.5','platform':'android',
           }
-          def safe_summary(body):
-              try:
-                  o=json.loads(body)
-              except Exception:
-                  return 'non_json len='+str(len(body))
-              if not isinstance(o,dict): return 'json_type='+type(o).__name__
-              code=o.get('code'); msg=str(o.get('msg',''))[:100]
-              data=o.get('data')
+          def summarize(body):
+              try: o=json.loads(body)
+              except Exception: return 'non_json len='+str(len(body)),None
+              if not isinstance(o,dict): return 'json_type='+type(o).__name__,None
+              code=o.get('code'); msg=str(o.get('msg',''))[:100]; data=o.get('data')
               if isinstance(data,str): ds=f'str_len={len(data)}'
               elif isinstance(data,dict): ds='dict_keys='+','.join(sorted(map(str,data.keys()))[:20])
               elif data is None: ds='none'
               else: ds='type='+type(data).__name__
-              return f'code={code!r} msg={msg!r} data={ds}'
-          success=False
-          for order in orders:
+              return f'code={code!r} msg={msg!r} data={ds}',o
+
+          accepted=None
+          for order in permutations(('timestamp','nonce','deviceId')):
               sig=hashlib.sha256(prefix+b''.join(values[k].encode() for k in order)).hexdigest()
               payload={'timestamp':ts,'nonce':nonce,'sign':sig,'deviceId':device}
               req=urllib.request.Request(endpoint,data=json.dumps(payload,separators=(',',':')).encode(),headers=headers,method='POST')
               try:
                   with urllib.request.urlopen(req,timeout=12) as r:
-                      body=r.read().decode('utf-8','replace')
-                      status=r.status
+                      status=r.status; body=r.read().decode('utf-8','replace')
               except urllib.error.HTTPError as e:
                   status=e.code; body=e.read().decode('utf-8','replace')
               except Exception as e:
                   print('order='+','.join(order),'error='+type(e).__name__+':'+str(e)[:120]); continue
-              summary=safe_summary(body)
+              summary,o=summarize(body)
               print('order='+','.join(order),f'http={status}',summary)
-              try:
-                  o=json.loads(body)
-                  if isinstance(o,dict) and o.get('code') in (0,1,200) and o.get('data'):
-                      print('accepted_order='+','.join(order))
-                      success=True
-                      break
-              except Exception: pass
-          print('accepted=',success)
+              if isinstance(o,dict) and o.get('data') and str(o.get('msg','')).lower() not in ('参数错误','parameter error'):
+                  accepted=order
+                  print('accepted_order='+','.join(order))
+                  break
+          print('accepted=',bool(accepted))
           PY
