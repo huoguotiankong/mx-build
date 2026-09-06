@@ -1,0 +1,103 @@
+name: Prepare Lizi v2 Performance Handoff
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/prepare-lizi-v2-handoff.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout build repository
+        uses: actions/checkout@v5
+        with:
+          path: buildrepo
+          persist-credentials: true
+
+      - name: Checkout Lizi branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: source/lizimanhua-v2
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: dev
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Apply optimized source patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          src = Path('dev/src/zh/lizimanhua/src/eu/kanade/tachiyomi/extension/zh/lizimanhua/LiziManhua.kt')
+          s = src.read_text('utf-8')
+
+          old = '''        val candidates = buildList {\n            addAll(discoverApiBases())\n            addAll(discoverBootstrapApiBases())\n            addAll(LAST_KNOWN_API_BASES)\n        }.map(::normalizeBaseUrl).distinct()\n\n        var lastError: Throwable? = null\n        for (candidate in candidates) {\n            val result = runCatching {\n                if (!healthCheck(candidate)) throw IOException("健康检查失败")\n                val baseConfig = RuntimeConfig(candidate, DEFAULT_IMAGE_BASE, JsonObject(emptyMap()))\n                val apiConfig = getJson(apiUrl(baseConfig, CONFIG_PATH))\n                val imageBase = parseImageBase(apiConfig)\n                RuntimeConfig(candidate, imageBase, apiConfig)\n            }\n'''
+          new = '''        val dynamicCandidates = discoverApiBases()\n        val candidates = buildList {\n            addAll(dynamicCandidates)\n            if (dynamicCandidates.isEmpty()) addAll(discoverBootstrapApiBases())\n            addAll(LAST_KNOWN_API_BASES)\n        }.map(::normalizeBaseUrl).distinct()\n\n        var lastError: Throwable? = null\n        for (candidate in candidates) {\n            val result = runCatching {\n                val baseConfig = RuntimeConfig(candidate, DEFAULT_IMAGE_BASE, JsonObject(emptyMap()))\n                // app/api/config doubles as the availability check; avoid a redundant health round-trip.\n                val apiConfig = getJson(apiUrl(baseConfig, CONFIG_PATH))\n                val imageBase = parseImageBase(apiConfig)\n                RuntimeConfig(candidate, imageBase, apiConfig)\n            }\n'''
+          if old not in s:
+              raise SystemExit('runtime candidate block not found')
+          s = s.replace(old, new, 1)
+
+          old = '''                result += candidate\n            }\n        }\n        return result.distinct()\n    }\n'''
+          new = '''                if (candidate.isNotEmpty()) return candidate.distinct()\n            }\n        }\n        return result.distinct()\n    }\n'''
+          if old not in s:
+              raise SystemExit('DoH accumulation block not found')
+          s = s.replace(old, new, 1)
+
+          old = '''        val preferred = generators.orEmpty()\n            .mapNotNull { it as? JsonObject }\n            .firstNotNullOfOrNull { obj ->\n                val needsPermission = (obj["need_permission"] as? JsonPrimitive)?.booleanOrNull ?: false\n                val raw = primitiveString(obj["url"]) ?: return@firstNotNullOfOrNull null\n                if (needsPermission || raw.equals("www.baidu.com", true)) return@firstNotNullOfOrNull null\n                raw\n            }\n        return preferred?.let(::normalizeBaseUrl) ?: DEFAULT_IMAGE_BASE\n'''
+          new = '''        val available = generators.orEmpty()\n            .mapNotNull { it as? JsonObject }\n            .mapNotNull { obj ->\n                val needsPermission = (obj["need_permission"] as? JsonPrimitive)?.booleanOrNull ?: false\n                val raw = primitiveString(obj["url"]) ?: return@mapNotNull null\n                if (needsPermission || raw.equals("www.baidu.com", true)) return@mapNotNull null\n                normalizeBaseUrl(raw)\n            }\n            .distinct()\n\n        val preferred = FAST_IMAGE_BASE_PRIORITY.firstOrNull { preferredBase ->\n            available.any { it.equals(preferredBase, ignoreCase = true) }\n        }\n        return preferred ?: available.firstOrNull() ?: DEFAULT_IMAGE_BASE\n'''
+          if old not in s:
+              raise SystemExit('image base selection block not found')
+          s = s.replace(old, new, 1)
+
+          old = '''        private val DOH_RESOLVERS = listOf(\n            "doh.pub",\n            "120.53.53.53",\n            "dns.alidns.com",\n            "223.5.5.5",\n            "doh.360.cn",\n            "dns.google",\n        )\n'''
+          new = '''        private val DOH_RESOLVERS = listOf(\n            "doh.pub",\n            "dns.alidns.com",\n            "223.5.5.5",\n            "120.53.53.53",\n            "doh.360.cn",\n            "dns.google",\n        )\n'''
+          if old not in s:
+              raise SystemExit('DoH resolver block not found')
+          s = s.replace(old, new, 1)
+
+          old = '''        private val LAST_KNOWN_API_BASES = listOf("http://ai.xajtl.com", "http://crm.weichu.asia")\n        private const val DEFAULT_IMAGE_BASE = "https://img.kunmu.asia"\n'''
+          new = '''        private val LAST_KNOWN_API_BASES = listOf("http://crm.weichu.asia", "http://ai.xajtl.com")\n        private val FAST_IMAGE_BASE_PRIORITY = listOf(\n            "https://p.imgo.buzz",\n            "https://i.lzimg.xyz",\n            "https://cf-1.imgio.club",\n            "https://img.kunmu.asia",\n        )\n        private const val DEFAULT_IMAGE_BASE = "https://p.imgo.buzz"\n'''
+          if old not in s:
+              raise SystemExit('API/image defaults block not found')
+          s = s.replace(old, new, 1)
+          src.write_text(s, 'utf-8')
+
+          gradle = Path('dev/src/zh/lizimanhua/build.gradle.kts')
+          g = gradle.read_text('utf-8')
+          if 'versionCode = 1' not in g:
+              raise SystemExit('versionCode 1 not found')
+          gradle.write_text(g.replace('versionCode = 1', 'versionCode = 2', 1), 'utf-8')
+
+          doc = Path('dev/docs/sources/lizimanhua.md')
+          d = doc.read_text('utf-8')
+          marker = '## v1.6.2 性能优化（2026-09-06）'
+          if marker not in d:
+              d += '''\n\n## v1.6.2 性能优化（2026-09-06）\n\n用户实机确认 v1.6.1 基本功能正常，但首页、封面和正文加载偏慢。针对这次反馈做以下优化：\n\n- 动态 DoH 寻址改为“首个成功解析即返回”，不再把 2 个 TXT 主机 × 6 个 DoH 全部串行查询完。\n- DoH 成功时不再额外请求 COS fallback；只有动态发现完全失败才访问 fallback。\n- `app/api/config` 本身作为线路可用性验证，移除初始化阶段重复的 `app/api/health` 往返。\n- 调整最后已知 API 顺序，云端实测 `crm.weichu.asia` 首页约 0.95 秒，`ai.xajtl.com` 约 1.24 秒。\n- 图片线路不再机械使用官方配置第一条。云端同一资源测速显示：默认 `img.kunmu.asia` 封面约 1.66 秒、正文首张约 7.10 秒；`p.imgo.buzz` 封面约 0.34 秒、正文约 0.58 秒；`i.lzimg.xyz` 正文约 0.35 秒。因此 v1.6.2 优先 `p.imgo.buzz`，再回退 `i.lzimg.xyz`、`cf-1.imgio.club`、`img.kunmu.asia`。\n- 以上测速来自 GitHub Actions 云端，仅用于线路排序；最终速度仍以用户实机网络为准。\n\n验证状态：代码修改后需重新完成 Spotless、Debug/Release 构建、固定签名和测试商店发布；实际速度改善待用户安装 v1.6.2 后确认。\n'''
+              doc.write_text(d, 'utf-8')
+          PY
+
+          mkdir -p buildrepo/handoff/lizi-v2
+          cp dev/src/zh/lizimanhua/src/eu/kanade/tachiyomi/extension/zh/lizimanhua/LiziManhua.kt buildrepo/handoff/lizi-v2/LiziManhua.kt
+          cp dev/src/zh/lizimanhua/build.gradle.kts buildrepo/handoff/lizi-v2/build.gradle.kts
+          cp dev/docs/sources/lizimanhua.md buildrepo/handoff/lizi-v2/lizimanhua.md
+
+      - name: Commit handoff files
+        working-directory: buildrepo
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add handoff/lizi-v2
+          git commit -m "handoff: prepare Lizi v1.6.2 performance patch"
+          git push origin HEAD:main
