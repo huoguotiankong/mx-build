@@ -29,7 +29,7 @@ jobs:
             /tmp/blutter/dartsdk
             /tmp/blutter/packages
           key: qingman-blutter-dart-3.12.2-arm64-v1
-      - name: Trace bootstrap Dart call sites
+      - name: Dump bootstrap AOT request windows
         shell: bash
         run: |
           set -euo pipefail
@@ -46,22 +46,11 @@ jobs:
           cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
           cd /tmp/blutter
           python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1 || true
-          tail -20 /tmp/blutter.log || true
+          tail -12 /tmp/blutter.log || true
 
-          echo '=== exact security/bootstrap symbols and strings ==='
-          grep -RInE -C 8 'bootstrapSign|bootstrapProof|bootstrapDecrypt|bootstrap/domain|X-QM-(Proof|Proof-Version|Request-Id|App-Access)|X-(Timestamp|Signature)|apiDomain|appAccessToken|canonicalRequest' /tmp/blutter-out \
-            --exclude='pp.txt' --exclude='objs.txt' | head -2400 || true
+          echo '=== Blutter address ownership hints ==='
+          grep -RInE -C 12 '0x515[0-9a-fA-F]{3}|0x5160[0-9a-fA-F]{2}|0xb1a[3-9a-b][0-9a-fA-F]{2}' /tmp/blutter-out/asm /tmp/blutter-out/objs.txt 2>/dev/null | head -2200 || true
 
-          echo '=== object-pool entries ==='
-          grep -nEi 'bootstrapSign|bootstrapProof|bootstrapDecrypt|bootstrap/domain|X-QM-(Proof|Proof-Version|Request-Id|App-Access)|X-(Timestamp|Signature)|apiDomain|appAccessToken|canonicalRequest|deviceId|requestId|nonce|timestamp' /tmp/blutter-out/pp.txt | head -500 || true
-
-          echo '=== object/type metadata ==='
-          grep -nEi -C 6 'bootstrapSign|bootstrapProof|bootstrapDecrypt|bootstrap|Security|apiDomain|appAccessToken' /tmp/blutter-out/objs.txt | head -1200 || true
-
-          echo '=== asm files most related to bootstrap ==='
-          grep -RIlE 'bootstrapSign|bootstrapProof|bootstrapDecrypt|bootstrap/domain|X-QM-Proof|X-QM-Request-Id|apiDomain|appAccessToken' /tmp/blutter-out/asm | head -100 || true
-
-          echo '=== PP-reference scan for security pool items ==='
           python3 - <<'PY'
           from pathlib import Path
           import re
@@ -69,35 +58,40 @@ jobs:
           from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
 
           pp={}
-          needles=('bootstrapsign','bootstrapproof','bootstrapdecrypt','bootstrap/domain','x-qm-proof','x-qm-proof-version','x-qm-request-id','x-qm-app-access','x-timestamp','x-signature','apidomain','appaccesstoken','canonicalrequest','deviceid','requestid','nonce','timestamp')
           for line in Path('/tmp/blutter-out/pp.txt').read_text(encoding='utf-8',errors='replace').splitlines():
               m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s*(.*)$',line)
-              if m and any(n in m.group(2).lower() for n in needles):
-                  pp[int(m.group(1),16)]=m.group(2)
-          print('target_pool_count=',len(pp))
-          for o,d in sorted(pp.items()): print(f'PP+0x{o:x} {d}')
+              if m: pp[int(m.group(1),16)]=m.group(2)
 
           with open('/tmp/app-lib/libapp.so','rb') as f:
               elf=ELFFile(f)
-              sec=next((s for s in elf.iter_sections() if (int(s['sh_flags']) & 0x4) and int(s['sh_size'])>0x100000),None)
-              if sec is None: raise SystemExit('no AOT code section')
-              base=int(sec['sh_addr']); data=sec.data()
+              exec_secs=[s for s in elf.iter_sections() if (int(s['sh_flags']) & 0x4) and int(s['sh_size'])]
+              def bytes_for(start,end):
+                  s=next(x for x in exec_secs if int(x['sh_addr']) <= start < int(x['sh_addr'])+int(x['sh_size']))
+                  b=int(s['sh_addr']); return s.data()[start-b:end-b]
+
           md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.skipdata=True
-          pending={}; hits=[]
-          for ins in md.disasm(data,base):
-              if ins.mnemonic.startswith('.'):
-                  pending.clear(); continue
-              pending={r:(b,n-1) for r,(b,n) in pending.items() if n>1}
-              op=ins.op_str.lower()
-              m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
-              if ins.mnemonic=='add' and m:
-                  pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),8)
-              if ins.mnemonic in ('ldr','ldur','ldrsw'):
-                  m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
-                  if not m: continue
-                  br=m.group(2); disp=int(m.group(3),0) if m.group(3) else 0
-                  off=disp if br=='x27' else (pending[br][0]+disp if br in pending else None)
-                  if off in pp: hits.append((ins.address,off))
-          print('hit_count=',len(hits))
-          for a,o in hits[:600]: print(f'0x{a:x} -> PP+0x{o:x} {pp[o]}')
+          ranges=[
+              ('dart-bootstrap-orchestration',0x514f00,0x516180),
+              ('bootstrap-http-request',0xb1a3c4,0xb1ac20),
+          ]
+          for label,start,end in ranges:
+              print('\n===',label,hex(start),hex(end),'===')
+              pending={}
+              for ins in md.disasm(bytes_for(start,end),start):
+                  if ins.mnemonic.startswith('.'):
+                      pending.clear(); print(f'{ins.address:08x}: {ins.mnemonic:<8} {ins.op_str}'); continue
+                  pending={r:(b,n-1) for r,(b,n) in pending.items() if n>1}
+                  op=ins.op_str.lower(); comment=''
+                  m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
+                  if ins.mnemonic=='add' and m:
+                      pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),10)
+                  if ins.mnemonic in ('ldr','ldur','ldrsw'):
+                      mm=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
+                      if mm:
+                          br=mm.group(2); disp=int(mm.group(3),0) if mm.group(3) else 0
+                          off=disp if br=='x27' else (pending[br][0]+disp if br in pending else None)
+                          if off in pp:
+                              d=pp[off].replace('\n',' ')[:240]
+                              comment=f' ; PP+0x{off:x} {d}'
+                  print(f'{ins.address:08x}: {ins.mnemonic:<8} {ins.op_str}{comment}')
           PY
