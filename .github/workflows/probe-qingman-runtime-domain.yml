@@ -32,6 +32,12 @@ jobs:
           echo "apk_sha256=$(sha256sum /tmp/qingman.apk | cut -d' ' -f1)"
           echo '=== packaged native ABIs ==='
           unzip -Z1 /tmp/qingman.apk | sed -n 's#^lib/\([^/]*\)/.*#\1#p' | sort -u
+          AAPT="$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools" -type f -name aapt | sort -V | tail -1)"
+          test -x "$AAPT"
+          QM_PKG="$("$AAPT" dump badging /tmp/qingman.apk | sed -n "s/package: name='\([^']*\)'.*/\1/p" | head -1)"
+          test -n "$QM_PKG"
+          echo "QM_PKG=$QM_PKG" >> "$GITHUB_ENV"
+          echo "official_package=$QM_PKG"
       - name: Run official app and capture safe bootstrap status
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -41,31 +47,21 @@ jobs:
           disable-animations: false
           emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-metrics
           script: |
-            set -eu
             adb wait-for-device
             adb shell getprop sys.boot_completed
-            AAPT="$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools" -type f -name aapt | sort -V | tail -1)"
-            test -x "$AAPT"
-            PKG="$("$AAPT" dump badging /tmp/qingman.apk | sed -n "s/package: name='\([^']*\)'.*/\1/p" | head -1)"
-            echo "package=$PKG"
-            test -n "$PKG"
+            test -n "$QM_PKG"
             adb install -r /tmp/qingman.apk
             command -v tcpdump >/dev/null 2>&1 || (sudo apt-get update -qq && sudo apt-get install -y -qq tcpdump >/dev/null)
             rm -f /tmp/qm_dns.log
             sudo timeout 65 tcpdump -i any -nn -l '(udp port 53 or tcp port 53)' > /tmp/qm_dns.log 2>&1 &
-            DNSPID=$!
             adb logcat -c
-            adb shell am force-stop "$PKG" || true
-            adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 >/tmp/monkey.log 2>&1 || true
+            adb shell am force-stop "$QM_PKG" || true
+            adb shell monkey -p "$QM_PKG" -c android.intent.category.LAUNCHER 1 >/tmp/monkey.log 2>&1 || true
             tail -30 /tmp/monkey.log || true
             sleep 55
-            wait "$DNSPID" || true
             echo '=== runtime DNS candidates ==='
             grep -Eio '([a-z0-9-]+\.)+(qingman\.mom|zermh\.com|dmzj\.com|pwpni\.com)' /tmp/qm_dns.log | sort -u || true
             echo '=== safe bootstrap runtime lines ==='
-            adb logcat -d -v brief \
-              | grep -E 'bootstrap: (code=|apiDomain 已应用|apiDomain 解析失败|下发失败|原生签名失败|proof 生成失败|解密失败|命中风控|未下发 appAccessToken|appAccessToken 已应用)' \
-              | sed -E 's/(token|access|proof|signature|sign)[=:][^ ]+/\1=<redacted>/Ig' \
-              | tail -160 || true
+            adb logcat -d -v brief | grep -E 'bootstrap: (code=|apiDomain 已应用|apiDomain 解析失败|下发失败|原生签名失败|proof 生成失败|解密失败|命中风控|未下发 appAccessToken|appAccessToken 已应用)' | sed -E 's/(token|access|proof|signature|sign)[=:][^ ]+/\1=<redacted>/Ig' | tail -160 || true
             echo '=== app process state ==='
-            adb shell pidof "$PKG" || true
+            adb shell pidof "$QM_PKG" || true
