@@ -17,27 +17,79 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Probe current chapter payload
+      - name: Verify chapter decrypt, first page and search
         shell: bash
         run: |
-          python3 - <<'PY'
-          import ssl, urllib.request
+          cat > /tmp/probe.js <<'JS'
+          const https = require('https');
+          const crypto = require('crypto');
+          const { URL } = require('url');
 
-          ctx = ssl._create_unverified_context()
-          headers = {"User-Agent": "MangaApp/1.0", "Accept": "application/json"}
-          url = "https://apitong.zqykfz.cn/miaoqu46/13/13959/info.json"
-          print("CHAPTER_URL", url)
-          try:
-              req = urllib.request.Request(url, headers=headers)
-              with urllib.request.urlopen(req, timeout=20, context=ctx) as r:
-                  raw = r.read(500000)
-                  text = raw.decode("utf-8", "replace")
-                  print("CHAPTER_STATUS", r.status)
-                  print("CHAPTER_TYPE", r.headers.get("content-type"))
-                  print("CHAPTER_BYTES", len(raw))
-                  print("CHAPTER_BODY_BEGIN")
-                  print(text)
-                  print("CHAPTER_BODY_END")
-          except Exception as e:
-              print("CHAPTER_ERROR", type(e).__name__, str(e))
-          PY
+          const agent = new https.Agent({ rejectUnauthorized: false });
+
+          function get(url, headers = {}) {
+            return new Promise((resolve, reject) => {
+              const u = new URL(url);
+              const req = https.get(u, { agent, headers }, (res) => {
+                const chunks = [];
+                res.on('data', c => chunks.push(c));
+                res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }));
+              });
+              req.setTimeout(20000, () => req.destroy(new Error('timeout')));
+              req.on('error', reject);
+            });
+          }
+
+          function decryptChapter(base64) {
+            const raw = Buffer.from(base64.trim(), 'base64');
+            if (raw.length < 12 + 16) throw new Error('ciphertext too short');
+            const nonce = raw.subarray(0, 12);
+            const ctTag = raw.subarray(12);
+            const tag = ctTag.subarray(ctTag.length - 16);
+            const ciphertext = ctTag.subarray(0, ctTag.length - 16);
+            const key = Buffer.from('0000o9iu10pol777', 'utf8');
+            const decipher = crypto.createDecipheriv('aes-128-gcm', key, nonce);
+            decipher.setAuthTag(tag);
+            return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
+          }
+
+          (async () => {
+            const mangaId = 13959;
+            const shard = Math.floor(mangaId / 1000);
+            const chapterUrl = `https://apitong.zqykfz.cn/miaoqu46/${shard}/${mangaId}/info.json`;
+            const chapter = await get(chapterUrl, { 'User-Agent': 'MangaApp/1.0', 'Accept': 'application/json' });
+            console.log('CHAPTER_STATUS', chapter.status, 'BYTES', chapter.body.length);
+            const plain = decryptChapter(chapter.body.toString('utf8'));
+            const parsed = JSON.parse(plain);
+            const chapters = parsed.chapters || [];
+            console.log('CHAPTER_KEYS', Object.keys(parsed));
+            console.log('CHAPTER_COUNT', chapters.length);
+            console.log('FIRST_CHAPTER', JSON.stringify(chapters[0] || null));
+            console.log('SECOND_CHAPTER', JSON.stringify(chapters[1] || null));
+            console.log('LAST_CHAPTER', JSON.stringify(chapters[chapters.length - 1] || null));
+
+            if (chapters.length) {
+              const c = chapters[0];
+              const chapterId = c.chapterId ?? c.chapterid ?? c.id;
+              const pageUrl = `https://tong.zqykfz.cn/tu/${shard}/${mangaId}/${chapterId}/1.jpeg`;
+              const page = await get(pageUrl, { 'User-Agent': 'MangaApp/1.0' });
+              console.log('PAGE_URL', pageUrl);
+              console.log('PAGE_STATUS', page.status, 'TYPE', page.headers['content-type'], 'BYTES', page.body.length);
+            }
+
+            const searchUrl = 'https://api.zqykfz.cn/sousuo?keyword=' + encodeURIComponent('斗罗大陆');
+            const search = await get(searchUrl, { 'User-Agent': 'QingmanLslandApp/1.0', 'Accept': '*/*' });
+            console.log('SEARCH_STATUS', search.status, 'TYPE', search.headers['content-type'], 'BYTES', search.body.length);
+            const searchText = search.body.toString('utf8');
+            try {
+              const s = JSON.parse(searchText);
+              console.log('SEARCH_KEYS', Object.keys(s));
+              console.log('SEARCH_CODE', s.code);
+              console.log('SEARCH_DATA_LEN', Array.isArray(s.data) ? s.data.length : -1);
+              console.log('SEARCH_FIRST', JSON.stringify(Array.isArray(s.data) ? s.data[0] : null));
+            } catch (e) {
+              console.log('SEARCH_BODY', searchText.slice(0, 3000));
+            }
+          })().catch(e => { console.error(e.stack || e); process.exitCode = 1; });
+          JS
+          node /tmp/probe.js
