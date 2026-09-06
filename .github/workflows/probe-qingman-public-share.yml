@@ -47,9 +47,10 @@ jobs:
           curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(head -1 /tmp/apk_url)" -o /tmp/qingman.apk
           rm -rf /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
           mkdir -p /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
-          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' 'assets/flutter_assets/*' -d /tmp/apk-extract
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/apk-extract
           cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
           cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          unzip -Z1 /tmp/qingman.apk | grep '^assets/flutter_assets/' > /tmp/asset_names || true
           cd /tmp/blutter
           python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
 
@@ -64,7 +65,6 @@ jobs:
               if not m: continue
               s=m.group(1)
               for u in re.findall(r'https?://[^\s"<>]+',s):
-                  # redact query values but preserve host/path/key names
                   try:
                       p=urllib.parse.urlsplit(u)
                       q=urllib.parse.parse_qsl(p.query,keep_blank_values=True)
@@ -81,7 +81,6 @@ jobs:
           for line in lines:
               low=line.lower()
               if any(k.lower() in low for k in keys):
-                  # never emit credential-related lines
                   if re.search(r'(?i)(clientp12|privatekey|certificate|password|secret|token)',line): continue
                   t=re.sub(r'([A-Za-z0-9_-]{80,})','<opaque>',line)
                   hits.append(t[:600])
@@ -93,13 +92,9 @@ jobs:
           print('marker_count='+str(len(seen)))
 
           print('=== FLUTTER_ASSET_NAMES ===')
-          root=Path('/tmp/apk-extract/assets/flutter_assets')
-          if root.exists():
-              names=[]
-              for p in root.rglob('*'):
-                  if p.is_file():
-                      rel=str(p.relative_to(root))
-                      if re.search(r'(?i)(config|domain|url|share|web|h5|comic|route|env)',rel): names.append(rel)
-              for n in names[:300]: print('ASSET '+n)
-              print('asset_marker_count='+str(len(names)))
+          ap=Path('/tmp/asset_names')
+          names=ap.read_text('utf-8',errors='replace').splitlines() if ap.exists() else []
+          marked=[n for n in names if re.search(r'(?i)(config|domain|url|share|web|h5|comic|route|env)',n)]
+          for n in marked[:300]: print('ASSET '+n)
+          print('asset_marker_count='+str(len(marked)))
           PY
