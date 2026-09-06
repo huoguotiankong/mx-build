@@ -1,0 +1,174 @@
+name: Audit Qingman Staged APK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/qingman-security-audit-trigger"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: audit-qingman-staged-apk
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout control branch
+        uses: actions/checkout@v5
+        with:
+          path: control
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Resolve requested version
+        id: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          trigger="control/.github/qingman-security-audit-trigger"
+          test -f "$trigger"
+          version="$(sed -n 's/^version=//p' "$trigger" | head -n1)"
+          android_code="$(sed -n 's/^androidVersionCode=//p' "$trigger" | head -n1)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Invalid version"; exit 1; }
+          [[ "$android_code" =~ ^[0-9]+$ ]] || { echo "::error::Invalid Android versionCode"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "android_code=$android_code" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout staged test store
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-build
+          ref: extension-staging
+          path: staging
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Audit package surface
+        id: audit
+        shell: bash
+        env:
+          EXPECTED_VERSION: ${{ steps.target.outputs.version }}
+          EXPECTED_ANDROID_CODE: ${{ steps.target.outputs.android_code }}
+        run: |
+          set -euo pipefail
+          apk="staging/test/apk/tachiyomi-zh.qingman-v${EXPECTED_VERSION}.apk"
+          test -f "$apk" || { echo "::error::Missing staged Qingman APK: $apk"; exit 1; }
+
+          aapt="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n1)"
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n1)"
+          test -n "$aapt"
+          test -n "$apksigner"
+
+          badging="$($aapt dump badging "$apk")"
+          permissions="$($aapt dump permissions "$apk")"
+          package_line="$(printf '%s\n' "$badging" | grep '^package:' | head -n1)"
+          [[ "$package_line" == *"name='eu.kanade.tachiyomi.extension.zh.qingman'"* ]] || { echo "::error::Unexpected package name"; exit 1; }
+          [[ "$package_line" == *"versionName='${EXPECTED_VERSION}'"* ]] || { echo "::error::Unexpected versionName"; exit 1; }
+          [[ "$package_line" == *"versionCode='${EXPECTED_ANDROID_CODE}'"* ]] || { echo "::error::Unexpected versionCode"; exit 1; }
+
+          dangerous='REQUEST_INSTALL_PACKAGES|SYSTEM_ALERT_WINDOW|QUERY_ALL_PACKAGES|READ_CONTACTS|WRITE_CONTACTS|READ_CALL_LOG|WRITE_CALL_LOG|READ_SMS|RECEIVE_SMS|SEND_SMS|RECORD_AUDIO|CAMERA|ACCESS_FINE_LOCATION|ACCESS_BACKGROUND_LOCATION|READ_PHONE_STATE|ANSWER_PHONE_CALLS|BIND_ACCESSIBILITY_SERVICE|BIND_DEVICE_ADMIN|PACKAGE_USAGE_STATS|MANAGE_EXTERNAL_STORAGE'
+          if printf '%s\n' "$permissions" | grep -Eq "$dangerous"; then
+            echo "::error::Dangerous/unexpected Android permission detected"
+            printf '%s\n' "$permissions"
+            exit 1
+          fi
+
+          python3 - "$apk" <<'PY'
+          import sys, zipfile
+          from pathlib import Path
+
+          apk = Path(sys.argv[1])
+          forbidden_suffixes = ('.p12', '.pfx', '.jks', '.keystore', '.pem', '.key')
+          forbidden_names = {
+              'libqx_security.so',
+              'libsecuritydevice.so',
+              'libsgcore.so',
+              'libapp.so',
+              'libflutter.so',
+          }
+          with zipfile.ZipFile(apk) as archive:
+              names = archive.namelist()
+          native = [name for name in names if name.startswith('lib/')]
+          sensitive = [
+              name for name in names
+              if name.lower().endswith(forbidden_suffixes)
+              or Path(name).name in forbidden_names
+          ]
+          flutter_assets = [name for name in names if name.startswith('assets/flutter_assets/')]
+          if native:
+              raise SystemExit('Unexpected native libraries packaged in extension: ' + ', '.join(native[:10]))
+          if sensitive:
+              raise SystemExit('Unexpected certificate/key/official-native material packaged: ' + ', '.join(sensitive[:10]))
+          if flutter_assets:
+              raise SystemExit('Unexpected official Flutter assets packaged in extension')
+          print(f'zip_entries={len(names)}')
+          print('native_library_entries=0')
+          print('certificate_or_private_key_entries=0')
+          print('official_flutter_asset_entries=0')
+          PY
+
+          cert_output="$($apksigner verify --print-certs "$apk")"
+          cert_sha="$(printf '%s\n' "$cert_output" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n1 | tr '[:upper:]' '[:lower:]')"
+          expected_cert='1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620'
+          [[ "$cert_sha" == "$expected_cert" ]] || { echo "::error::Unexpected signing certificate"; exit 1; }
+
+          apk_sha="$(sha256sum "$apk" | awk '{print $1}')"
+          permissions_json="$(printf '%s\n' "$permissions" | python3 -c 'import json,sys; print(json.dumps([line.strip() for line in sys.stdin if line.strip()], ensure_ascii=False))')"
+
+          python3 - <<PY
+          import json
+          from pathlib import Path
+          result = {
+              'versionName': '${EXPECTED_VERSION}',
+              'androidVersionCode': int('${EXPECTED_ANDROID_CODE}'),
+              'packageName': 'eu.kanade.tachiyomi.extension.zh.qingman',
+              'apkSha256': '${apk_sha}',
+              'signingCertificateSha256': '${cert_sha}',
+              'permissions': json.loads('''${permissions_json}'''),
+              'dangerousPermissionCheck': 'passed',
+              'nativeLibraryEntries': 0,
+              'certificateOrPrivateKeyEntries': 0,
+              'officialFlutterAssetEntries': 0,
+              'result': 'passed',
+              'note': 'Static package-surface audit only; OEM cloud reputation/real-device behavior still requires device validation.',
+          }
+          Path('control/.github/qingman-security-audit-result.json').write_text(
+              json.dumps(result, ensure_ascii=False, indent=2) + '\n',
+              encoding='utf-8',
+          )
+          PY
+
+      - name: Commit audit result
+        working-directory: control
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/qingman-security-audit-result.json
+          if git diff --cached --quiet; then
+            echo 'Audit result unchanged'
+          else
+            git commit -m "ci(qingman): record staged APK security audit"
+            git push origin HEAD:main
+          fi
+
+      - name: Record summary
+        shell: bash
+        run: |
+          {
+            echo '### Qingman staged APK audit'
+            echo
+            echo '- Package/version/signing identity verified.'
+            echo '- Unexpected dangerous permissions: none.'
+            echo '- Native libraries: none packaged.'
+            echo '- Certificate/private-key container files: none packaged.'
+            echo '- Official Flutter assets: none packaged.'
+            echo '- This does not replace OEM cloud-reputation or Android real-device validation.'
+          } >> "$GITHUB_STEP_SUMMARY"
