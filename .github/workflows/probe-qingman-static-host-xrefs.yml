@@ -1,0 +1,139 @@
+name: Classify Qingman Static Host References
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-static-host-xrefs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  classify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools python3-capstone cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev dnsutils >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+      - name: Restore analyzer cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+      - name: Classify hosts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/apk_url
+          import json,urllib.request,sys
+          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
+          a=o['data']['datas']['android']
+          print(a['downloadUrl'])
+          print('OFFICIAL_VERSION='+str(a.get('version','')),file=sys.stderr)
+          print('OFFICIAL_VERSION_CODE='+str(a.get('versionCode','')),file=sys.stderr)
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(head -1 /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          mkdir -p /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/apk-extract
+          cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter
+          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
+
+          python3 - <<'PY'
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
+          import re,bisect
+
+          hosts=('img-qingman.dmzj.com','dmzj1.com','pttower.com','shcvv.com','qingman.app','qingman.vip','qingman.pro','qingman.xyz','qingman.my','qingman.dev')
+          sensitive=re.compile(r'(?i)(token|secret|password|cookie|authorization|bearer|private|clientp12|certificate|proof|signature|sign/key|p12|seed|k1a|k1b|k2a|k2b|k3a|k3b)')
+          def safe(v): return '<redacted-sensitive>' if sensitive.search(v) else v[:520]
+
+          pp={}
+          for line in Path('/tmp/blutter-out/pp.txt').read_text('utf-8',errors='replace').splitlines():
+              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s+(.*)$',line)
+              if m: pp[int(m.group(1),16)]=m.group(2)
+          targets={}
+          print('=== PP HOST ENTRIES ===')
+          for off,val in pp.items():
+              if any(h in val.lower() for h in hosts):
+                  targets[off]=val
+                  print(f'PP+0x{off:x} {safe(val)}')
+                  # Local pool neighborhood often reveals SDK/feature affiliation.
+                  for p in sorted(k for k in pp if off-0x60 <= k <= off+0x60):
+                      if p==off: continue
+                      print(f'  NEAR PP+0x{p:x} {safe(pp[p])}')
+
+          funcs=[]
+          for p in Path('/tmp/blutter-out/asm').rglob('*.dart'):
+              lines=p.read_text('utf-8',errors='replace').splitlines()
+              for i,s in enumerate(lines):
+                  m=re.search(r'\*\* addr: 0x([0-9a-fA-F]+), size: 0x([0-9a-fA-F]+)',s)
+                  if not m: continue
+                  st=int(m.group(1),16); sz=int(m.group(2),16)
+                  decl=''
+                  for j in range(i-1,max(-1,i-8),-1):
+                      t=lines[j].strip()
+                      if t and not t.startswith('//'):
+                          decl=t; break
+                  funcs.append((st,st+sz,p.name,decl,lines,i))
+          funcs.sort(key=lambda x:x[0]); starts=[x[0] for x in funcs]
+          def owner(addr):
+              k=bisect.bisect_right(starts,addr)-1
+              return funcs[k] if k>=0 and funcs[k][0]<=addr<funcs[k][1] else None
+
+          with open('/tmp/app-lib/libapp.so','rb') as f:
+              elf=ELFFile(f); sec=elf.get_section_by_name('.text'); base=int(sec['sh_addr']); data=sec.data()
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.skipdata=True
+          pending={}; refs=[]
+          for ins in md.disasm(data,base):
+              pending={r:(b,n-1) for r,(b,n) in pending.items() if n>1}
+              op=ins.op_str.lower()
+              m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
+              if ins.mnemonic=='add' and m:
+                  pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),18); continue
+              if ins.mnemonic in ('ldr','ldur','ldrsw'):
+                  m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
+                  if not m: continue
+                  br=m.group(2); disp=int(m.group(3),0) if m.group(3) else 0
+                  off=disp if br=='x27' else (pending[br][0]+disp if br in pending else None)
+                  if off in targets: refs.append((ins.address,off))
+
+          print('\n=== HOST XREF OWNERS ===')
+          seen=set()
+          for addr,off in refs:
+              f=owner(addr)
+              key=(addr,off)
+              if key in seen: continue
+              seen.add(key)
+              print(f'XREF 0x{addr:x} -> PP+0x{off:x} {safe(targets[off])}')
+              if not f:
+                  print('  OWNER=<unmapped>'); continue
+              st,en,pn,decl,lines,marker=f
+              print(f'  OWNER 0x{st:x}-0x{en:x} file={pn} decl={safe(decl)}')
+              for s in lines[max(0,marker-6):min(len(lines),marker+160)]:
+                  if re.search(r'(?i)(PP\+0x|LoadField|LoadStaticField|StoreField|call 0x|bl\s+#0x|Uri|url|http|image|comic|chapter|webview|launch|network|cdn|download)',s):
+                      print('    '+safe(s))
+          PY
+
+          echo '=== DNS/TLS CLASSIFICATION ==='
+          for h in img-qingman.dmzj.com dmzj1.com pmlkjkrdumcozpjy.pttower.com obsolete-unedited.shcvv.com www.qingman.app www.qingman.vip; do
+            echo "HOST=$h"
+            (dig +short A "$h" | head -5 | sed 's/^/  A=/' ) || true
+            (dig +short AAAA "$h" | head -5 | sed 's/^/  AAAA=/' ) || true
+            code=$(curl -sS -I --connect-timeout 6 --max-time 12 -o /tmp/hdr -w '%{http_code}' "https://$h/" || true)
+            echo "  HTTPS_CODE=$code"
+            grep -Ei '^(server|content-type|location):' /tmp/hdr 2>/dev/null | tail -5 | sed 's/^/  /' || true
+          done
