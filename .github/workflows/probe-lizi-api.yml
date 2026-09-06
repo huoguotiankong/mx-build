@@ -15,24 +15,34 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Probe current public endpoints
+      - name: Probe DoH and current public endpoints
         shell: bash
         run: |
           set -euo pipefail
-          echo '=== DNS ==='
-          for host in bkbfblh.xn--vhqr42drhf5k7b.com adnet.lizimh.com adnet.lizi.lat admod.lizi.lat lizimh.com; do
-            echo "--- $host ---"
-            getent ahosts "$host" || true
-          done
+          host='bkbfblh.xn--vhqr42drhf5k7b.com'
+          echo '=== SYSTEM DNS ==='
+          getent ahosts "$host" || true
+          echo '=== ALIDNS ==='
+          curl -fsSL --retry 2 -H 'accept: application/dns-json' "https://dns.alidns.com/resolve?name=$host&type=A" | tee /tmp/alidns.json || true
+          echo
+          echo '=== 360 DOH ==='
+          curl -fsSL --retry 2 -H 'accept: application/dns-json' "https://doh.360.cn/resolve?name=$host&type=A" | tee /tmp/360.json || true
+          echo
           python3 - <<'PY'
-          import ssl,urllib.request, urllib.parse
-          bases=[
-            'http://bkbfblh.xn--vhqr42drhf5k7b.com',
-            'https://bkbfblh.xn--vhqr42drhf5k7b.com',
-            'https://adnet.lizimh.com',
-            'https://adnet.lizi.lat',
-            'https://admod.lizi.lat',
-          ]
+          import json, subprocess, urllib.parse
+          host='bkbfblh.xn--vhqr42drhf5k7b.com'
+          ips=[]
+          for p in ['/tmp/alidns.json','/tmp/360.json']:
+              try:
+                  d=json.load(open(p))
+              except Exception:
+                  continue
+              for a in d.get('Answer',[]) or []:
+                  v=str(a.get('data','')).strip().strip('"')
+                  if a.get('type')==1 and v.count('.')==3:
+                      ips.append(v)
+          ips=list(dict.fromkeys(ips))
+          print('DOH_IPS',ips)
           paths=[
             'app/api/health',
             'app/api/config',
@@ -42,17 +52,15 @@ jobs:
             'app/api/search/suggest?q='+urllib.parse.quote('海贼王'),
             'app/api/search/full?q='+urllib.parse.quote('海贼王'),
           ]
-          headers={'User-Agent':'Dart/3.0 (dart:io)','Accept':'application/json'}
-          for base in bases:
-              print('=== BASE',base,'===')
-              for path in paths:
-                  u=base+'/'+path
-                  try:
-                      q=urllib.request.Request(u,headers=headers)
-                      ctx=ssl._create_unverified_context() if u.startswith('https://') else None
-                      with urllib.request.urlopen(q,timeout=12,context=ctx) as r:
-                          body=r.read(120000).decode('utf-8','replace')
-                          print('PROBE',u,'STATUS',r.status,'TYPE',r.headers.get('content-type'),'FINAL',r.geturl(),'BODY',body[:12000])
-                  except Exception as e:
-                      print('PROBE',u,'ERROR',type(e).__name__,e)
+          for ip in ips:
+              print('=== IP',ip,'===')
+              for scheme,port in [('http',80),('https',443)]:
+                  for path in paths:
+                      url=f'{scheme}://{host}/{path}'
+                      cmd=['curl','-ksS','--max-time','12','--resolve',f'{host}:{port}:{ip}','-A','Dart/3.0 (dart:io)','-H','Accept: application/json','-w','\nHTTP_STATUS:%{http_code}\nFINAL:%{url_effective}\n',url]
+                      try:
+                          out=subprocess.check_output(cmd,stderr=subprocess.STDOUT).decode('utf-8','replace')
+                          print('PROBE',url,'VIA',ip,'OUT',out[:12000])
+                      except subprocess.CalledProcessError as e:
+                          print('PROBE',url,'VIA',ip,'ERROR',e.output.decode('utf-8','replace')[:2000])
           PY
