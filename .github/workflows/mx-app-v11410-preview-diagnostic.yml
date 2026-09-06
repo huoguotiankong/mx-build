@@ -66,7 +66,7 @@ jobs:
               'MX_KEYSTORE_PATH': str(path),
               'MX_KEY_ALIAS': str(bundle['alias']),
               'MX_KEYSTORE_PASSWORD': str(bundle['storePassword']),
-              'MX_KEY_PASSWORD': str(bundle.get('keyPassword') or bundle['storePassword']),
+              'MX_KEY_PASSWORD': str(bundle['storePassword']),
           }
           with Path(os.environ['GITHUB_ENV']).open('a', encoding='utf-8') as f:
               for name, value in values.items():
