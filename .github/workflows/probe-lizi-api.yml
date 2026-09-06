@@ -9,17 +9,68 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe discovered API bases
+      - name: Inspect current Lizi schemas
         shell: bash
         run: |
-          set -u
-          bases=(http://ai.xajtl.com http://crm.weichu.asia)
-          paths=(app/api/health app/api/config app/api/home/data app/api/category/list app/api/rank/list 'app/api/search/full?q=斗罗')
-          for base in "${bases[@]}"; do
-            echo "######## $base ########"
-            for path in "${paths[@]}"; do
-              echo "=== /$path ==="
-              curl -iLsS --connect-timeout 8 --max-time 15 -A 'Dart/3.5 (dart:io)' "$base/$path" | head -c 2500 || true
-              echo; echo
-            done
-          done
+          set -euo pipefail
+          base='http://ai.xajtl.com'
+          ua='Dart/3.5 (dart:io)'
+          curl -fsSL -A "$ua" "$base/app/api/config" -o /tmp/config.json
+          curl -fsSL -A "$ua" "$base/app/api/detail/22613" -o /tmp/detail.json
+          python3 - <<'PY'
+          import json, pprint
+          c=json.load(open('/tmp/config.json'))
+          d=json.load(open('/tmp/detail.json'))
+          print('=== CONFIG TOP ===')
+          print(c.keys())
+          data=c.get('data',{})
+          print('config data keys=', list(data.keys()))
+          print('cfg_general=', data.get('cfg_general'))
+          print('pic candidates=', {k:v for k,v in data.items() if 'pic' in k.lower() or 'domain' in k.lower() or 'url' in k.lower()})
+          print('=== DETAIL TOP ===')
+          print(d.keys())
+          dd=d.get('data',{})
+          print('detail data type=',type(dd).__name__)
+          if isinstance(dd,dict):
+              print('detail keys=', list(dd.keys()))
+              for k,v in dd.items():
+                  if k in ('comic','comic_info','detail','chapterGroups','chapter_groups','chapters') or 'chapter' in k.lower():
+                      print(k,'=',repr(v)[:15000])
+              # recursively locate chapter-ish objects and IDs
+              def walk(x,path='data'):
+                  if isinstance(x,dict):
+                      if any(k in x for k in ('chapterId','chapterID','chapter_id')) or ('id' in x and any('chapter' in k.lower() for k in x)):
+                          print('CHAPTER_OBJ',path,repr(x)[:2500])
+                      for k,v in x.items(): walk(v,path+'.'+str(k))
+                  elif isinstance(x,list):
+                      for i,v in enumerate(x[:8]): walk(v,path+f'[{i}]')
+              walk(dd)
+          open('/tmp/chapter-id.txt','w').write('')
+          ids=[]
+          def collect(x):
+              if isinstance(x,dict):
+                  for key in ('chapterId','chapterID','chapter_id'):
+                      if key in x:
+                          ids.append(str(x[key]))
+                  if 'id' in x and ('name' in x or 'title' in x) and any('chapter' in k.lower() for k in x):
+                      ids.append(str(x['id']))
+                  for v in x.values(): collect(v)
+              elif isinstance(x,list):
+                  for v in x: collect(v)
+          collect(dd)
+          ids=list(dict.fromkeys(i for i in ids if i and i!='None'))
+          print('chapter ids=',ids[:20])
+          if ids: open('/tmp/chapter-id.txt','w').write(ids[0])
+          PY
+          cid="$(cat /tmp/chapter-id.txt)"
+          if [ -n "$cid" ]; then
+            echo "=== CHAPTER $cid ==="
+            curl -fsSL -A "$ua" "$base/app/api/chapter/v2/$cid?packname=com.hbsclj.uth&appsign256=cdd266df8b2399c24da38e408b6d9825c7bd2af073229847f551ea653ea096e1" -o /tmp/chapter.json
+            python3 - <<'PY'
+          import json
+          x=json.load(open('/tmp/chapter.json'))
+          print('chapter top keys=',list(x.keys()) if isinstance(x,dict) else type(x).__name__)
+          d=x.get('data',{}) if isinstance(x,dict) else x
+          print('chapter data=',repr(d)[:20000])
+          PY
+          fi
