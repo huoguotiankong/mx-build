@@ -1,0 +1,51 @@
+name: Probe Miaoqu public API
+
+on:
+  push:
+    branches:
+      - probe/miaoqu-api-20260906
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe public config endpoints
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, urllib.request
+
+          urls = [
+              "https://apitong.zqykfz.cn/api/com.xinmiaoqu.app/index.json",
+              "https://apitong.trgfd.cn/api/com.xinmiaoqu.app/index.json",
+          ]
+          sensitive = ("token", "password", "passwd", "secret", "private", "cert", "p12", "signature", "proof", "cookie")
+
+          def sanitize(v):
+              if isinstance(v, dict):
+                  return {k: ("<redacted>" if any(s in str(k).lower() for s in sensitive) else sanitize(val)) for k, val in v.items()}
+              if isinstance(v, list):
+                  return [sanitize(x) for x in v]
+              return v
+
+          for url in urls:
+              print("===", url, "===")
+              req = urllib.request.Request(url, headers={"User-Agent": "QingManLSLand/1.0", "Accept": "application/json, */*"})
+              try:
+                  with urllib.request.urlopen(req, timeout=15) as r:
+                      raw = r.read(200000)
+                      print("status:", r.status)
+                      print("content-type:", r.headers.get("content-type"))
+                      text = raw.decode("utf-8", "replace")
+                      try:
+                          data = json.loads(text)
+                          print(json.dumps(sanitize(data), ensure_ascii=False, indent=2)[:50000])
+                      except Exception:
+                          print(text[:20000])
+              except Exception as e:
+                  print(type(e).__name__ + ":", e)
+          PY
