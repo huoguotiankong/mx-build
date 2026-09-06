@@ -30,7 +30,7 @@ jobs:
             /tmp/blutter/dartsdk
             /tmp/blutter/packages
           key: qingman-blutter-dart-3.12.2-arm64-v1
-      - name: Trace guest markers and owning functions
+      - name: Trace guest markers and init control flow
         shell: bash
         run: |
           set -euo pipefail
@@ -130,4 +130,24 @@ jobs:
                   if re.search(r'(?i)(PP\+0x|LoadStaticField|LoadField|StoreField|call 0x|bl\s+#0x|guest|login|register|device|user|hive|storage|shared|preference|api/|map|json|await|returnasync)',s):
                       print('    '+safe(s)); emitted+=1
                       if emitted>=120: break
+
+          print('\n=== GUEST_INIT_RAW_DISASM ===')
+          start,end=0xbba700,0xbbab20
+          pending={}
+          for ins in md.disasm(data[start-base:end-base],start):
+              pending={r:(b,n-1) for r,(b,n) in pending.items() if n>1}
+              op=ins.op_str.lower(); ann=''
+              m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
+              if ins.mnemonic=='add' and m:
+                  pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),24)
+              elif ins.mnemonic in ('ldr','ldur','ldrsw'):
+                  m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
+                  if m:
+                      br=m.group(2); disp=int(m.group(3),0) if m.group(3) else 0
+                      off=disp if br=='x27' else (pending[br][0]+disp if br in pending else None)
+                      if off is not None and off in pp:
+                          val=pp[off]
+                          ann=' ; '+safe(f'PP+0x{off:x} {val}')
+              if ann or ins.mnemonic in ('bl','blr','ret','b','b.eq','b.ne','cbz','cbnz','tbz','tbnz') or ins.mnemonic.startswith('st'):
+                  print(f'0x{ins.address:x} {ins.mnemonic:<7} {ins.op_str}{ann}')
           PY
