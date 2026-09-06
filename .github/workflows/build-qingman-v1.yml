@@ -1,4 +1,4 @@
-name: Build And Stage Qingman v1
+name: Build And Stage Qingman v2
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: build-qingman-v1
+  group: build-qingman-v2
   cancel-in-progress: false
 
 jobs:
