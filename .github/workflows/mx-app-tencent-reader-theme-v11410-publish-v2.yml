@@ -12,7 +12,7 @@ permissions:
 
 concurrency:
   group: mx-app-tencent-reader-theme-v11410-publish-v2
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build-and-publish:
