@@ -14,51 +14,43 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Probe Qingman bootstrap required fields
+      - name: Probe Qingman bootstrap security contract
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           import json, ssl, time, urllib.error, urllib.request, uuid
           BOOT='https://mu8xm4cx.zermh.com/bootstrap/domain'
-          COMMON={'Accept':'application/json, text/plain, */*','User-Agent':'qingman/4.4.3 (Android)','appVersion':'4.4.3','platform':'android'}
-          device='probe-' + uuid.uuid4().hex
+          BASE_HEADERS={'Accept':'application/json, text/plain, */*','User-Agent':'qingman/4.4.3 (Android)','appVersion':'4.4.3','platform':'android','Content-Type':'application/json'}
+          dev='probe-'+uuid.uuid4().hex
           now=str(int(time.time()))
-          def req(label, payload):
-              body=json.dumps(payload,separators=(',',':')).encode()
-              h=dict(COMMON); h['Content-Type']='application/json'
-              r=urllib.request.Request(BOOT,data=body,headers=h,method='POST')
+          nonce=uuid.uuid4().hex
+          def req(label,payload,extra=None):
+              h=dict(BASE_HEADERS); h.update(extra or {})
+              r=urllib.request.Request(BOOT,data=json.dumps(payload,separators=(',',':')).encode(),headers=h,method='POST')
               try:
-                  with urllib.request.urlopen(r,timeout=20,context=ssl.create_default_context()) as p:
-                      raw=p.read(65536); status=p.status
-              except urllib.error.HTTPError as e:
-                  raw=e.read(65536); status=e.code
-              except Exception as e:
-                  print(label, 'transport_error', type(e).__name__, str(e)); return
-              txt=raw.decode('utf-8','replace')
+                  with urllib.request.urlopen(r,timeout=20,context=ssl.create_default_context()) as p: raw=p.read(65536); status=p.status
+              except urllib.error.HTTPError as e: raw=e.read(65536); status=e.code
+              except Exception as e: print(label,'transport_error',type(e).__name__,str(e)); return
               try:
-                  obj=json.loads(txt)
-                  # Do not print any returned token/key/proof/signature values.
-                  out={k:v for k,v in obj.items() if k.lower() in {'code','status','msg','message','error','success'}}
-                  if isinstance(obj.get('data'),dict): out['data_keys']=list(obj['data'].keys())
-                  elif obj.get('data') is not None: out['data_type']=type(obj['data']).__name__
-                  print(label, 'status=',status, json.dumps(out,ensure_ascii=False))
-              except Exception:
-                  print(label, 'status=',status, 'body_prefix=',repr(txt[:200]))
-          base={'appVersion':'4.4.3','platform':'android'}
-          cases=[
-            ('deviceId', {**base,'deviceId':device}),
-            ('device_id', {**base,'device_id':device}),
-            ('deviceId versionCode', {**base,'deviceId':device,'versionCode':'443'}),
-            ('deviceId versionCode channel', {**base,'deviceId':device,'versionCode':'443','channel':'qm1'}),
-            ('deviceId registerChannel', {**base,'deviceId':device,'registerChannel':'qm1'}),
-            ('deviceId clientIp', {**base,'deviceId':device,'clientIp':'127.0.0.1'}),
-            ('deviceId timestamp', {**base,'deviceId':device,'timestamp':now}),
-            ('deviceId current_timestamp', {**base,'deviceId':device,'current_timestamp':now}),
-            ('deviceId nonce timestamp', {**base,'deviceId':device,'nonce':uuid.uuid4().hex,'timestamp':now}),
-            ('deviceId package', {**base,'deviceId':device,'packageName':'com.qingman.app'}),
-            ('deviceId appKey placeholder', {**base,'deviceId':device,'appKey':'android'}),
-            ('all metadata', {**base,'deviceId':device,'versionCode':'443','channel':'qm1','registerChannel':'qm1','packageName':'com.qingman.app','clientIp':'127.0.0.1','nonce':uuid.uuid4().hex,'timestamp':now}),
-          ]
-          for label,payload in cases: req(label,payload)
+                  o=json.loads(raw.decode('utf-8','replace'))
+                  out={k:v for k,v in o.items() if k.lower() in {'code','status','msg','message','error','success'}}
+                  d=o.get('data')
+                  if isinstance(d,dict): out['data_keys']=list(d.keys())
+                  elif d is not None: out['data_type']=type(d).__name__
+                  print(label,'status=',status,json.dumps(out,ensure_ascii=False))
+              except Exception: print(label,'status=',status,'non-json')
+          meta={'appVersion':'4.4.3','versionCode':'443','platform':'android','deviceId':dev,'channel':'qm1','registerChannel':'qm1','packageName':'com.qingman.app','clientIp':'127.0.0.1','timestamp':now,'nonce':nonce,'requestId':uuid.uuid4().hex}
+          req('metadata only',meta)
+          req('body security camel',{**meta,'appKey':'placeholder','bootstrapSign':'placeholder','bootstrapProof':'placeholder','apiGuard':'placeholder','appAccessToken':'placeholder'})
+          req('body security snake',{**meta,'app_key':'placeholder','bootstrap_sign':'placeholder','bootstrap_proof':'placeholder','api_guard':'placeholder','app_access_token':'placeholder'})
+          req('body sign proof',{**meta,'sign':'placeholder','proof':'placeholder','signature':'placeholder'})
+          req('X headers placeholders',meta,{
+             'X-Device-Id':dev,'X-Timestamp':now,'X-QM-Request-Id':uuid.uuid4().hex,
+             'X-Register-Channel':'qm1','X-Signature':'placeholder','X-QM-Proof':'placeholder',
+             'X-QM-Proof-Version':'1','X-QM-App-Access':'placeholder','X-Api-Guard':'placeholder'})
+          req('minimal plus X security',{'appVersion':'4.4.3','platform':'android','deviceId':dev}, {
+             'X-Device-Id':dev,'X-Timestamp':now,'X-QM-Request-Id':uuid.uuid4().hex,
+             'X-Register-Channel':'qm1','X-Signature':'placeholder','X-QM-Proof':'placeholder',
+             'X-QM-Proof-Version':'1','X-QM-App-Access':'placeholder','X-Api-Guard':'placeholder'})
           PY
