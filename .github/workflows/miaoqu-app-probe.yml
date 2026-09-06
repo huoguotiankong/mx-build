@@ -10,108 +10,43 @@ on:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: Validate current app search detail and reader
+      - name: Probe TLS and HTTP fallbacks
         shell: bash
         run: |
-          python -m pip install --quiet requests cryptography
-          cat >/tmp/probe.py <<'PY'
-          import base64, json, re, urllib3
-          from urllib.parse import quote, urljoin
-          import requests
-          from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-          urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-          KEY=b'0000o9iu10pol777'
-          s=requests.Session()
-          s.headers.update({'User-Agent':'QingManLSLand/1.0','Accept':'*/*'})
-          def get(url, ua=None):
-              h={'User-Agent':ua} if ua else None
-              try:
-                  r=s.get(url,headers=h,timeout=20,allow_redirects=True,verify=False)
-                  print('GET',url,'->',r.status_code,r.headers.get('content-type'),'len=',len(r.content),'final=',r.url)
-                  return r
-              except Exception as e:
-                  print('GET',url,'-> ERROR',repr(e)); return None
-          def dec(raw):
-              blob=base64.b64decode(re.sub(rb'\s+',b'',raw),validate=True)
-              return AESGCM(KEY).decrypt(blob[:12],blob[12:],None)
-
-          cr=get('https://apitong.zqykfz.cn/api/com.xinmiaoqu.app/index.json')
-          assert cr and cr.ok
-          cfg=cr.json(); api=cfg['apiurl']
-          text=api.get('txturl','').rstrip('/')
-          cover=api.get('fengmiantuurl','').rstrip('/')
-          manga=api.get('manhuatuurl','').rstrip('/')
-          other=api.get('qitaurl','').rstrip('/')
-          print('CONFIG version=',cfg.get('banben'),'layout=',cfg.get('buju'),'categories=',cfg.get('fenlei'))
-          print('BASE text=',text,'cover=',cover,'manga=',manga,'other=',other)
-
-          # Category / popular
-          rr=get(text+'/api/com.xinmiaoqu.app/'+quote('推荐',safe='')+'.json')
-          assert rr and rr.ok
-          listing=rr.json()
-          first=next(x for section in listing for x in section.get('data',[]) if x.get('manhuaid'))
-          print('LISTING_FIRST',json.dumps(first,ensure_ascii=False)[:2500])
-          mid=int(first['manhuaid'])
-
-          # Search
-          for rel in (
-              '/sousuo?keyword='+quote('海贼王',safe=''),
-              '/api/sousuo?keyword='+quote('海贼王',safe=''),
-              '/search?keyword='+quote('海贼王',safe=''),
-          ):
-              sr=get(other+rel)
-              if sr and sr.ok:
-                  print('SEARCH_OK path=',rel,'prefix=',sr.text[:4000].replace('\n',' '))
-                  break
-
-          # Detail + chapters
-          detail_url=f'{text}/miaoqu46/{mid//1000}/{mid}/info.json'
-          dr=get(detail_url)
-          assert dr and dr.ok
-          detail=json.loads(dec(dr.content).decode())
-          print('DETAIL manga=',detail.get('manhuaid'),detail.get('manhuaming'),'cover=',detail.get('fengmiantu'),'status=',detail.get('zhuangtai'))
-          chapters=detail.get('chapter') or []
-          print('CHAPTER_COUNT',len(chapters))
-          for ch in chapters[:3]:
-              print('CHAPTER_FIRST',json.dumps(ch,ensure_ascii=False))
-          ch=next((x for x in chapters if int(x.get('geshu') or 0)>0),None)
-          assert ch
-          cid=int(ch['chapterid']); pages=int(ch['geshu'])
-          print('READER_SAMPLE mid=',mid,'cid=',cid,'pages=',pages,'sort=',ch.get('paixuid'))
-
-          # Cover path
-          f=detail.get('fengmiantu','')
-          if cover and f:
-              cu=cover+'/'+f.lstrip('/')
-              r=get(cu,'MangaApp/1.0')
-              if r:
-                  head=r.content[:4096]
-                  print('COVER_TEST status=',r.status_code,'type=',r.headers.get('content-type'),'len=',len(r.content),'head=',r.content[:16].hex(),'jpeg=',head.find(b'\xff\xd8\xff'),'webp=',head.find(b'RIFF'))
-
-          # Reader path candidates. App config currently leaves manhuatuurl blank, so cover domain may be shared.
-          bases=[]
-          for name,b in [('manga',manga),('cover',cover),('text',text),('other',other)]:
-              if b and b not in [x[1] for x in bases]: bases.append((name,b))
-          paths=[
-              f'{mid//1000}/{mid}/tu/{cid}/1.jpeg',
-              f'tu/{mid//1000}/{mid}/{cid}/1.jpeg',
-              f'manhua/{mid//1000}/{mid}/tu/{cid}/1.jpeg',
+          python -m pip install --quiet requests
+          python - <<'PY'
+          import requests, ssl, socket
+          targets = [
+              'https://apitong.zqykfz.cn/api/com.xinmiaoqu.app/index.json',
+              'http://apitong.zqykfz.cn/api/com.xinmiaoqu.app/index.json',
+              'https://tong.zqykfz.cn/fengmiantu/0/9/fengmiantu.webp',
+              'http://tong.zqykfz.cn/fengmiantu/0/9/fengmiantu.webp',
+              'https://api.zqykfz.cn/sousuo?keyword=%E6%B5%B7%E8%B4%BC%E7%8E%8B',
+              'http://api.zqykfz.cn/sousuo?keyword=%E6%B5%B7%E8%B4%BC%E7%8E%8B',
           ]
-          for name,b in bases:
-              for p in paths:
-                  r=get(b+'/'+p,'MangaApp/1.0')
-                  if r is None: continue
-                  head=r.content[:4096]
-                  marker=head.find(b'\xff\xd8\xff')
-                  print('IMAGE_TEST base=',name,'path=',p,'status=',r.status_code,'type=',r.headers.get('content-type'),'len=',len(r.content),'head=',r.content[:24].hex(),'jpeg_offset=',marker)
-                  if r.ok and len(r.content)>1000:
-                      print('IMAGE_CANDIDATE_OK',name,p)
+          for u in targets:
+              for verify in (True, False):
+                  try:
+                      r=requests.get(u,timeout=15,allow_redirects=False,verify=verify,headers={'User-Agent':'QingManLSLand/1.0'})
+                      print('REQ',u,'verify=',verify,'->',r.status_code,'loc=',r.headers.get('location'),'type=',r.headers.get('content-type'),'len=',len(r.content))
+                  except Exception as e:
+                      print('REQ',u,'verify=',verify,'-> ERROR',repr(e))
+                  if verify is True: continue
+              print()
+
+          for host in ('apitong.zqykfz.cn','tong.zqykfz.cn','api.zqykfz.cn'):
+              try:
+                  ctx=ssl.create_default_context()
+                  with socket.create_connection((host,443),timeout=10) as sock:
+                      with ctx.wrap_socket(sock,server_hostname=host) as ssock:
+                          cert=ssock.getpeercert()
+                          print('CERT_OK',host,'subject=',cert.get('subject'),'issuer=',cert.get('issuer'),'expires=',cert.get('notAfter'))
+              except Exception as e:
+                  print('CERT_FAIL',host,repr(e))
           PY
-          python /tmp/probe.py
