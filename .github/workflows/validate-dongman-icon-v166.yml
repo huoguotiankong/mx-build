@@ -38,11 +38,9 @@ jobs:
           set -euo pipefail
           rm -rf upstream/src/zh/dongmanmanhuaplus
           cp -a source/src/zh/dongmanmanhuaplus upstream/src/zh/dongmanmanhuaplus
-          test -f upstream/src/zh/dongmanmanhua/res/mipmap-mdpi/ic_launcher.png
-          test -f upstream/src/zh/dongmanmanhua/res/mipmap-hdpi/ic_launcher.png
-          test -f upstream/src/zh/dongmanmanhua/res/mipmap-xhdpi/ic_launcher.png
-          test -f upstream/src/zh/dongmanmanhua/res/mipmap-xxhdpi/ic_launcher.png
-          test -f upstream/src/zh/dongmanmanhua/res/mipmap-xxxhdpi/ic_launcher.png
+          for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            test -f "upstream/src/zh/dongmanmanhua/res/mipmap-$density/ic_launcher.png"
+          done
 
       - name: Set up Java
         uses: actions/setup-java@v5
@@ -68,7 +66,16 @@ jobs:
           test -f "$apk"
           aapt2="$(find "$ANDROID_HOME/build-tools" -type f -name aapt2 | sort -V | tail -n 1)"
           test -x "$aapt2"
-          "$aapt2" dump resources "$apk" | grep -F 'mipmap/ic_launcher'
-          unzip -l "$apk" | grep -E 'res/.*/ic_launcher.*\.png' | tee /tmp/icon-files.txt
-          test "$(wc -l < /tmp/icon-files.txt)" -ge 5
+
+          "$aapt2" dump resources "$apk" > /tmp/resources.txt
+          awk '
+            /mipmap\/ic_launcher$/ {show=1; print; next}
+            show && /^    resource / {exit}
+            show {print}
+          ' /tmp/resources.txt | tee /tmp/icon-resource.txt
+          grep -Fq 'mipmap/ic_launcher' /tmp/icon-resource.txt
+          for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            grep -Fq "$density" /tmp/icon-resource.txt
+          done
+
           grep -Fq 'versionCode = 6' ../source/src/zh/dongmanmanhuaplus/build.gradle.kts
