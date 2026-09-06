@@ -1,0 +1,68 @@
+name: Probe Qingman Runtime ARM64
+
+on:
+  push:
+    paths:
+      - '.github/workflows/probe-qingman-runtime-arm64.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - name: Resolve current official APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/apk_url
+          import json, urllib.request
+          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
+          a=o['data']['datas']['android']
+          print(a['downloadUrl'])
+          print('version='+str(a.get('version','')))
+          print('versionCode='+str(a.get('versionCode','')))
+          PY
+          head -1 /tmp/apk_url > /tmp/url
+          tail -2 /tmp/apk_url
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/url)" -o /tmp/qingman.apk
+          AAPT="$(find "${ANDROID_HOME}"/build-tools -type f -name aapt | sort -V | tail -1)"
+          QM_PKG="$("$AAPT" dump badging /tmp/qingman.apk | sed -n "s/package: name='\([^']*\)'.*/\1/p" | head -1)"
+          test -n "$QM_PKG"
+          echo "QM_PKG=$QM_PKG" >> "$GITHUB_ENV"
+          echo "official_package=$QM_PKG host_arch=$(uname -m)"
+      - name: Run official app and capture runtime hosts
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: arm64-v8a
+          profile: pixel_6
+          disable-animations: false
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-metrics
+          script: |
+            set -u
+            echo "host_arch=$(uname -m)"
+            adb wait-for-device
+            adb shell getprop sys.boot_completed
+            adb install -r /tmp/qingman.apk
+            rm -f /tmp/qm_dns.log
+            sudo tcpdump -i pktap,all -nn -l '(udp port 53 or tcp port 53)' > /tmp/qm_dns.log 2>&1 &
+            TCPPID=$!
+            adb logcat -c
+            adb shell am force-stop "$QM_PKG" || true
+            adb shell monkey -p "$QM_PKG" -c android.intent.category.LAUNCHER 1 >/tmp/monkey.log 2>&1 || true
+            tail -30 /tmp/monkey.log || true
+            sleep 50
+            sudo kill "$TCPPID" >/dev/null 2>&1 || true
+            sleep 2
+            echo '=== runtime DNS candidates ==='
+            grep -Eio '([a-z0-9-]+\.)+(qingman\.(mom|app|vip)|zermh\.com|dmzj\.com|pwpni\.com|urlg\.cc|f37\.top)' /tmp/qm_dns.log | sort -u || true
+            echo '=== runtime logcat host candidates ==='
+            adb logcat -d -v brief | grep -Eio '([a-z0-9-]+\.)+(qingman\.(mom|app|vip)|zermh\.com|dmzj\.com|pwpni\.com|urlg\.cc|f37\.top)' | sort -u || true
+            echo '=== safe bootstrap runtime lines ==='
+            adb logcat -d -v brief | grep -E 'bootstrap: (code=|apiDomain 已应用|apiDomain 解析失败|下发失败|原生签名失败|proof 生成失败|解密失败|命中风控|未下发 appAccessToken|appAccessToken 已应用)' | sed -E 's/(token|access|proof|signature|sign)[=:][^ ]+/\1=<redacted>/Ig' | tail -200 || true
+            echo '=== app process state ==='
+            adb shell pidof "$QM_PKG" || true
