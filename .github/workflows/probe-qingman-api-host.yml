@@ -1,0 +1,44 @@
+name: Probe Qingman API Host
+
+on:
+  push:
+    paths:
+      - '.github/workflows/probe-qingman-api-host.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe embedded API host without credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          HOST='https://sf85sdq66h.qingman.mom'
+          getent ahosts sf85sdq66h.qingman.mom | head -4 || true
+          probe() {
+            path="$1"
+            echo "=== $path ==="
+            tmp=$(mktemp)
+            code=$(curl -sS --connect-timeout 10 --max-time 20 -o "$tmp" -w '%{http_code}' \
+              -H 'Accept: application/json, text/plain, */*' \
+              -H 'User-Agent: qingman/4.4.5 (Android)' \
+              -H 'appVersion: 4.4.5' \
+              -H 'platform: android' \
+              "$HOST/$path" || true)
+            echo "http=$code"
+            python3 - "$tmp" <<'PY'
+          import sys,re
+          s=open(sys.argv[1],'rb').read(4096).decode('utf-8','replace')
+          s=re.sub(r'(?i)("?(?:token|accessToken|appAccessToken|proof|signature|sign)"?\s*[:=]\s*")[^"]+',r'\1<redacted>',s)
+          print(s[:3500])
+          PY
+            rm -f "$tmp"
+          }
+          probe 'api/comic/categories/list'
+          probe 'api/comic/comics/v1/homeList?page=1&pageNum=1&pageSize=20'
+          probe 'api/comic/comics/homerecentUpdates?page=1&pageNum=1&pageSize=20'
