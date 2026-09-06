@@ -1,0 +1,35 @@
+{
+  "name": "MX Qingman v4 Test",
+  "badgeLabel": "QM-V4",
+  "signingKey": "1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620",
+  "contact": {
+    "website": "https://github.com/huoguotiankong/mx-build",
+    "discord": null
+  },
+  "extensionList": {
+    "extensions": [
+      {
+        "name": "Qingman",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.qingman",
+        "resources": {
+          "apkUrl": "https://github.com/huoguotiankong/mx-build/raw/extension-staging/test/apk/tachiyomi-zh.qingman-v1.6.4.apk",
+          "iconUrl": "https://github.com/huoguotiankong/mx-build/raw/extension-staging/test/icon/eu.kanade.tachiyomi.extension.zh.qingman-v106004.png"
+        },
+        "extensionLib": "1.6",
+        "versionCode": 106004,
+        "versionName": "1.6.4",
+        "contentWarning": "SAFE",
+        "sources": [
+          {
+            "id": 5091633172929638041,
+            "name": "青漫",
+            "language": "zh",
+            "homeUrl": "https://www.qingman.app",
+            "mirrorUrls": [],
+            "message": "青漫 v4 实机测试版：验证动态 bootstrap、首页/分类/搜索/详情/目录与安全风险提示。正文账号会话仍在继续处理。"
+          }
+        ]
+      }
+    ]
+  }
+}
