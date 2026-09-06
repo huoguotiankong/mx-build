@@ -14,12 +14,25 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
-      - name: Map Qingman Dart bootstrap signing flow
+      - name: Prepare Blutter
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update -qq
           sudo apt-get install -y -qq python3-pyelftools cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+      - name: Cache Blutter Dart build
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+      - name: Trace Qingman bootstrap AOT function
+        shell: bash
+        run: |
+          set -euo pipefail
           python3 - <<'PY' > /tmp/apk_url
           import json, urllib.request
           o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
@@ -33,12 +46,14 @@ jobs:
           unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/apk-extract
           cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
           cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
-          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
           cd /tmp/blutter
           python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1 || true
-          echo '=== blutter tail ==='
-          tail -120 /tmp/blutter.log || true
-          echo '=== bootstrap/signing symbols ==='
-          grep -RInE -C 18 'bootstrap/domain|bootstrapSign|bootstrapProof|bootstrapDecrypt|initializeSignKeys|buildHeaders|canonicalRequest|appAccessToken|appKeyStr|X-QM-Proof|X-QM-App-Access|X-Api-Guard|detailPath|chapterListPath|readPath|cachePath|k1a|k1b|k2a|k2b|k3a|k3b' /tmp/blutter-out/asm /tmp/blutter-out/objs.txt /tmp/blutter-out/pp.txt 2>/dev/null | head -8000 || true
-          echo '=== likely network/security classes ==='
-          grep -RInE -C 8 'bootstrap|canonicalRequest|requestId|nonce|X-Signature|apiGuard' /tmp/blutter-out/asm 2>/dev/null | head -8000 || true
+          tail -30 /tmp/blutter.log || true
+          echo '=== files referencing bootstrap PP region ==='
+          grep -RIlE '\[PP, #0x(bfd0|bfd8|bfe0|bfe8|bff0|bff8|c000|c008|c010|c018|c020|c028|c030|c038|c040|c048|c050|c058|c060|c090|c098|c0a0|c0a8|c0b0|c0b8|c108|c138|c140|c148|c150|8e00|8e10|8e30|8e38|8e40|8e48|8e50|8f48|8fc0|8fe0|8fe8|8ff0|8ff8|9000|9008|9010|9018|9028|9038|9040|9050|9098|90a0)\]' /tmp/blutter-out/asm | sort -u || true
+          echo '=== bootstrap PP references with context ==='
+          grep -RInE -C 70 '\[PP, #0x(bfd0|bfd8|bfe0|bfe8|bff0|bff8|c000|c008|c010|c018|c020|c028|c030|c038|c040|c048|c050|c058|c060|c090|c098|c0a0|c0a8|c0b0|c0b8|c108|c138|c140|c148|c150)\]' /tmp/blutter-out/asm | head -18000 || true
+          echo '=== signing PP references with context ==='
+          grep -RInE -C 50 '\[PP, #0x(8e00|8e10|8e30|8e38|8e40|8e48|8e50|8fc0|8fe0|8fe8|8ff0|8ff8|9000|9008|9010|9018|9028|9038|9040|9050|9098|90a0)\]' /tmp/blutter-out/asm | head -14000 || true
+          echo '=== closure/function addresses ==='
+          grep -RInE -C 90 '0x516018|0x3b613c|0x3b547c|0x3b5460' /tmp/blutter-out/asm | head -12000 || true
