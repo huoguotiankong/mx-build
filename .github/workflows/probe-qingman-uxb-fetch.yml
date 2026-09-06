@@ -1,0 +1,130 @@
+name: Isolate Qingman AppConfig Fetch Path
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-uxb-fetch.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools python3-capstone cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+
+      - name: Restore analyzer cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+
+      - name: Trace uxb typed fetch path
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/apk_url
+          import json,urllib.request,sys
+          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
+          a=o['data']['datas']['android']
+          print(a['downloadUrl'])
+          print('OFFICIAL_VERSION='+str(a.get('version','')),file=sys.stderr)
+          print('OFFICIAL_VERSION_CODE='+str(a.get('versionCode','')),file=sys.stderr)
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(head -1 /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          mkdir -p /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/apk-extract
+          cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter
+          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          sensitive=re.compile(r'(?i)(token|secret|password|cookie|authorization|bearer|private|clientp12|certificate|proof|signature|sign/key|p12|seed|k1a|k1b|k2a|k2b|k3a|k3b)')
+          needles=(
+              'TypeArguments: <uxb?>','TypeArguments: <uxb>','Type: uxb','class uxb',
+              'Get app config failed:','Failed to load configs:','Fetch configs failed',
+              'api/radio/api/config/getAdConfig','api/radio/api/config/homepage/interstitial',
+              'Field <uEb._nGd','App startup detail: QxNet adapter configured'
+          )
+
+          def safe(s):
+              if sensitive.search(s): return '<redacted-sensitive-line>'
+              return s[:700]
+
+          print('=== PP METADATA AROUND UXB / CONFIG MARKERS ===')
+          pp=Path('/tmp/blutter-out/pp.txt').read_text('utf-8',errors='replace').splitlines()
+          hits=[i for i,s in enumerate(pp) if any(n.lower() in s.lower() for n in needles)]
+          shown=set()
+          for i in hits:
+              for j in range(max(0,i-10),min(len(pp),i+16)):
+                  if j in shown: continue
+                  shown.add(j)
+                  print(f'PP:{j+1}: {safe(pp[j])}')
+
+          print('\n=== ASM FUNCTIONS CONTAINING UXB / CONFIG MARKERS ===')
+          asmroot=Path('/tmp/blutter-out/asm')
+          selected=[]
+          for p in asmroot.rglob('*.dart'):
+              lines=p.read_text('utf-8',errors='replace').splitlines()
+              for i,s in enumerate(lines):
+                  if not any(n.lower() in s.lower() for n in needles):
+                      continue
+                  # Locate declaration / function boundaries around the hit.
+                  start=i
+                  while start>0 and '** addr:' not in lines[start]: start-=1
+                  if '** addr:' in lines[start]:
+                      decl=max(0,start-3)
+                      end=start+1
+                      while end<len(lines) and '** addr:' not in lines[end]: end+=1
+                  else:
+                      decl=max(0,i-12); end=min(len(lines),i+40)
+                  key=(str(p),decl,end)
+                  if key not in selected: selected.append(key)
+
+          for pstr,decl,end in selected[:80]:
+              p=Path(pstr); lines=p.read_text('utf-8',errors='replace').splitlines()
+              block=lines[decl:min(end,decl+900)]
+              marks=[n for n in needles if any(n.lower() in x.lower() for x in block)]
+              print(f'--- FILE={p.name} LINES={decl+1}-{min(end,len(lines))} MARKERS={marks} ---')
+              # Keep only semantically useful lines plus a small prefix.
+              for k,s in enumerate(block):
+                  useful=(k<12 or any(n.lower() in s.lower() for n in needles) or
+                          re.search(r'(?i)(LoadStaticField|LoadField|StoreField|IsType|TypeArguments|call 0x|bl\s+#0x|Allocate|Await|InitAsync|ReturnAsync|r0 = ")',s))
+                  if useful: print(safe(s))
+
+          print('\n=== UXB CLASS DEFINITION ===')
+          for p in asmroot.rglob('*.dart'):
+              lines=p.read_text('utf-8',errors='replace').splitlines()
+              for i,s in enumerate(lines):
+                  if re.search(r'\bclass\s+uxb\b',s,re.I):
+                      print('FILE='+p.name)
+                      for j in range(max(0,i-5),min(len(lines),i+80)):
+                          print(safe(lines[j]))
+
+          print('\n=== FUNCTIONS WITH UXB IN DECLARATION / CASTS ===')
+          for p in asmroot.rglob('*.dart'):
+              lines=p.read_text('utf-8',errors='replace').splitlines()
+              for i,s in enumerate(lines):
+                  if re.search(r'\buxb\b',s,re.I) and ('Future<' in s or 'Type: uxb' in s or 'IsType' in s or 'Cast' in s or 'class uxb' in s):
+                      lo=max(0,i-8); hi=min(len(lines),i+35)
+                      print(f'FILE={p.name} HIT_LINE={i+1}')
+                      for j in range(lo,hi): print(safe(lines[j]))
+          PY
