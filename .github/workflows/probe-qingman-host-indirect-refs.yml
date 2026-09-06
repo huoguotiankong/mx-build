@@ -1,0 +1,100 @@
+name: Trace Qingman Host Indirect References
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-host-indirect-refs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+      - name: Restore analyzer cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+      - name: Find closure and pool references
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/apk_url
+          import json,urllib.request
+          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
+          print(o['data']['datas']['android']['downloadUrl'])
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(head -1 /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          mkdir -p /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/apk-extract
+          cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter
+          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          targets={
+              '65893c':'pttower_getter',
+              '658998':'shcvv_getter',
+              '6589a4':'seed_getter',
+              '6589c4':'dynamic_selector',
+          }
+          sensitive=re.compile(r'(?i)(token|secret|password|cookie|authorization|bearer|private|clientp12|certificate|proof|signature|p12|seed|k1a|k1b|k2a|k2b|k3a|k3b)')
+          def safe(s): return '<redacted-sensitive>' if sensitive.search(s) else s[:700]
+
+          files=[Path('/tmp/blutter-out/pp.txt'),Path('/tmp/blutter-out/objs.txt')]
+          files += list(Path('/tmp/blutter-out').glob('*.txt'))
+          files += list(Path('/tmp/blutter-out/asm').rglob('*.dart'))
+          print('=== TEXTUAL ADDRESS REFERENCES ===')
+          counts={k:0 for k in targets}
+          for p in files:
+              if not p.exists() or not p.is_file(): continue
+              try: lines=p.read_text('utf-8',errors='replace').splitlines()
+              except Exception: continue
+              for i,line in enumerate(lines):
+                  low=line.lower()
+                  hit=[k for k in targets if k in low]
+                  if not hit: continue
+                  for k in hit: counts[k]+=1
+                  print(f'FILE={p.relative_to("/tmp/blutter-out")} LINE={i+1} TARGETS={",".join(targets[k] for k in hit)}')
+                  for j in range(max(0,i-3),min(len(lines),i+4)):
+                      print('  '+safe(lines[j]))
+          print('COUNTS='+','.join(f'{targets[k]}:{counts[k]}' for k in targets))
+
+          print('\n=== PP CLOSURE/FUNCTION OBJECTS NEAR HOST LITERALS ===')
+          pp=Path('/tmp/blutter-out/pp.txt').read_text('utf-8',errors='replace').splitlines()
+          entries=[]
+          for line in pp:
+              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s+(.*)$',line)
+              if m: entries.append((int(m.group(1),16),m.group(2)))
+          by={o:v for o,v in entries}
+          hostoffs=[]
+          for o,v in entries:
+              if any(h in v for h in ('pmlkjkrdumcozpjy.pttower.com','obsolete-unedited.shcvv.com','sf85sdq66h.qingman.mom')):
+                  hostoffs.append((o,v))
+          for off,val in hostoffs:
+              print(f'HOST PP+0x{off:x} {safe(val)}')
+              for p in sorted(k for k in by if off-0x300<=k<=off+0x300):
+                  v=by[p]
+                  if sensitive.search(v): continue
+                  if any(x in v.lower() for x in ('closure','function','field <','host','domain','api/','http','string:')):
+                      print(f'  PP+0x{p:x} {safe(v)}')
+          PY
