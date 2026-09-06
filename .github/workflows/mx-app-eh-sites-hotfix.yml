@@ -48,14 +48,20 @@ jobs:
           s=p.read_text()
           old='''    override val name = if (exh) {\n        "ExHentai"\n    } else {\n        "E-Hentai"\n    }'''
           new='''    override val name = if (exh) {\n        "ExHentai（里站）"\n    } else {\n        "E-Hentai（表站）"\n    }'''
-          if old not in s and new not in s: raise SystemExit('EH source name block not found')
+          if old not in s and new not in s:
+              raise SystemExit('EH source name block not found')
           p.write_text(s.replace(old,new,1))
+
           b=Path('app/build.gradle.kts')
           s=b.read_text()
-          s=re.sub(r'versionCode\\s*=\\s*\\d+', 'versionCode = 89', s, count=1)
-          s=re.sub(r'versionName\\s*=\\s*"[^"]+"', 'versionName = "1.14.9"', s, count=1)
+          s, code_count = re.subn(r'versionCode\s*=\s*\d+', 'versionCode = 89', s, count=1)
+          s, name_count = re.subn(r'versionName\s*=\s*"[^"]+"', 'versionName = "1.14.9"', s, count=1)
+          if code_count != 1 or name_count != 1:
+              raise SystemExit('Unable to set MX hotfix version to 1.14.9/89')
           b.write_text(s)
           PY
+          grep -q 'versionCode = 89' app/build.gradle.kts
+          grep -q 'versionName = "1.14.9"' app/build.gradle.kts
           git diff --check
 
       - name: Set up Java
@@ -99,7 +105,8 @@ jobs:
           import base64,json,os
           from pathlib import Path
           b=json.loads(os.environ['MX_APP_SIGNING_BUNDLE'])
-          p=Path(os.environ['RUNNER_TEMP'])/'mx-app.jks'; p.write_bytes(base64.b64decode(b['signingKey']))
+          p=Path(os.environ['RUNNER_TEMP'])/'mx-app.jks'
+          p.write_bytes(base64.b64decode(b['signingKey']))
           with open(os.environ['GITHUB_ENV'],'a') as f:
             f.write(f"MX_KEYSTORE_PATH={p}\nMX_KEY_ALIAS={b['alias']}\nMX_KEYSTORE_PASSWORD={b['storePassword']}\nMX_KEY_PASSWORD={b['storePassword']}\n")
           PY
