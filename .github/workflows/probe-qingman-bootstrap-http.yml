@@ -14,14 +14,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Probe public bootstrap endpoint without credentials
+      - name: Narrow public bootstrap request shape without valid credentials
         shell: bash
         run: |
           set -euo pipefail
           URL='https://mu8xm4cx.zermh.com/bootstrap/domain'
-          echo '=== DNS/TLS ==='
-          getent ahosts mu8xm4cx.zermh.com | head -4 || true
-          curl -sSIL --connect-timeout 10 --max-time 20 "$URL" | sed -n '1,30p' || true
           probe() {
             label="$1"; shift
             echo "=== $label ==="
@@ -29,21 +26,23 @@ jobs:
             code=$(curl -sS --connect-timeout 10 --max-time 20 -o "$tmp" -w '%{http_code}' "$@" "$URL" || true)
             echo "http=$code"
             python3 - "$tmp" <<'PY'
-          import sys,re,json
-          p=sys.argv[1]
-          b=open(p,'rb').read(4096)
-          try:s=b.decode('utf-8','replace')
-          except:s=repr(b)
-          # Redact values for fields that could be tokens/signatures if the server unexpectedly returns them.
+          import sys,re
+          s=open(sys.argv[1],'rb').read(4096).decode('utf-8','replace')
           s=re.sub(r'(?i)("?(?:token|accessToken|appAccessToken|proof|signature|sign)"?\s*[:=]\s*")[^"]+',r'\1<redacted>',s)
           print(s[:3500])
           PY
             rm -f "$tmp"
           }
-          probe 'GET default' -X GET -H 'Accept: application/json'
-          probe 'POST empty json' -X POST -H 'Content-Type: application/json' -H 'Accept: application/json' --data '{}'
+          BASE=(-X POST -H 'Content-Type: application/json' -H 'Accept: application/json')
           TS=$(date +%s%3N)
           NONCE='00000000000000000000000000000000'
           DID='00000000-0000-4000-8000-000000000000'
-          probe 'POST public shape' -X POST -H 'Content-Type: application/json' -H 'Accept: application/json' \
-            --data "{\"timestamp\":\"$TS\",\"nonce\":\"$NONCE\",\"deviceId\":\"$DID\",\"platform\":\"android\",\"appVersion\":\"4.4.5\"}"
+          RID='00000000000000000000000000000000'
+          SIG='invalid-signature'
+          probe 'nonce+sign' "${BASE[@]}" --data "{\"nonce\":\"$NONCE\",\"sign\":\"$SIG\"}"
+          probe 'timestamp+nonce+sign' "${BASE[@]}" --data "{\"timestamp\":\"$TS\",\"nonce\":\"$NONCE\",\"sign\":\"$SIG\"}"
+          probe 'deviceId+nonce+sign' "${BASE[@]}" --data "{\"deviceId\":\"$DID\",\"nonce\":\"$NONCE\",\"sign\":\"$SIG\"}"
+          probe 'timestamp+deviceId+nonce+sign' "${BASE[@]}" --data "{\"timestamp\":\"$TS\",\"deviceId\":\"$DID\",\"nonce\":\"$NONCE\",\"sign\":\"$SIG\"}"
+          probe 'nonce+sign with security headers' "${BASE[@]}" \
+            -H "X-Timestamp: $TS" -H "X-Device-Id: $DID" -H "X-QM-Request-Id: $RID" -H "X-Signature: $SIG" \
+            --data "{\"nonce\":\"$NONCE\",\"sign\":\"$SIG\"}"
