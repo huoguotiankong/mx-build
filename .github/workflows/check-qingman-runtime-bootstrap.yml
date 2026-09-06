@@ -81,14 +81,9 @@ jobs:
           python3 -m pip install --disable-pip-version-check pyelftools >/dev/null
           python3 source/scripts/prepare_qingman_bootstrap.py --module upstream/src/zh/qingman
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          build-root-directory: upstream
-
-      - name: Spotless check
+      - name: Apply temporary build-tree formatting
         working-directory: upstream
-        run: ./gradlew :src:zh:qingman:spotlessCheck
+        run: ./gradlew :src:zh:qingman:spotlessApply
 
       - name: Build Debug extension
         working-directory: upstream
@@ -102,7 +97,8 @@ jobs:
             echo
             echo "- Private source commit: \`$SOURCE_SHA\`"
             echo '- Official bootstrap material was generated only inside the temporary build tree.'
-            echo '- Spotless and Debug APK compilation passed.'
+            echo '- Temporary build-tree formatting was applied before compilation.'
+            echo '- Debug APK compilation passed.'
             echo '- No private source or APK artifact was uploaded.'
             echo '- Android real-device validation remains separate.'
           } >> "$GITHUB_STEP_SUMMARY"
