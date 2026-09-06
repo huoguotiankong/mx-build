@@ -22,6 +22,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq python3-pyelftools cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
           git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+
       - name: Restore analyzer cache
         uses: actions/cache@v4
         with:
@@ -30,7 +31,8 @@ jobs:
             /tmp/blutter/dartsdk
             /tmp/blutter/packages
           key: qingman-blutter-dart-3.12.2-arm64-v1
-      - name: Identify allocation-tag classes and constructors
+
+      - name: Resolve allocator and request descriptor names
         shell: bash
         run: |
           set -euo pipefail
@@ -47,57 +49,98 @@ jobs:
           cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
           cd /tmp/blutter
           python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
+
           python3 - <<'PY'
           from pathlib import Path
           import re
-          sensitive=re.compile(r'(?i)(token|secret|password|cookie|authorization|bearer|private|clientp12|certificate|proof|signature|sign/key|k1a|k1b|k2a|k2b|k3a|k3b|seed)')
-          # Allocation tags in b02b90 and b028d0 are 0x3e021c and 0x45a21c.
-          # Their upper bits correspond to class ids 0x3e0 (992) and 0x45a (1114);
-          # print matching class metadata plus nearby related classes/functions.
-          ids=(992,1114)
-          objs=Path('/tmp/blutter-out/objs.txt').read_text('utf-8',errors='replace').splitlines()
-          print('=== CLASS ID MATCHES ===')
-          names=[]
-          for i,line in enumerate(objs):
-              m=re.search(r'class id:\s*(\d+),\s*size:\s*(0x[0-9a-fA-F]+)',line)
-              if not m or int(m.group(1)) not in ids: continue
-              print(f'MATCH line={i+1} {line}')
-              for n in range(i,min(len(objs),i+45)):
-                  z=objs[n]
-                  if sensitive.search(z): z='<redacted-sensitive-line>'
-                  print(z[:700])
-                  cm=re.match(r'class\s+([A-Za-z0-9_$]+)',z.strip())
-                  if cm: names.append(cm.group(1))
-          print('CLASS_NAMES='+','.join(names))
 
-          print('=== ASM FUNCTIONS FOR MATCHED CLASSES / CONSTRUCTOR 0x3ea090 ===')
-          needles=[x.lower() for x in names] + ['0x3ea090','0xb02b90','0xb028d0']
-          total=0
+          sensitive=re.compile(r'(?i)(token|secret|password|cookie|authorization|bearer|private|clientp12|certificate|proof|signature|sign/key|k1a|k1b|k2a|k2b|k3a|k3b|seed)')
+          asm_files=[]
           for p in Path('/tmp/blutter-out/asm').rglob('*.dart'):
-              try: lines=p.read_text('utf-8',errors='replace').splitlines()
-              except Exception: continue
-              idxs=[i for i,s in enumerate(lines) if any(n in s.lower() for n in needles)]
-              if not idxs: continue
-              print('FILE',p.name)
-              emitted=set()
-              for i in idxs:
-                  start=i
-                  while start>0 and '** addr:' not in lines[start]: start-=1
-                  if '** addr:' not in lines[start]: start=max(0,i-50)
-                  end=len(lines)
-                  for j in range(start+1,len(lines)):
-                      if '** addr:' in lines[j]: end=j; break
-                  if (start,end) in emitted: continue
-                  emitted.add((start,end))
-                  print(f'FUNCTION lines={start+1}-{end} hit={i+1}')
-                  for n in range(start,min(end,start+900)):
-                      z=lines[n]
-                      if sensitive.search(z): z=re.sub(r'"[^"]*"','"<redacted>"',z)
-                      if len(z)>500: z=z[:500]+'...'
-                      print(z)
+              try:
+                  asm_files.append((p,p.read_text('utf-8',errors='replace').splitlines()))
+              except Exception:
+                  pass
+
+          def clean(line):
+              if sensitive.search(line):
+                  return re.sub(r'"[^"]*"','"<redacted>"',line)[:700]
+              return line[:700]
+
+          def function_bounds(lines, idx):
+              start=idx
+              while start>0 and '** addr:' not in lines[start]:
+                  start-=1
+              if '** addr:' not in lines[start]:
+                  start=max(0,idx-80)
+              end=len(lines)
+              for j in range(start+1,len(lines)):
+                  if '** addr:' in lines[j]:
+                      end=j
+                      break
+              return start,end
+
+          targets={
+              'app_allocator':'0xb02b90',
+              'chaping_allocator':'0xb028d0',
+              'shared_constructor':'0x3ea090',
+              'app_error':'Get app config failed',
+              'chaping_error':'Get chaping config failed',
+          }
+          names=set()
+          emitted=set()
+          total=0
+
+          print('=== TARGET HITS ===')
+          for label,needle in targets.items():
+              hits=[]
+              for p,lines in asm_files:
+                  for i,line in enumerate(lines):
+                      if needle.lower() in line.lower():
+                          hits.append((p,lines,i))
+              print(f'TARGET {label} needle={needle} hits={len(hits)}')
+              for p,lines,i in hits[:20]:
+                  print(f'HIT file={p.name} line={i+1}: {clean(lines[i])}')
+                  m=re.search(r'Allocate([A-Za-z0-9_$]+)Stub\s*->\s*([A-Za-z0-9_$]+)',lines[i])
+                  if m:
+                      names.update(m.groups())
+                  s,e=function_bounds(lines,i)
+                  key=(str(p),s,e)
+                  if key in emitted:
+                      continue
+                  emitted.add(key)
+                  print(f'FUNCTION file={p.name} lines={s+1}-{e}')
+                  for n in range(s,min(e,s+420)):
+                      print(clean(lines[n]))
                       total+=1
-                      if total>=2600: break
-                  if total>=2600: break
-              if total>=2600: break
-          print('PRINTED_LINES='+str(total))
+                      if total>=2800:
+                          break
+                  if total>=2800:
+                      break
+              if total>=2800:
+                  break
+
+          print('ALLOCATOR_CLASS_NAMES='+','.join(sorted(names)))
+
+          print('=== CLASS DEFINITIONS FOR ALLOCATOR NAMES ===')
+          if names:
+              for p,lines in asm_files:
+                  for i,line in enumerate(lines):
+                      cm=re.match(r'\s*class\s+([A-Za-z0-9_$]+)\b',line)
+                      if not cm or cm.group(1) not in names:
+                          continue
+                      print(f'CLASS file={p.name} line={i+1}: {clean(line)}')
+                      for n in range(i,min(len(lines),i+220)):
+                          print(clean(lines[n]))
+
+          print('=== OBJS METADATA FOR ALLOCATOR NAMES ===')
+          objs=Path('/tmp/blutter-out/objs.txt').read_text('utf-8',errors='replace').splitlines()
+          if names:
+              for i,line in enumerate(objs):
+                  if any(re.search(r'\b'+re.escape(name)+r'\b',line) for name in names):
+                      print(f'OBJS_HIT line={i+1}: {clean(line)}')
+                      for n in range(max(0,i-8),min(len(objs),i+28)):
+                          print(clean(objs[n]))
+
+          print('PRINTED_FUNCTION_LINES='+str(total))
           PY
