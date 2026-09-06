@@ -202,8 +202,8 @@ jobs:
             version_name="$(printf '%s\n' "$badging" | sed -n "s/^package:.*versionName='\([^']*\)'.*/\1/p" | head -n 1)"
             app_label="$(printf '%s\n' "$badging" | sed -n "s/^application-label:'\([^']*\)'.*/\1/p" | head -n 1)"
             [[ "$package_name" == "com.huoguotiankong.mx.beta" ]]
-            [[ "$version_code" == "88" ]]
-            [[ "$version_name" == 1.14.8-* ]]
+            [[ "$version_code" == "89" ]]
+            [[ "$version_name" == 1.14.9-* ]]
             [[ "$app_label" == "MX漫画" ]]
             cert_output="$("$apksigner" verify --print-certs "$apk" 2>&1)"
             normalized="$(printf '%s' "$cert_output" | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')"
@@ -236,11 +236,11 @@ jobs:
               *arm64-v8a*)
                 found_arm64=1
                 cp "$apk" apks/MX-Manga-arm64-v8a-preview.apk
-                cp "$apk" apks/MX-Manga-arm64-v1.14.8-stage3-preview.apk
+                cp "$apk" apks/MX-Manga-arm64-v1.14.9-stage3-preview.apk
                 ;;
               *armeabi-v7a*)
                 cp "$apk" apks/MX-Manga-armeabi-v7a-preview.apk
-                cp "$apk" apks/MX-Manga-armeabi-v7a-v1.14.8-stage3-preview.apk
+                cp "$apk" apks/MX-Manga-armeabi-v7a-v1.14.9-stage3-preview.apk
                 ;;
             esac
           done < <(find ../source/app/build/outputs/apk/preview -maxdepth 1 -type f -name '*.apk' | sort)
@@ -248,11 +248,11 @@ jobs:
           cat > README.md <<EOF
           # MX漫画 Stage 3 Preview
 
-          - 版本：1.14.8 / versionCode 88
-          - ARM64：\`apks/MX-Manga-arm64-v1.14.8-stage3-preview.apk\`
+          - 版本：1.14.9 / versionCode 89
+          - ARM64：\`apks/MX-Manga-arm64-v1.14.9-stage3-preview.apk\`
           - 兼容固定地址：\`apks/MX-Manga-arm64-v8a-preview.apk\`
           - 源码：\`$SOURCE_SHA\`
-          - 内容：Stage 1 + Stage 2 评论增强 + E-Hentai/JHenTai 风格增强。
+          - 内容：Stage 1 + Stage 2 评论增强 + E-Hentai/ExHentai 增强；确保 E-Hentai 表站入口可见。
           - 保留：Stage 2 富媒体识别、Stage 1 三行折叠详情标签。
           EOF
           git config user.name "github-actions[bot]"
