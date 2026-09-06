@@ -19,10 +19,11 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import json,re,urllib.request
+          import json,re,urllib.request,urllib.parse
           u='https://bass8ycl.zermh.com/api/radio/api/config/version'
           o=json.load(urllib.request.urlopen(u,timeout=20))
           sensitive=re.compile(r'(token|secret|password|cookie|sign|proof|key)',re.I)
+          hosts=set()
           def walk(x,path='$'):
               if isinstance(x,dict):
                   for k,v in x.items():
@@ -33,14 +34,19 @@ jobs:
                           print(p, type(v).__name__)
                           walk(v,p)
                       elif isinstance(v,str):
-                          hosts=re.findall(r'https?://[^\s"<>]+',v)
-                          if hosts:
-                              print(p,'=', ';'.join(hosts))
-                          elif len(v) <= 120:
+                          urls=re.findall(r'https?://[^\s"<>]+',v)
+                          if urls:
+                              print(p,'=', ';'.join(urls))
+                              for z in urls:
+                                  h=urllib.parse.urlsplit(z).hostname
+                                  if h: hosts.add(h)
+                          elif len(v) <= 160:
                               print(p,'=',v)
                       elif isinstance(v,(int,float,bool)) or v is None:
                           print(p,'=',v)
               elif isinstance(x,list):
-                  for i,v in enumerate(x[:40]): walk(v,f'{path}[{i}]')
+                  for i,v in enumerate(x[:100]): walk(v,f'{path}[{i}]')
           walk(o)
+          print('=== public hosts ===')
+          for h in sorted(hosts): print(h)
           PY
