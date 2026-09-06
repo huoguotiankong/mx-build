@@ -1,0 +1,39 @@
+name: Probe Qingman Host Candidates
+
+on:
+  push:
+    paths:
+      - '.github/workflows/probe-qingman-hosts.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Scan safe hostname candidates
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/apk_url
+          import json,urllib.request
+          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
+          a=o['data']['datas']['android']
+          print(a['downloadUrl'])
+          print('version='+str(a.get('version','')), file=open('/tmp/version','w'))
+          PY
+          cat /tmp/version
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(head -1 /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/qm && mkdir -p /tmp/qm
+          unzip -q /tmp/qingman.apk -d /tmp/qm
+          echo '=== hostname candidates from all packaged binary/text assets ==='
+          find /tmp/qm -type f -size -120M -print0 | while IFS= read -r -d '' f; do
+            strings -a "$f" 2>/dev/null || true
+          done | grep -Eio '([a-z0-9-]+\.)+(qingman\.(mom|app|vip)|zermh\.com|dmzj\.com|pwpni\.com|urlg\.cc|f37\.top)' | sort -u
+          echo '=== full http(s) URLs containing project-related hosts ==='
+          find /tmp/qm -type f -size -120M -print0 | while IFS= read -r -d '' f; do
+            strings -a "$f" 2>/dev/null || true
+          done | grep -Eio 'https?://[^[:space:]"'"'<>]+' | grep -Ei 'qingman|zermh|dmzj|pwpni|urlg|f37' | sort -u | head -300 || true
