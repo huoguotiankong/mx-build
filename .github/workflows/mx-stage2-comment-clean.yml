@@ -59,8 +59,8 @@ jobs:
           p.write_text(text, encoding='utf-8')
           PY
 
-          git diff --check
-          mapfile -t changed < <(git diff --name-only | sort)
+          git diff HEAD --check
+          mapfile -t changed < <(git diff HEAD --name-only | sort)
           expected=(
             app/build.gradle.kts
             app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt
