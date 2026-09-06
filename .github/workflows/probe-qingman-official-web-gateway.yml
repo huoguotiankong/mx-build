@@ -1,0 +1,67 @@
+name: Inspect Qingman Official Web Gateway
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-official-web-gateway.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Probe public Qingman web routes
+        shell: bash
+        run: |
+          set -euo pipefail
+          UA='Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Mobile Safari/537.36'
+          mkdir -p /tmp/qmw
+          declare -A URLS=(
+            [root]='https://www.qingman.app/'
+            [home]='https://www.qingman.app/comic/home'
+            [update]='https://www.qingman.app/comic/update'
+            [category]='https://www.qingman.app/comic/category'
+            [ranking]='https://www.qingman.app/comic/ranking'
+            [search]='https://www.qingman.app/comic/search'
+            [detail]='https://www.qingman.app/comic/detail?id=1'
+            [detail2]='https://www.qingman.app/comic/detail?comicId=1'
+            [read]='https://www.qingman.app/comic/read?id=1'
+          )
+          for name in root home update category ranking search detail detail2 read; do
+            url="${URLS[$name]}"
+            out="/tmp/qmw/$name.html"
+            meta=$(curl -L --compressed --connect-timeout 10 --max-time 30 -A "$UA" -sS -o "$out" -w '%{http_code}\t%{url_effective}\t%{content_type}' "$url" || true)
+            echo "ROUTE $name $meta bytes=$(wc -c < "$out" 2>/dev/null || echo 0)"
+          done
+
+          python3 - <<'PY'
+          from pathlib import Path
+          from urllib.parse import urljoin,urlsplit
+          import html,re
+          sensitive=re.compile(r'(?i)(token|secret|password|cookie|auth|bearer|private|cert|p12)')
+          for p in sorted(Path('/tmp/qmw').glob('*.html')):
+              s=p.read_text('utf-8',errors='replace')
+              print('\n===',p.stem,'===')
+              mt=re.search(r'<title[^>]*>(.*?)</title>',s,re.I|re.S)
+              print('TITLE',re.sub(r'\s+',' ',re.sub(r'<[^>]+>',' ',html.unescape(mt.group(1)))).strip() if mt else '')
+              urls=[]
+              for pat in [r'https?://[^\s"\'<>]+',r'(?:href|src)=["\']([^"\']+)["\']']:
+                  for x in re.findall(pat,s,re.I):
+                      u=html.unescape(x)
+                      if u.startswith(('javascript:','#','data:')): continue
+                      u=urljoin('https://www.qingman.app/',u)
+                      if sensitive.search(u): continue
+                      if u not in urls: urls.append(u)
+              for u in urls[:120]: print('URL',u[:700])
+              for needle in ('location','redirect','jump','domain','host','comic','qingman','urlg','window.location','href'):
+                  i=s.lower().find(needle.lower())
+                  if i>=0:
+                      snip=re.sub(r'\s+',' ',s[max(0,i-500):i+1400])
+                      snip=re.sub(r'(?i)(token|secret|password|cookie|auth)[=:][^\s"\']+',r'\1=<redacted>',snip)
+                      print('SNIP',needle,snip[:1900])
+          PY
