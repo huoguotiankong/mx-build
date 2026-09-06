@@ -1,0 +1,130 @@
+name: Trace Qingman Reader Cache Fallback
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-reader-cache.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+
+      - name: Restore analyzer cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+
+      - name: Trace cache schema and control flow
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/apk_url
+          import json, urllib.request, sys
+          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
+          a=o['data']['datas']['android']
+          print(a['downloadUrl'])
+          print('OFFICIAL_VERSION='+str(a.get('version','')), file=sys.stderr)
+          print('OFFICIAL_VERSION_CODE='+str(a.get('versionCode','')), file=sys.stderr)
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(head -1 /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          mkdir -p /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/apk-extract
+          cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter
+          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          pp_lines=Path('/tmp/blutter-out/pp.txt').read_text('utf-8',errors='replace').splitlines()
+          entries=[]
+          for line in pp_lines:
+              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s+(.*)$',line)
+              if m: entries.append((int(m.group(1),16),m.group(2)))
+          by={o:v for o,v in entries}
+
+          sensitive=re.compile(r'(?i)(token|password|private|clientp12|certificate|secret|cookie|authorization|bearer|sign(?:ature)?|proof)')
+          markers={
+              'cache_hit':'阅读页命中本地缓存',
+              'network_fallback':'阅读页网络失败，回退本地缓存',
+              'network_detail':'阅读页走网络章节详情',
+              'refresh_failed':'刷新下载地址失败',
+              'page_urls':'pageUrls',
+              'chapter_url':'chapterUrl',
+              'comic_id':'comicId',
+              'chapter_id':'chapterId',
+              'hive':'Hive',
+              'box':'box',
+              'download':'download',
+              'cache':'cache',
+              'local_storage':'LocalStorage',
+          }
+
+          found={}
+          for label,needle in markers.items():
+              hits=[(o,v) for o,v in entries if needle.lower() in v.lower() and not sensitive.search(v)]
+              found[label]=hits
+              print(f'TARGET {label} count={len(hits)}')
+              for o,v in hits[:40]: print(f'  PP+0x{o:x} {v[:320]}')
+
+          print('=== CACHE MARKER NEIGHBORHOODS ===')
+          for label in ('cache_hit','network_fallback','network_detail','refresh_failed','page_urls','chapter_url'):
+              for off,val in found.get(label,[])[:6]:
+                  print(f'--- {label} PP+0x{off:x} {val[:180]} ---')
+                  for p in sorted(k for k in by if off-0x300 <= k <= off+0x500):
+                      v=by[p]
+                      if sensitive.search(v):
+                          continue
+                      low=v.lower()
+                      if any(x in low for x in (
+                          'hive','box','cache','download','file','path','dir','directory','storage','local','comic','chapter','pageurl','imageurl','url',
+                          'sqlite','sqflite','table','database','db','key','value','json','map','list','model','record','progress','type','quality','refresh'
+                      )):
+                          print(f'  PP+0x{p:x} {v[:360]}')
+
+          print('=== SAFE CACHE/DB/FILE STRINGS ===')
+          shown=set(); count=0
+          for off,val in entries:
+              if val in shown or sensitive.search(val): continue
+              low=val.lower()
+              if any(x in low for x in ('hive','box','cache','download','sqflite','sqlite','database','dbpath','filepath','file_path','directory','localstorage','local_storage','chapterurl','pageurls')):
+                  shown.add(val)
+                  print(f'STR PP+0x{off:x} {val[:360]}')
+                  count+=1
+                  if count>=240: break
+
+          print('=== OBJECT/CLASS HINTS ===')
+          for fname in ('objs.txt','pp.txt'):
+              p=Path('/tmp/blutter-out')/fname
+              if not p.exists(): continue
+              text=p.read_text('utf-8',errors='replace')
+              hits=[]
+              for line in text.splitlines():
+                  low=line.lower()
+                  if sensitive.search(line): continue
+                  if any(x in low for x in ('cache','download','hive','sqflite','localstorage','chapter','comicreader','reader','offline')):
+                      hits.append(line)
+              print(f'{fname}_hits={len(hits)}')
+              for line in hits[:180]: print(line[:420])
+          PY
