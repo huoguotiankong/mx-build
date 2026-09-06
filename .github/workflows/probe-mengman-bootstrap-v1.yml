@@ -1,0 +1,39 @@
+name: Probe Mengman bootstrap PNGs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-mengman-bootstrap-v1.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Inspect PNG chunks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import urllib.request, struct, base64, hashlib
+          H={'User-Agent':'okhttp/4.12.0','X-Package':'com.mengman.app','X-App-VersionCode':'101'}
+          for name in ['a1.png','a2.png']:
+              url='https://static.yisix.cn/bootstrap/'+name
+              with urllib.request.urlopen(urllib.request.Request(url,headers=H),timeout=15) as r:
+                  b=r.read()
+              print('\n===',name,'len',len(b),'sha256',hashlib.sha256(b).hexdigest(),'sig',b[:8])
+              p=8; i=0
+              while p+12<=len(b):
+                  n=struct.unpack('>I',b[p:p+4])[0]
+                  typ=b[p+4:p+8].decode('latin1')
+                  dat=b[p+8:p+8+n]
+                  print('chunk',i,typ,'len',n,'hex',dat[:180].hex(),'ascii',repr(dat[:180]))
+                  p += 12+n; i+=1
+                  if typ=='IEND': break
+              print('base64',base64.b64encode(b).decode())
+          PY
