@@ -1,0 +1,96 @@
+name: Probe Qingman Bootstrap Request Shape
+
+on:
+  push:
+    paths:
+      - '.github/workflows/probe-qingman-bootstrap-shapes.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Probe safe bootstrap request variants
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools >/dev/null
+          python3 - <<'PY' > /tmp/apk_url
+          import json,urllib.request
+          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
+          print(o['data']['datas']['android']['downloadUrl'])
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qingman.apk
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libqx_security.so' -d /tmp/qm
+          python3 - <<'PY'
+          import hashlib,json,secrets,time,urllib.request,urllib.error,uuid
+          from itertools import permutations
+          from pathlib import Path
+          from elftools.elf.elffile import ELFFile
+
+          so=Path('/tmp/qm/lib/arm64-v8a/libqx_security.so')
+          expected='0b187ca2fb5d98d8dc604b53bf01c44669f25c95f568e859c1498f3dfc078148'
+          if hashlib.sha256(so.read_bytes()).hexdigest()!=expected:
+              raise SystemExit('native security library changed')
+          prefix_va=0x17d1f
+          with so.open('rb') as f:
+              elf=ELFFile(f); material=None
+              for sec in elf.iter_sections():
+                  sva=int(sec['sh_addr']); ssize=int(sec['sh_size'])
+                  if sva <= prefix_va and prefix_va+33 <= sva+ssize:
+                      d=sec.data(); material=d[prefix_va-sva:prefix_va-sva+33]; break
+          if material is None: raise SystemExit('internal bytes unavailable')
+
+          endpoint='https://mu8xm4cx.zermh.com/bootstrap/domain'
+          ts=str(int(time.time()*1000)); nonce=secrets.token_hex(16); device=uuid.uuid4().hex
+          values={'timestamp':ts,'nonce':nonce,'deviceId':device}
+          base_headers={
+              'Accept':'application/json, text/plain, */*',
+              'Content-Type':'application/json',
+              'User-Agent':'qingman/4.4.5 (Android)',
+              'appVersion':'4.4.5','platform':'android',
+          }
+          body_core={'timestamp':ts,'nonce':nonce,'deviceId':device}
+          def call(label,method,body,headers):
+              data=None if body is None else json.dumps(body,separators=(',',':')).encode()
+              req=urllib.request.Request(endpoint,data=data,headers=headers,method=method)
+              try:
+                  with urllib.request.urlopen(req,timeout=12) as r:
+                      status=r.status; raw=r.read().decode('utf-8','replace')
+              except urllib.error.HTTPError as e:
+                  status=e.code; raw=e.read().decode('utf-8','replace')
+              except Exception as e:
+                  print(label,'error='+type(e).__name__+':'+str(e)[:100]); return False
+              try: o=json.loads(raw)
+              except Exception:
+                  print(label,'http='+str(status),'non_json_len='+str(len(raw))); return False
+              data=o.get('data') if isinstance(o,dict) else None
+              if isinstance(data,str): ds='str_len='+str(len(data))
+              elif isinstance(data,dict): ds='dict_keys='+','.join(sorted(map(str,data.keys()))[:20])
+              elif data is None: ds='none'
+              else: ds='type='+type(data).__name__
+              msg=str(o.get('msg',''))[:80] if isinstance(o,dict) else ''
+              code=o.get('code') if isinstance(o,dict) else None
+              print(label,'http='+str(status),'code='+repr(code),'msg='+repr(msg),'data='+ds)
+              return bool(data) or (msg not in ('参数错误','parameter error','') and code not in (None,0))
+
+          call('baseline-post-core','POST',body_core,base_headers)
+          call('baseline-get','GET',None,base_headers)
+          for order in permutations(('timestamp','nonce','deviceId')):
+              sig=hashlib.sha256(b''.join(values[k].encode() for k in order)+material).hexdigest()
+              label='order='+','.join(order)
+              h=dict(base_headers); h.update({'X-Signature':sig,'X-Timestamp':ts,'X-Device-Id':device})
+              if call(label+' headers+core','POST',body_core,h):
+                  print('accepted_variant='+label+' headers+core'); break
+              b=dict(body_core); b['sign']=sig
+              if call(label+' headers+body-sign','POST',b,h):
+                  print('accepted_variant='+label+' headers+body-sign'); break
+              b2=dict(body_core); b2['signature']=sig
+              if call(label+' headers+body-signature','POST',b2,h):
+                  print('accepted_variant='+label+' headers+body-signature'); break
+          PY
