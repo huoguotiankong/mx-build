@@ -1,0 +1,121 @@
+name: Validate Dongman v1.6.5
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/validate-dongman-v165.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout mx-dev source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: 580ea57b0ea1c85189f4608bfc96ff8629371366
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          persist-credentials: false
+
+      - name: Checkout current Keiyoushi
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Overlay Dongman module
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf upstream/src/zh/dongmanmanhuaplus
+          cp -a source/src/zh/dongmanmanhuaplus upstream/src/zh/dongmanmanhuaplus
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Compile and lint
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew \
+            :src:zh:dongmanmanhuaplus:spotlessCheck \
+            :src:zh:dongmanmanhuaplus:compileReleaseKotlin \
+            :src:zh:dongmanmanhuaplus:lintRelease
+
+      - name: Verify live free reader payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          url='https://m.dongmanmanhua.cn/FANTASY/fanzhuanlianxisheng/%E7%AC%AC1%E8%AF%9D-%E6%98%A8%E5%A4%A9%E7%9A%84%E6%88%91%E6%98%AF%E9%87%91%E4%B8%8A%E6%B3%AB1/viewer?title_no=2795&episode_no=1'
+          curl -LfsS --compressed -A 'Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140 Mobile Safari/537.36' "$url" -o /tmp/viewer.html
+          python3 - <<'PY'
+          import re, urllib.parse
+          t=open('/tmp/viewer.html',encoding='utf-8',errors='replace').read()
+          m=re.search(r'var\s+imageList\s*=\s*\[(.*?)]\s*;?',t,re.S)
+          assert m, 'imageList missing'
+          urls=re.findall(r'''url\s*:\s*["'](https://[^"']+)["']''',m.group(1))
+          assert len(urls) >= 10, len(urls)
+          allowed={'cdn.dongmanmanhua.cn','cdn-static.dongmanmanhua.cn'}
+          assert all(urllib.parse.urlparse(u).hostname in allowed for u in urls)
+          open('/tmp/first-image','w').write(urls[0])
+          print('reader_images',len(urls),urls[0])
+          PY
+          first="$(cat /tmp/first-image)"
+          curl -fsSI -H 'Referer: https://m.dongmanmanhua.cn/' "$first" >/dev/null
+
+      - name: Verify live chapter comments and replies
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://apis.dongmanmanhua.cn'
+          headers=(-H 'Accept: application/json' -H 'Accept-Language: zh-CN,zh;q=0.9' -H 'User-Agent: Dongman/Android')
+          curl -fsSL --compressed "${headers[@]}" "$base/v2/comment?titleNo=2795&episodeNo=1&pageNo=1&pageSize=20" -o /tmp/comments.json
+          python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/comments.json',encoding='utf-8'))
+          assert d.get('code') == 200, d
+          data=d['data']
+          items=(data.get('bestList') or [])+(data.get('commentList') or [])
+          assert items, data
+          c=items[0]
+          for k in ('_id','contents','userName'):
+              assert c.get(k), (k,c)
+          open('/tmp/comment-id','w').write(c['_id'])
+          print('main_comments',len(items),'first',c['_id'],c['userName'])
+          PY
+          cid="$(cat /tmp/comment-id)"
+          curl -fsSL --compressed "${headers[@]}" "$base/v1/comment_reply?commentId=$cid&pageNo=1&pageSize=20" -o /tmp/replies.json
+          python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/replies.json',encoding='utf-8'))
+          assert d.get('code') == 200, d
+          data=d['data']
+          assert 'commentReplyList' in data
+          for r in data['commentReplyList']:
+              assert r.get('_id') and r.get('contents') and r.get('userName'), r
+          print('reply_count',len(data['commentReplyList']),'reported',data.get('count'))
+          PY
+
+      - name: Verify source version and parser markers
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'versionCode = 5' source/src/zh/dongmanmanhuaplus/build.gradle.kts
+          f='source/src/zh/dongmanmanhuaplus/src/eu/kanade/tachiyomi/extension/zh/dongmanmanhuaplus/DongmanManhuaPlus.kt'
+          grep -q 'var\\s+imageList' "$f"
+          grep -q '"_id"' "$f"
+          grep -q '"contents"' "$f"
+          grep -q 'v1/comment_reply' "$f"
