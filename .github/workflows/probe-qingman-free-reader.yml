@@ -30,7 +30,7 @@ jobs:
             /tmp/blutter/dartsdk
             /tmp/blutter/packages
           key: qingman-blutter-dart-3.12.2-arm64-v1
-      - name: Trace free reader semantic regions
+      - name: Trace free line selection flow
         shell: bash
         run: |
           set -euo pipefail
@@ -80,15 +80,23 @@ jobs:
                   if ann or ins.mnemonic in ('bl','blr','ret','b','b.eq','b.ne','b.ls','b.hi','cbz','cbnz','tbz','tbnz') or ins.mnemonic.startswith('st'):
                       print(f'0x{ins.address:x} {ins.mnemonic:<7} {ins.op_str}{ann}')
 
-          dump('freeLine parser/use',0x489c80,0x489e20)
-          dump('AppConfig freeUrl parser/use',0x4cfe60,0x4cff40)
-          dump('AppConfig freeUrl assignment',0x4d03f0,0x4d04e0)
-          dump('ad unlock descriptor',0x7e2540,0x7e2660)
-          dump('reader/cache descriptor cluster',0x7e2660,0x7e2860)
+          dump('freeLine getter',0x489cf0,0x489d70)
+          dump('freeLine list transformation',0x489d5c,0x489f90)
+          dump('reader chapter request/fallback',0x488900,0x488c80)
+          dump('reader type request helper',0xae28c0,0xae2a40)
 
-          print('\n=== PP AROUND FREELINE ===')
-          for p in sorted(k for k in pp if 0x2a3c0<=k<=0x2a560):
-              v=pp[p]
-              if sensitive.search(v): continue
-              print(f'PP+0x{p:x} {safe(v)}')
+          print('\n=== BLUTTER DECLARATIONS ===')
+          targets=(0x489d10,0x489d5c,0x489e4c,0x489f88,0x488ad8,0xae2908)
+          for p in Path('/tmp/blutter-out/asm').rglob('*.dart'):
+              lines=p.read_text('utf-8',errors='replace').splitlines()
+              for i,s in enumerate(lines):
+                  m=re.search(r'\*\* addr: 0x([0-9a-fA-F]+), size: 0x([0-9a-fA-F]+)',s)
+                  if not m: continue
+                  st=int(m.group(1),16); sz=int(m.group(2),16)
+                  if any(st<=t<st+sz for t in targets) or any(abs(st-t)<=0x60 for t in targets):
+                      print(f'FILE={p.name} {s.strip()}')
+                      for j in range(max(0,i-5),min(len(lines),i+80)):
+                          z=lines[j]
+                          if sensitive.search(z): continue
+                          print(safe(z))
           PY
