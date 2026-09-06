@@ -1,0 +1,96 @@
+name: MX Stage2 Comment Clean
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/mx-stage2-comment-clean.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check required token
+        env:
+          MX_APP_PUBLISH_TOKEN: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_APP_PUBLISH_TOKEN" ]] || { echo "::error::Missing MX_APP_PUBLISH_TOKEN"; exit 1; }
+
+      - name: Checkout clean Stage 2 target
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-app
+          ref: integration/mx-stage2-comment-clean-20260906
+          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          fetch-depth: 0
+          persist-credentials: true
+          path: source
+
+      - name: Apply only Stage 2 comment files
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin integration/mx-stage2-comment-20260906:refs/remotes/origin/mx-stage2-source
+          git checkout origin/mx-stage2-source -- \
+            app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt \
+            app/src/test/java/eu/kanade/presentation/manga/comments/CommentRichContentTest.kt \
+            docs/COMMENTS.md \
+            gradle/libs.versions.toml
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path('app/build.gradle.kts')
+          text = p.read_text(encoding='utf-8')
+          text, c1 = re.subn(r'versionCode\s*=\s*\d+', 'versionCode = 87', text, count=1)
+          text, c2 = re.subn(r'versionName\s*=\s*"[^"]+"', 'versionName = "1.14.7"', text, count=1)
+          if c1 != 1 or c2 != 1:
+              raise SystemExit('Unable to set Stage 2 version to 1.14.7/87')
+          p.write_text(text, encoding='utf-8')
+          PY
+
+          git diff --check
+          mapfile -t changed < <(git diff --name-only | sort)
+          expected=(
+            app/build.gradle.kts
+            app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt
+            app/src/test/java/eu/kanade/presentation/manga/comments/CommentRichContentTest.kt
+            docs/COMMENTS.md
+            gradle/libs.versions.toml
+          )
+          printf '%s\n' "${expected[@]}" | sort > /tmp/expected.txt
+          printf '%s\n' "${changed[@]}" > /tmp/changed.txt
+          diff -u /tmp/expected.txt /tmp/changed.txt
+          grep -F 'versionCode = 87' app/build.gradle.kts
+          grep -F 'versionName = "1.14.7"' app/build.gradle.kts
+
+          git add \
+            app/build.gradle.kts \
+            app/src/main/java/eu/kanade/presentation/manga/comments/CommentScreen.kt \
+            app/src/test/java/eu/kanade/presentation/manga/comments/CommentRichContentTest.kt \
+            docs/COMMENTS.md \
+            gradle/libs.versions.toml
+          git commit -m "feat: add Stage 2 comment rich-media enhancements"
+          git push origin HEAD:integration/mx-stage2-comment-clean-20260906
+
+      - name: Dispatch signed Stage 2 Preview
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run mx-app-preview.yml \
+            --repo huoguotiankong/mx-build \
+            --ref main \
+            -f ref=integration/mx-stage2-comment-clean-20260906 \
+            -f publish=true
+          echo "Dispatched Stage 2 signed Preview"
