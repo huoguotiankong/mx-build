@@ -1,0 +1,24 @@
+name: Probe Lizi DoH TXT
+
+on:
+  push:
+    paths:
+      - '.github/workflows/probe-lizi-doh-txt.yml'
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query Lizi DoH TXT records
+        shell: bash
+        run: |
+          set -u
+          hosts=(adnet.lizimh.com adnet.lizi.lat)
+          resolvers=(doh.pub 120.53.53.53 dns.alidns.com 223.5.5.5 doh.360.cn dns.google)
+          for host in "${hosts[@]}"; do
+            for resolver in "${resolvers[@]}"; do
+              echo "=== $resolver / $host ==="
+              curl -kfsSL --connect-timeout 8 --max-time 15 -H 'accept: application/dns-json' "https://$resolver/resolve?name=$host&type=txt" || true
+              echo
+            done
+          done
