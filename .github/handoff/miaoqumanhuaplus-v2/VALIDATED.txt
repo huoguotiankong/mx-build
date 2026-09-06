@@ -1,0 +1,2 @@
+1.6.2 / source 2 / Android 106002
+Live config/search/detail/reader protocol verified; Spotless Debug Release Lint signed
