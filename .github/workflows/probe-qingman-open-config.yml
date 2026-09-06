@@ -1,0 +1,78 @@
+name: Inspect Qingman Open Config Endpoints
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-open-config.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Probe public config endpoints safely
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,re,urllib.error,urllib.request,urllib.parse
+
+          base='https://bass8ycl.zermh.com/'
+          endpoints=[
+              'api/radio/api/config/version',
+              'api/radio/api/config/getAdConfig',
+              'api/radio/api/config/homepage/interstitial',
+          ]
+          sensitive=re.compile(r'(?i)(token|secret|password|cookie|sign|proof|key|private|cert|p12|auth)')
+          interesting=re.compile(r'(?i)(url|host|domain|base|image|img|comic|radio|homepage|promotion|official|free|customer|cdn|api|version|status|code|msg|data)')
+
+          def request(path,method='GET',data=None):
+              req=urllib.request.Request(base+path,data=data,headers={
+                  'Accept':'application/json, text/plain, */*',
+                  'User-Agent':'qingman/4.4.5 (Android)',
+                  'appVersion':'4.4.5','platform':'android',
+              },method=method)
+              try:
+                  with urllib.request.urlopen(req,timeout=20) as r:
+                      return r.status,r.headers.get('content-type',''),r.read(262144)
+              except urllib.error.HTTPError as e:
+                  return e.code,e.headers.get('content-type',''),e.read(262144)
+              except Exception as e:
+                  return 0,type(e).__name__,str(e).encode()
+
+          def walk(x,path='$'):
+              if isinstance(x,dict):
+                  for k,v in x.items():
+                      p=f'{path}.{k}'
+                      if sensitive.search(str(k)):
+                          print(p,'=<redacted>')
+                          continue
+                      if isinstance(v,(dict,list)):
+                          print(p,type(v).__name__)
+                          walk(v,p)
+                      elif isinstance(v,str):
+                          if interesting.search(str(k)) or re.search(r'https?://',v):
+                              if sensitive.search(v): print(p,'=<redacted>')
+                              else: print(p,'=',v[:500])
+                      elif isinstance(v,(int,float,bool)) or v is None:
+                          if interesting.search(str(k)): print(p,'=',v)
+              elif isinstance(x,list):
+                  for i,v in enumerate(x[:100]): walk(v,f'{path}[{i}]')
+
+          for ep in endpoints:
+              for method,data in [('GET',None),('POST',b'{}')]:
+                  status,ctype,raw=request(ep,method,data)
+                  print(f'\n=== {method} {ep} http={status} ctype={ctype} bytes={len(raw)} ===')
+                  text=raw.decode('utf-8','replace')
+                  try:
+                      obj=json.loads(text)
+                      walk(obj)
+                  except Exception:
+                      safe=re.sub(r'(?i)(token|secret|password|cookie|sign|proof|key|private|cert|p12|auth)[^\s<>{}\[\],:]*','<redacted>',text)
+                      print(safe[:1600].replace('\n',' '))
+          PY
