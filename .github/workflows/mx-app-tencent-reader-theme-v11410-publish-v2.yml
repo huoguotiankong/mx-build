@@ -113,15 +113,71 @@ jobs:
           [[ "$actual" == "$expected" ]] || { echo "::error::MX signing certificate mismatch"; exit 1; }
 
       - name: Build signed Preview APKs
+        id: preview_build
         working-directory: source
         shell: bash
+        timeout-minutes: 30
         run: |
-          set -euo pipefail
+          set -uo pipefail
+          log="$RUNNER_TEMP/mx-preview-build.log"
+          summary="$RUNNER_TEMP/mx-preview-build-summary.txt"
+          rm -f "$log" "$summary"
+
+          set +e
           ./gradlew assemblePreview -Pdisable-code-shrink --no-configuration-cache \
             -Pandroid.injected.signing.store.file="$MX_KEYSTORE_PATH" \
             -Pandroid.injected.signing.store.password="$MX_KEYSTORE_PASSWORD" \
             -Pandroid.injected.signing.key.alias="$MX_KEY_ALIAS" \
-            -Pandroid.injected.signing.key.password="$MX_KEY_PASSWORD"
+            -Pandroid.injected.signing.key.password="$MX_KEY_PASSWORD" \
+            2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          set -e
+
+          if [[ "$status" -ne 0 ]]; then
+            python3 - "$log" "$summary" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          log_path = Path(sys.argv[1])
+          summary_path = Path(sys.argv[2])
+          lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+          pattern = re.compile(
+              r"(?:FAILURE:|What went wrong:|Execution failed|Task .* FAILED|^e: |error:|AAPT|R8|OutOfMemory|Could not |Exception|Caused by:)",
+              re.IGNORECASE,
+          )
+          hits = [line for line in lines if pattern.search(line)]
+          tail = lines[-80:]
+          merged = []
+          seen = set()
+          for line in hits[-80:] + tail:
+              if line not in seen:
+                  seen.add(line)
+                  merged.append(line)
+          if not merged:
+              merged = ["Preview build failed but no diagnostic lines were captured."]
+          summary_path.write_text("\n".join(merged[-160:]) + "\n", encoding="utf-8")
+          PY
+
+            {
+              echo "### MX Preview build failed"
+              echo
+              echo '```text'
+              tail -n 80 "$summary"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Preview APK build failed. Compact diagnostics saved as mx-preview-build-summary artifact."
+            exit "$status"
+          fi
+
+      - name: Upload compact Preview build diagnostics
+        if: ${{ failure() && steps.preview_build.outcome == 'failure' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: mx-preview-build-summary
+          path: ${{ runner.temp }}/mx-preview-build-summary.txt
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Normalize and verify APK identity
         shell: bash
