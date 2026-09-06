@@ -17,64 +17,27 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Probe current config, category and search
+      - name: Probe current chapter payload
         shell: bash
         run: |
           python3 - <<'PY'
-          import json, ssl, urllib.parse, urllib.request
+          import ssl, urllib.request
 
-          config_url = "https://apitong.zqykfz.cn/api/com.xinmiaoqu.app/index.json"
-          pinned_ctx = ssl._create_unverified_context()
-          headers = {"User-Agent": "QingManLSLand/1.0", "Accept": "application/json, */*"}
-
-          def fetch(url, *, unverified=False):
+          ctx = ssl._create_unverified_context()
+          headers = {"User-Agent": "MangaApp/1.0", "Accept": "application/json"}
+          url = "https://apitong.zqykfz.cn/miaoqu46/13/13959/info.json"
+          print("CHAPTER_URL", url)
+          try:
               req = urllib.request.Request(url, headers=headers)
-              ctx = pinned_ctx if unverified else None
-              with urllib.request.urlopen(req, timeout=15, context=ctx) as r:
-                  raw = r.read(1000000)
-                  return r.status, r.headers.get("content-type"), raw.decode("utf-8", "replace")
-
-          status, ctype, text = fetch(config_url, unverified=True)
-          print("CONFIG", status, ctype)
-          cfg = json.loads(text)
-          api = cfg.get("apiurl", {})
-          print("VERSION", cfg.get("banben"))
-          print("TXTURL", api.get("txturl"))
-          print("OTHERURL", api.get("qitaurl"))
-          print("COVER", api.get("fengmiantuurl"))
-
-          txt = api.get("txturl", "").rstrip("/")
-          other = api.get("qitaurl", "").rstrip("/")
-          probes = [
-              ("CATEGORY_RECOMMEND_1", f"{txt}/fenlei/com.xinmiaoqu.app/{urllib.parse.quote('推荐')}.json", True),
-              ("CATEGORY_RECOMMEND_2", f"{txt}/fenlei/com.xinmiaoqu.app/{urllib.parse.quote('推荐')}1.json", True),
-              ("CATEGORY_XUANHUAN_1", f"{txt}/fenlei/com.xinmiaoqu.app/{urllib.parse.quote('玄幻')}.json", True),
-              ("SEARCH", f"{other}/sousuo?keyword={urllib.parse.quote('斗罗大陆')}", False),
-          ]
-
-          for label, url, pinned in probes:
-              print("===", label, url, "===")
-              try:
-                  s, ct, body = fetch(url, unverified=pinned)
-                  print("status:", s, "type:", ct, "bytes:", len(body.encode('utf-8')))
-                  try:
-                      data = json.loads(body)
-                      if isinstance(data, list):
-                          print("kind:list len=", len(data))
-                          for item in data[:3]:
-                              print(json.dumps(item, ensure_ascii=False)[:2000])
-                      elif isinstance(data, dict):
-                          print("kind:dict keys=", list(data.keys())[:30])
-                          if isinstance(data.get("data"), list):
-                              print("data_len=", len(data["data"]))
-                              for item in data["data"][:3]:
-                                  print(json.dumps(item, ensure_ascii=False)[:2000])
-                          else:
-                              print(json.dumps(data, ensure_ascii=False)[:5000])
-                      else:
-                          print(repr(data)[:5000])
-                  except Exception as e:
-                      print("JSON_ERROR", repr(e), body[:3000])
-              except Exception as e:
-                  print("FETCH_ERROR", type(e).__name__, str(e))
+              with urllib.request.urlopen(req, timeout=20, context=ctx) as r:
+                  raw = r.read(500000)
+                  text = raw.decode("utf-8", "replace")
+                  print("CHAPTER_STATUS", r.status)
+                  print("CHAPTER_TYPE", r.headers.get("content-type"))
+                  print("CHAPTER_BYTES", len(raw))
+                  print("CHAPTER_BODY_BEGIN")
+                  print(text)
+                  print("CHAPTER_BODY_END")
+          except Exception as e:
+              print("CHAPTER_ERROR", type(e).__name__, str(e))
           PY
