@@ -1,0 +1,25 @@
+name: Check ARM64 Runtime Runner
+
+on:
+  push:
+    paths:
+      - '.github/workflows/probe-arm-runner.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 5
+    steps:
+      - name: Check ARM64 runner and Android tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          uname -a
+          uname -m
+          command -v adb || true
+          command -v emulator || true
+          ls -1 "$ANDROID_HOME"/system-images/android-*/google_apis/arm64-v8a/package.xml 2>/dev/null | tail -5 || true
