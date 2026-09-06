@@ -1,0 +1,143 @@
+name: Map Qingman Public Config Route Candidates
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-config-route-map.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  map:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+
+      - name: Restore analyzer cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+
+      - name: Map config routes and probe public config host
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/apk_url
+          import json,urllib.request,sys
+          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
+          a=o['data']['datas']['android']
+          print(a['downloadUrl'])
+          print('OFFICIAL_VERSION='+str(a.get('version','')),file=sys.stderr)
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(head -1 /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          mkdir -p /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/apk-extract
+          cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter
+          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
+
+          python3 - <<'PY' | tee /tmp/qm-config-map.txt
+          from pathlib import Path
+          import re
+          lines=Path('/tmp/blutter-out/pp.txt').read_text('utf-8',errors='replace').splitlines()
+          entries=[]
+          for line in lines:
+              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s+(.*)$',line)
+              if m: entries.append((int(m.group(1),16),m.group(2)))
+          by={o:v for o,v in entries}
+          sensitive=re.compile(r'(?i)(token|secret|password|cookie|authorization|bearer|private|clientp12|certificate|proof|signature|sign/key)')
+          def safe(v): return not sensitive.search(v)
+
+          print('=== CONFIG/SETTING API ROUTES ===')
+          routes=[]
+          for off,val in entries:
+              low=val.lower()
+              if safe(val) and 'api/' in low and any(x in low for x in ('config','setting','notice','carousel','version','home','domain','url')):
+                  routes.append((off,val)); print(f'ROUTE PP+0x{off:x} {val[:420]}')
+          print('ROUTE_COUNT='+str(len(routes)))
+
+          markers=('baseImgUrl','freeUrl','customerUrl','officialUrl','promotionUrl','AppConfig','ChapingConfig','getAdConfig','homepage/interstitial','appIdStr')
+          print('=== CONFIG FIELD MARKERS ===')
+          mhits=[]
+          for off,val in entries:
+              if safe(val) and any(m.lower() in val.lower() for m in markers):
+                  mhits.append((off,val)); print(f'MARK PP+0x{off:x} {val[:420]}')
+          print('MARK_COUNT='+str(len(mhits)))
+
+          print('=== WIDE MARKER NEIGHBORHOODS ===')
+          for off,val in mhits[:30]:
+              print(f'--- PP+0x{off:x} {val[:180]} ---')
+              emitted=0
+              for p in sorted(k for k in by if off-0x5000 <= k <= off+0x5000):
+                  v=by[p]; low=v.lower()
+                  if not safe(v): continue
+                  if 'api/' in low or any(x in low for x in ('config','baseimgurl','freeurl','customerurl','officialurl','promotionurl','domain','hosturl')):
+                      print(f'  PP+0x{p:x} {v[:360]}'); emitted+=1
+                      if emitted>=120: break
+
+          # Persist only relative public config-like API paths for live probes.
+          cands=[]
+          for _,v in routes:
+              m=re.search(r'"(api/[^" ]+)"',v)
+              if m:
+                  p=m.group(1)
+                  if p not in cands: cands.append(p)
+          Path('/tmp/qm-config-candidates.txt').write_text('\n'.join(cands),'utf-8')
+          PY
+
+          echo '=== LIVE PUBLIC CONFIG CANDIDATE PROBES ==='
+          while IFS= read -r path; do
+            [[ -n "$path" ]] || continue
+            case "$path" in
+              *sign*|*user*|*history*|*circle*) continue ;;
+            esac
+            for method in GET POST; do
+              out=$(mktemp)
+              if [[ "$method" == POST ]]; then
+                meta=$(curl -L --compressed --connect-timeout 7 --max-time 18 -sS -X POST -H 'Content-Type: application/json' -H 'Accept: application/json, text/plain, */*' -H 'User-Agent: qingman/4.4.5 (Android)' -H 'appVersion: 4.4.5' -H 'platform: android' --data '{}' -o "$out" -w '%{http_code}\t%{content_type}' "https://bass8ycl.zermh.com/$path" || true)
+              else
+                meta=$(curl -L --compressed --connect-timeout 7 --max-time 18 -sS -H 'Accept: application/json, text/plain, */*' -H 'User-Agent: qingman/4.4.5 (Android)' -H 'appVersion: 4.4.5' -H 'platform: android' -o "$out" -w '%{http_code}\t%{content_type}' "https://bass8ycl.zermh.com/$path" || true)
+              fi
+              bytes=$(wc -c < "$out" 2>/dev/null || echo 0)
+              echo "PROBE $method $path meta=$meta bytes=$bytes"
+              python3 - "$out" <<'PY'
+          import json,re,sys
+          raw=open(sys.argv[1],'rb').read(8192)
+          text=raw.decode('utf-8','replace')
+          try:
+              o=json.loads(text)
+              sensitive=re.compile(r'(?i)(token|secret|password|cookie|sign|proof|key|private|cert|p12|auth)')
+              def walk(x,path='$',depth=0):
+                  if depth>4:return
+                  if isinstance(x,dict):
+                      for k,v in list(x.items())[:80]:
+                          p=path+'.'+str(k)
+                          if sensitive.search(str(k)): print(p,'=<redacted>'); continue
+                          if isinstance(v,(dict,list)): walk(v,p,depth+1)
+                          elif isinstance(v,str) and (re.search(r'https?://',v) or re.search(r'(?i)(url|host|domain|comic|image|official|free|customer|promotion)',str(k))): print(p,'=',v[:500])
+                          elif str(k).lower() in ('code','msg','status'): print(p,'=',v)
+                  elif isinstance(x,list):
+                      for i,v in enumerate(x[:30]): walk(v,f'{path}[{i}]',depth+1)
+              walk(o)
+          except Exception:
+              print(re.sub(r'\s+',' ',text[:1000]))
+          PY
+              rm -f "$out"
+            done
+          done < /tmp/qm-config-candidates.txt
