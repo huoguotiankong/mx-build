@@ -14,43 +14,52 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Probe Qingman bootstrap security contract
+      - name: Discover Qingman public web and config routes
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import json, ssl, time, urllib.error, urllib.request, uuid
-          BOOT='https://mu8xm4cx.zermh.com/bootstrap/domain'
-          BASE_HEADERS={'Accept':'application/json, text/plain, */*','User-Agent':'qingman/4.4.3 (Android)','appVersion':'4.4.3','platform':'android','Content-Type':'application/json'}
-          dev='probe-'+uuid.uuid4().hex
-          now=str(int(time.time()))
-          nonce=uuid.uuid4().hex
-          def req(label,payload,extra=None):
-              h=dict(BASE_HEADERS); h.update(extra or {})
-              r=urllib.request.Request(BOOT,data=json.dumps(payload,separators=(',',':')).encode(),headers=h,method='POST')
+          import json, re, ssl, urllib.error, urllib.parse, urllib.request
+          ctx=ssl.create_default_context()
+          UA='Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140 Mobile Safari/537.36'
+          def get(label,url,method='GET',body=None,ctype=None):
+              h={'Accept':'*/*','User-Agent':UA}
+              if ctype:h['Content-Type']=ctype
+              r=urllib.request.Request(url,data=body,headers=h,method=method)
+              print('\n===',label,'===',method,url)
               try:
-                  with urllib.request.urlopen(r,timeout=20,context=ssl.create_default_context()) as p: raw=p.read(65536); status=p.status
-              except urllib.error.HTTPError as e: raw=e.read(65536); status=e.code
-              except Exception as e: print(label,'transport_error',type(e).__name__,str(e)); return
+                  with urllib.request.urlopen(r,timeout=20,context=ctx) as p:
+                      raw=p.read(524288); status=p.status; final=p.geturl(); heads=dict(p.headers)
+              except urllib.error.HTTPError as e:
+                  raw=e.read(524288); status=e.code; final=e.geturl(); heads=dict(e.headers)
+              except Exception as e:
+                  print('transport_error',type(e).__name__,str(e)); return
+              print('status=',status,'final=',final,'type=',heads.get('Content-Type'),'bytes=',len(raw))
+              txt=raw.decode('utf-8','replace')
               try:
-                  o=json.loads(raw.decode('utf-8','replace'))
-                  out={k:v for k,v in o.items() if k.lower() in {'code','status','msg','message','error','success'}}
-                  d=o.get('data')
-                  if isinstance(d,dict): out['data_keys']=list(d.keys())
-                  elif d is not None: out['data_type']=type(d).__name__
-                  print(label,'status=',status,json.dumps(out,ensure_ascii=False))
-              except Exception: print(label,'status=',status,'non-json')
-          meta={'appVersion':'4.4.3','versionCode':'443','platform':'android','deviceId':dev,'channel':'qm1','registerChannel':'qm1','packageName':'com.qingman.app','clientIp':'127.0.0.1','timestamp':now,'nonce':nonce,'requestId':uuid.uuid4().hex}
-          req('metadata only',meta)
-          req('body security camel',{**meta,'appKey':'placeholder','bootstrapSign':'placeholder','bootstrapProof':'placeholder','apiGuard':'placeholder','appAccessToken':'placeholder'})
-          req('body security snake',{**meta,'app_key':'placeholder','bootstrap_sign':'placeholder','bootstrap_proof':'placeholder','api_guard':'placeholder','app_access_token':'placeholder'})
-          req('body sign proof',{**meta,'sign':'placeholder','proof':'placeholder','signature':'placeholder'})
-          req('X headers placeholders',meta,{
-             'X-Device-Id':dev,'X-Timestamp':now,'X-QM-Request-Id':uuid.uuid4().hex,
-             'X-Register-Channel':'qm1','X-Signature':'placeholder','X-QM-Proof':'placeholder',
-             'X-QM-Proof-Version':'1','X-QM-App-Access':'placeholder','X-Api-Guard':'placeholder'})
-          req('minimal plus X security',{'appVersion':'4.4.3','platform':'android','deviceId':dev}, {
-             'X-Device-Id':dev,'X-Timestamp':now,'X-QM-Request-Id':uuid.uuid4().hex,
-             'X-Register-Channel':'qm1','X-Signature':'placeholder','X-QM-Proof':'placeholder',
-             'X-QM-Proof-Version':'1','X-QM-App-Access':'placeholder','X-Api-Guard':'placeholder'})
+                  o=json.loads(txt)
+                  safe={k:v for k,v in o.items() if k.lower() in {'code','status','msg','message','error','success','version','domain','host','url'}}
+                  if isinstance(o.get('data'),dict): safe['data_keys']=list(o['data'].keys())
+                  elif isinstance(o.get('data'),list): safe['data_len']=len(o['data'])
+                  print('json=',json.dumps(safe,ensure_ascii=False)[:4000])
+              except Exception:
+                  urls=[]
+                  for x in re.findall(r'https?://[^\"\'<>\\s]+',txt):
+                      x=x.rstrip(');,]')
+                      if x not in urls: urls.append(x)
+                  hosts=[]
+                  for x in urls:
+                      try:
+                          h=urllib.parse.urlparse(x).hostname
+                          if h and h not in hosts: hosts.append(h)
+                      except: pass
+                  scripts=re.findall(r'<script[^>]+src=[\"\']([^\"\']+)',txt,re.I)
+                  print('hosts=',hosts[:30])
+                  print('scripts=',scripts[:30])
+                  print('html_markers=',[s for s in ['安全管家','qingman','漫画','comic','api'] if s.lower() in txt.lower()])
+          get('official landing','https://www.qingman.app/')
+          cfg='https://bass8ycl.zermh.com/api/radio/api/config/version'
+          get('radio config GET',cfg)
+          get('radio config POST empty',cfg,'POST',b'{}','application/json')
+          get('radio config POST metadata',cfg,'POST',json.dumps({'appVersion':'4.4.3','platform':'android'}).encode(),'application/json')
           PY
