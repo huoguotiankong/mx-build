@@ -42,48 +42,41 @@ jobs:
           s=p.read_text()
           s=s.replace('#include "args.hxx"\n', '#include "args.hxx"\n#include "vm/thread.h"\n')
           anchor='\t\tapp.EnterScope();\n#ifndef NO_CODE_ANALYSIS\n'
-          block=r'''		app.EnterScope();
-		{
-			auto* thread = dart::Thread::Current();
-			auto* gdt = thread->dispatch_table_array();
-			struct Probe { const char* label; intptr_t cid; intptr_t offset; };
-			const Probe probes[] = {
-				{"app_beba", 992, 0xbeba},
-				{"app_db15", 992, 0xdb15},
-				{"app_dc93", 992, 0xdc93},
-				{"chaping_beba", 1114, 0xbeba},
-				{"chaping_db15", 1114, 0xdb15},
-				{"chaping_dc93", 1114, 0xdc93},
-			};
-			std::cout << "=== SAFE_GDT_TARGETS ===\n";
-			for (const auto& q : probes) {
-				const intptr_t index = q.cid + q.offset;
-				const uintptr_t entry = static_cast<uintptr_t>(gdt[index]);
-				std::cout << q.label << " cid=" << q.cid << " offset=0x" << std::hex << q.offset
-				          << " index=0x" << index << std::dec;
-				if (entry == 0) {
-					std::cout << " entry=null\n";
-					continue;
-				}
-				std::cout << " entry_rel=";
-				if (entry >= static_cast<uintptr_t>(app.base())) {
-					const uint64_t rel = entry - static_cast<uintptr_t>(app.base());
-					std::cout << "0x" << std::hex << rel << std::dec;
-					auto* fn = app.GetFunction(rel);
-					if (fn != nullptr) std::cout << " fn=" << fn->FullName();
-					else std::cout << " fn=<unmapped>";
-				} else {
-					std::cout << "<outside-libapp>";
-				}
-				std::cout << "\n";
-			}
-		}
-#ifndef NO_CODE_ANALYSIS
-'''
+          block=(
+              '\t\tapp.EnterScope();\n'
+              '\t\t{\n'
+              '\t\t\tauto* thread = dart::Thread::Current();\n'
+              '\t\t\tauto* gdt = thread->dispatch_table_array();\n'
+              '\t\t\tstruct Probe { const char* label; intptr_t cid; intptr_t offset; };\n'
+              '\t\t\tconst Probe probes[] = {\n'
+              '\t\t\t\t{"app_beba", 992, 0xbeba},\n'
+              '\t\t\t\t{"app_db15", 992, 0xdb15},\n'
+              '\t\t\t\t{"app_dc93", 992, 0xdc93},\n'
+              '\t\t\t\t{"chaping_beba", 1114, 0xbeba},\n'
+              '\t\t\t\t{"chaping_db15", 1114, 0xdb15},\n'
+              '\t\t\t\t{"chaping_dc93", 1114, 0xdc93},\n'
+              '\t\t\t};\n'
+              '\t\t\tstd::cout << "=== SAFE_GDT_TARGETS ===\\n";\n'
+              '\t\t\tfor (const auto& q : probes) {\n'
+              '\t\t\t\tconst intptr_t index = q.cid + q.offset;\n'
+              '\t\t\t\tconst uintptr_t entry = static_cast<uintptr_t>(gdt[index]);\n'
+              '\t\t\t\tstd::cout << q.label << " cid=" << q.cid << " offset=0x" << std::hex << q.offset << " index=0x" << index << std::dec;\n'
+              '\t\t\t\tif (entry == 0) { std::cout << " entry=null\\n"; continue; }\n'
+              '\t\t\t\tstd::cout << " entry_rel=";\n'
+              '\t\t\t\tif (entry >= static_cast<uintptr_t>(app.base())) {\n'
+              '\t\t\t\t\tconst uint64_t rel = entry - static_cast<uintptr_t>(app.base());\n'
+              '\t\t\t\t\tstd::cout << "0x" << std::hex << rel << std::dec;\n'
+              '\t\t\t\t\tauto* fn = app.GetFunction(rel);\n'
+              '\t\t\t\t\tif (fn != nullptr) std::cout << " fn=" << fn->FullName(); else std::cout << " fn=<unmapped>";\n'
+              '\t\t\t\t} else { std::cout << "<outside-libapp>"; }\n'
+              '\t\t\t\tstd::cout << "\\n";\n'
+              '\t\t\t}\n'
+              '\t\t}\n'
+              '#ifndef NO_CODE_ANALYSIS\n'
+          )
           if anchor not in s:
               raise SystemExit('main.cpp anchor not found')
-          s=s.replace(anchor,block,1)
-          p.write_text(s)
+          p.write_text(s.replace(anchor,block,1))
           PY
           rm -f /tmp/blutter/bin/blutter_dartvm3.12.2_android_arm64
 
