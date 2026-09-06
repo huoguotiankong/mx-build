@@ -12,38 +12,130 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
-      - name: Test public bootstrap field formats without valid credentials
+      - name: Resolve current official APK
         shell: bash
         run: |
           set -euo pipefail
-          URL='https://mu8xm4cx.zermh.com/bootstrap/domain'
-          probe() {
-            label="$1"; shift
-            echo "=== $label ==="
-            tmp=$(mktemp)
-            code=$(curl -sS --connect-timeout 10 --max-time 20 -o "$tmp" -w '%{http_code}' "$@" "$URL" || true)
-            echo "http=$code"
-            python3 - "$tmp" <<'PY'
-          import sys,re
-          s=open(sys.argv[1],'rb').read(4096).decode('utf-8','replace')
-          s=re.sub(r'(?i)("?(?:token|accessToken|appAccessToken|proof|signature|sign)"?\s*[:=]\s*")[^"]+',r'\1<redacted>',s)
-          print(s[:3500])
+          python3 - <<'PY' > /tmp/qm_version
+          import json, urllib.request
+          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
+          a=o['data']['datas']['android']
+          print(a['downloadUrl'])
+          print(a.get('version',''))
+          print(a.get('versionCode',''))
           PY
-            rm -f "$tmp"
-          }
-          BASE=(-X POST -H 'Content-Type: application/json' -H 'Accept: application/json' -H 'User-Agent: qingman/4.4.5 (Android)')
-          TS13=$(date +%s%3N)
-          TS10=$(date +%s)
-          NONCE32='00000000000000000000000000000000'
-          NONCE16='0000000000000000'
-          DID32='00000000000000000000000000000000'
-          DIDUUID='00000000-0000-4000-8000-000000000000'
-          SIG64='0000000000000000000000000000000000000000000000000000000000000000'
-          probe 'nonce32+sign64' "${BASE[@]}" --data "{\"nonce\":\"$NONCE32\",\"sign\":\"$SIG64\"}"
-          probe 'nonce16+sign64' "${BASE[@]}" --data "{\"nonce\":\"$NONCE16\",\"sign\":\"$SIG64\"}"
-          probe 'ts13+nonce32+sign64' "${BASE[@]}" --data "{\"timestamp\":\"$TS13\",\"nonce\":\"$NONCE32\",\"sign\":\"$SIG64\"}"
-          probe 'ts10+nonce32+sign64' "${BASE[@]}" --data "{\"timestamp\":\"$TS10\",\"nonce\":\"$NONCE32\",\"sign\":\"$SIG64\"}"
-          probe 'device32+ts13+nonce32+sign64' "${BASE[@]}" --data "{\"deviceId\":\"$DID32\",\"timestamp\":\"$TS13\",\"nonce\":\"$NONCE32\",\"sign\":\"$SIG64\"}"
-          probe 'deviceUuid+ts13+nonce32+sign64' "${BASE[@]}" --data "{\"deviceId\":\"$DIDUUID\",\"timestamp\":\"$TS13\",\"nonce\":\"$NONCE32\",\"sign\":\"$SIG64\"}"
+          sed -n '2,3p' /tmp/qm_version | paste -sd ' ' - | sed 's/^/official_version=/'
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(head -1 /tmp/qm_version)" -o /tmp/qingman.apk
+          unzip -q -j /tmp/qingman.apk 'lib/arm64-v8a/libqx_security.so' -d /tmp/qm-native
+          test -s /tmp/qm-native/libqx_security.so
+
+      - name: Reproduce bootstrap request from native algorithm
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools >/dev/null
+          python3 - <<'PY'
+          import hashlib, json, os, re, time, urllib.error, urllib.request, uuid
+          from elftools.elf.elffile import ELFFile
+
+          URL='https://mu8xm4cx.zermh.com/bootstrap/domain'
+          SO='/tmp/qm-native/libqx_security.so'
+
+          # The official app stores the bootstrap signing constant obfuscated in
+          # libqx_security.so. Derive it in-memory from the current APK and never
+          # print or persist the plaintext signing material.
+          with open(SO,'rb') as f:
+              elf=ELFFile(f)
+              def read_va(va,n):
+                  for seg in elf.iter_segments():
+                      if seg['p_type'] != 'PT_LOAD':
+                          continue
+                      start=int(seg['p_vaddr']); end=start+int(seg['p_filesz'])
+                      if start <= va and va+n <= end:
+                          f.seek(int(seg['p_offset']) + va-start)
+                          return f.read(n)
+                  raise RuntimeError(f'VA 0x{va:x} is not file-backed')
+              seed = read_va(0x14a40,16) + read_va(0x14af0,16)
+              cipher = read_va(0x17d1f,33)
+
+          base=hashlib.sha256(seed).digest()
+          stream=b''
+          counter=0
+          while len(stream)<len(cipher):
+              stream += hashlib.sha256(base + bytes([1]) + counter.to_bytes(4,'big')).digest()
+              counter += 1
+          secret=bytes(a^b for a,b in zip(cipher,stream))
+          try:
+              secret.decode('ascii')
+          except Exception as e:
+              raise RuntimeError('bootstrap signing material derivation failed') from e
+          print('native_bootstrap_sign_material=derived')
+
+          def sign(ts,nonce,did):
+              return hashlib.sha256(ts.encode()+nonce.encode()+did.encode()+secret).hexdigest()
+
+          def sanitize(raw):
+              text=raw.decode('utf-8','replace')
+              try:
+                  obj=json.loads(text)
+                  def walk(v):
+                      if isinstance(v,dict):
+                          out={}
+                          for k,x in v.items():
+                              lk=k.lower()
+                              if any(t in lk for t in ('token','proof','signature')) or lk in ('sign','access'):
+                                  out[k]='<redacted>'
+                              else:
+                                  out[k]=walk(x)
+                          return out
+                      if isinstance(v,list): return [walk(x) for x in v]
+                      return v
+                  return json.dumps(walk(obj),ensure_ascii=False,separators=(',',':'))[:3000]
+              except Exception:
+                  text=re.sub(r'(?i)(token|access|proof|signature|sign)[=:][^ ,}\]]+',r'\1=<redacted>',text)
+                  return text[:3000]
+
+          ts=str(int(time.time()*1000))
+          u=uuid.uuid4()
+          candidates=[
+              ('hex32/nonce32', u.hex, uuid.uuid4().hex),
+              ('uuid-prefix/nonce32', 'uuid_'+u.hex, uuid.uuid4().hex),
+              ('uuid-dashed/nonce32', str(u), uuid.uuid4().hex),
+              ('androidid16/nonce32', u.hex[:16], uuid.uuid4().hex),
+              ('hex32/nonce16', u.hex, uuid.uuid4().hex[:16]),
+              ('hex32/nonce-dashed', u.hex, str(uuid.uuid4())),
+          ]
+
+          found=False
+          for label,did,nonce in candidates:
+              sig=sign(ts,nonce,did)
+              body=json.dumps({'timestamp':ts,'nonce':nonce,'sign':sig,'deviceId':did},separators=(',',':')).encode()
+              headers={
+                  'Content-Type':'application/json',
+                  'Accept':'application/json, text/plain, */*',
+                  'User-Agent':'qingman/4.4.5 (Android)',
+                  'appVersion':'4.4.5',
+                  'platform':'android',
+                  'X-Device-Id':did,
+              }
+              req=urllib.request.Request(URL,data=body,headers=headers,method='POST')
+              try:
+                  with urllib.request.urlopen(req,timeout=20) as r:
+                      raw=r.read(16384); status=r.status
+              except urllib.error.HTTPError as e:
+                  status=e.code; raw=e.read(16384)
+              except Exception as e:
+                  print(f'=== {label} transport_error={type(e).__name__} ===')
+                  continue
+              safe=sanitize(raw)
+              print(f'=== {label} http={status} ===')
+              print(safe)
+              if 'apiDomain' in safe or 'apidomain' in safe.lower():
+                  found=True
+                  print(f'BOOTSTRAP_API_DOMAIN_FOUND via={label}')
+                  break
+          print('bootstrap_api_domain_found='+str(found).lower())
+          PY
