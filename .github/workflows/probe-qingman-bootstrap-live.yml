@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Probe bootstrap without exposing embedded material
+      - name: Inspect current bootstrap signer layout
         shell: bash
         run: |
           set -euo pipefail
@@ -28,111 +28,44 @@ jobs:
           curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qingman.apk
           unzip -p /tmp/qingman.apk lib/arm64-v8a/libqx_security.so > /tmp/libqx_security.so
           python3 - <<'PY'
-          import hashlib, json, re, ssl, struct, time, urllib.error, urllib.request, uuid
           from elftools.elf.elffile import ELFFile
           from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM
-          from capstone.arm64 import ARM64_REG_X2, ARM64_REG_W3, ARM64_OP_IMM, ARM64_OP_REG
 
-          ELF='/tmp/libqx_security.so'
-          BOOT='https://mu8xm4cx.zermh.com/bootstrap/domain'
-
-          with open(ELF,'rb') as f:
-              blob=f.read()
-          with open(ELF,'rb') as f:
-              elf=ELFFile(f)
-              loads=[s for s in elf.iter_segments() if s['p_type']=='PT_LOAD']
-              def va_bytes(va,n):
+          p='/tmp/libqx_security.so'
+          blob=open(p,'rb').read()
+          with open(p,'rb') as f:
+              e=ELFFile(f)
+              loads=[s for s in e.iter_segments() if s['p_type']=='PT_LOAD']
+              def vb(va,n):
                   for s in loads:
-                      start=int(s['p_vaddr']); end=start+int(s['p_filesz'])
-                      if start <= va and va+n <= end:
-                          off=int(s['p_offset'])+(va-start)
-                          return blob[off:off+n]
-                  raise ValueError('VA not mapped')
-              def cstr(va,limit=256):
-                  b=va_bytes(va,limit)
-                  return b.split(b'\0',1)[0].decode('utf-8','replace')
-              rela=elf.get_section_by_name('.rela.dyn')
-              rels=[]
-              for r in rela.iter_relocations():
-                  if r['r_info_type']==1027: # R_AARCH64_RELATIVE
-                      rels.append((int(r['r_offset']),int(r['r_addend'])))
-              byoff=dict(rels)
-              fn=None
-              for off,add in rels:
-                  try: name=cstr(add)
-                  except Exception: continue
+                      a=int(s['p_vaddr']); z=a+int(s['p_filesz'])
+                      if a<=va and va+n<=z:
+                          o=int(s['p_offset'])+va-a
+                          return blob[o:o+n]
+                  raise ValueError
+              def cs(va):
+                  return vb(va,256).split(b'\0',1)[0].decode('utf-8','replace')
+              rel=[]
+              for r in e.get_section_by_name('.rela.dyn').iter_relocations():
+                  if r['r_info_type']==1027:
+                      rel.append((int(r['r_offset']),int(r['r_addend'])))
+              by=dict(rel); fn=None
+              for off,add in rel:
+                  try: name=cs(add)
+                  except: continue
                   if name=='bootstrapSign':
-                      sig_add=byoff.get(off+8); fn=byoff.get(off+16)
-                      sig=cstr(sig_add) if sig_add else ''
-                      print('bootstrapSign_registration=true signature='+sig)
+                      fn=by.get(off+16)
+                      print('registration',name,cs(by[off+8]),'fn',hex(fn or 0))
                       break
-              if fn is None: raise SystemExit('bootstrapSign registration not found')
-              code=va_bytes(fn,0x500)
+              if fn is None: raise SystemExit('no bootstrapSign registration')
               md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.detail=True
-              ins=list(md.disasm(code,fn))
-              secret_va=None
-              for i,x in enumerate(ins):
-                  if x.mnemonic=='mov' and len(x.operands)==2 and x.operands[0].type==ARM64_OP_REG and x.operands[0].reg==ARM64_REG_W3 and x.operands[1].type==ARM64_OP_IMM and x.operands[1].imm==33:
-                      for y in reversed(ins[max(0,i-12):i]):
-                          if y.mnemonic=='adr' and len(y.operands)==2 and y.operands[0].type==ARM64_OP_REG and y.operands[0].reg==ARM64_REG_X2 and y.operands[1].type==ARM64_OP_IMM:
-                              secret_va=int(y.operands[1].imm); break
-                      if secret_va is not None: break
-              if secret_va is None: raise SystemExit('bootstrap embedded material locator failed')
-              secret=va_bytes(secret_va,33)
-              print('embedded_material_extracted=true length='+str(len(secret)))
-
-          ctx=ssl.create_default_context()
-          def app_sign(ts,nonce,device):
-              return hashlib.sha256(ts.encode()+nonce.encode()+device.encode()+secret).hexdigest()
-          def call(label,ts,nonce,device,payload,signature_header=False):
-              sign=app_sign(ts,nonce,device)
-              p=dict(payload)
-              p={k:(sign if v=='$SIGN' else ts if v=='$TS' else nonce if v=='$NONCE' else device if v=='$DEVICE' else v) for k,v in p.items()}
-              headers={
-                  'Accept':'application/json, text/plain, */*',
-                  'Content-Type':'application/json',
-                  'User-Agent':'qingman/4.4.5 (Android)',
-                  'appVersion':'4.4.5','platform':'android',
-                  'X-Device-Id':device,'X-Timestamp':ts,'X-Register-Channel':'qm1',
-              }
-              if signature_header: headers['X-Signature']=sign
-              req=urllib.request.Request(BOOT,data=json.dumps(p,separators=(',',':')).encode(),headers=headers,method='POST')
-              try:
-                  with urllib.request.urlopen(req,timeout=12,context=ctx) as r: raw=r.read(262144); status=r.status
-              except urllib.error.HTTPError as e: raw=e.read(262144); status=e.code
-              except Exception as e:
-                  print(label,'transport',type(e).__name__); return False
-              txt=raw.decode('utf-8','replace')
-              try:
-                  o=json.loads(txt)
-                  safe={k:o.get(k) for k in ('code','status','msg','message','error','success') if k in o}
-                  d=o.get('data')
-                  if isinstance(d,dict): safe['data_keys']=list(d.keys())
-                  elif d is not None: safe['data_type']=type(d).__name__; safe['data_len']=len(d) if hasattr(d,'__len__') else None
-                  print(label,'http',status,json.dumps(safe,ensure_ascii=False))
-                  return not (o.get('code')==0 and o.get('msg')=='参数错误')
-              except Exception:
-                  print(label,'http',status,'non_json bytes',len(raw),'prefix',repr(txt[:120]))
-                  return status<400
-
-          now_s=str(int(time.time())); now_ms=str(int(time.time()*1000))
-          cases=[
-              ('timestamp-deviceId-sign', {'timestamp':'$TS','nonce':'$NONCE','deviceId':'$DEVICE','sign':'$SIGN'},False),
-              ('timestamp-device_id-sign', {'timestamp':'$TS','nonce':'$NONCE','device_id':'$DEVICE','sign':'$SIGN'},False),
-              ('current_timestamp-deviceId-sign', {'current_timestamp':'$TS','nonce':'$NONCE','deviceId':'$DEVICE','sign':'$SIGN'},False),
-              ('ts-deviceId-sign', {'ts':'$TS','nonce':'$NONCE','deviceId':'$DEVICE','sign':'$SIGN'},False),
-              ('timestamp-nonce-sign', {'timestamp':'$TS','nonce':'$NONCE','sign':'$SIGN'},False),
-              ('ts-nonce-sign', {'ts':'$TS','nonce':'$NONCE','sign':'$SIGN'},False),
-              ('nonce-sign', {'nonce':'$NONCE','sign':'$SIGN'},False),
-              ('timestamp-deviceId-header-sign', {'timestamp':'$TS','nonce':'$NONCE','deviceId':'$DEVICE'},True),
-              ('timestamp-nonce-header-sign', {'timestamp':'$TS','nonce':'$NONCE'},True),
-          ]
-          found=False
-          for unit,ts in [('s',now_s),('ms',now_ms)]:
-              for device_style in ('plain','uuid'):
-                  device=(uuid.uuid4().hex if device_style=='plain' else 'uuid_'+uuid.uuid4().hex)
-                  nonce=uuid.uuid4().hex
-                  for name,p,h in cases:
-                      if call(unit+'-'+device_style+'-'+name,ts,nonce,device,p,h): found=True
-          print('candidate_non_param_response='+str(found).lower())
+              ins=list(md.disasm(vb(fn,0x900),fn))
+              print('instruction_count',len(ins))
+              for i,x in enumerate(ins[:260]):
+                  print(f'{i:03d} {x.address:#x} {x.mnemonic:<8} {x.op_str}')
+              print('immediate_candidates')
+              for i,x in enumerate(ins[:400]):
+                  op=x.op_str.lower()
+                  if any(k in op for k in ('#0x20','#0x21','#0x40','#0x41','#0x1f','#0x42')) or x.mnemonic in ('adr','adrp'):
+                      print(f'{i:03d} {x.address:#x} {x.mnemonic:<8} {x.op_str}')
           PY
