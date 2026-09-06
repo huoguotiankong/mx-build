@@ -1,0 +1,133 @@
+name: Trace Qingman Share Route Construction
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-share-route.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+
+      - name: Restore analyzer cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+
+      - name: Trace share and public-route assembly
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/apk_url
+          import json, urllib.request, sys
+          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
+          a=o['data']['datas']['android']
+          print(a['downloadUrl'])
+          print('OFFICIAL_VERSION='+str(a.get('version','')), file=sys.stderr)
+          print('OFFICIAL_VERSION_CODE='+str(a.get('versionCode','')), file=sys.stderr)
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(head -1 /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          mkdir -p /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/apk-extract
+          cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter
+          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          pp_lines=Path('/tmp/blutter-out/pp.txt').read_text('utf-8',errors='replace').splitlines()
+          entries=[]
+          for line in pp_lines:
+              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s+(.*)$',line)
+              if m: entries.append((int(m.group(1),16),m.group(2)))
+          by={o:v for o,v in entries}
+          sensitive=re.compile(r'(?i)(token|password|private|clientp12|certificate|secret|cookie|authorization|bearer)')
+
+          labels={
+              'site':'www.qingman.app',
+              'comic_detail':'/comic/detail',
+              'comic_read':'/comic/read',
+              'share_invoke':'Share.invoke',
+              'official_url':'officialUrl',
+              'display_url':'displayUrl',
+              'target_url':'targetUrl',
+              'promotion_url':'promotionUrl',
+              'jump_url':'jumpUrl',
+              'chapter_url':'chapterUrl',
+              'comic_id':'comicId',
+              'chapter_id':'chapterId',
+          }
+          found={}
+          for label,needle in labels.items():
+              hits=[(o,v) for o,v in entries if needle.lower() in v.lower() and not sensitive.search(v)]
+              found[label]=hits
+              print(f'TARGET {label} count={len(hits)}')
+              for o,v in hits[:20]: print(f'  PP+0x{o:x} {v[:300]}')
+
+          print('=== OBJECT POOL NEIGHBORHOODS ===')
+          for label in ('site','comic_detail','comic_read','share_invoke','official_url','display_url','target_url','promotion_url','jump_url'):
+              for off,val in found.get(label,[])[:3]:
+                  print(f'--- {label} PP+0x{off:x} {val[:180]} ---')
+                  for p in sorted(k for k in by if off-0x180 <= k <= off+0x220):
+                      v=by[p]
+                      if sensitive.search(v):
+                          continue
+                      low=v.lower()
+                      if any(x in low for x in ('http','qingman','comic','share','url','route','path','id','title','cover','chapter','open','web','page','copy')):
+                          print(f'  PP+0x{p:x} {v[:320]}')
+
+          print('=== ASM LITERAL CONTEXTS ===')
+          asm=Path('/tmp/blutter-out/asm')
+          needles=['www.qingman.app','/comic/detail','/comic/read','Share.invoke','officialUrl','displayUrl','targetUrl','promotionUrl','jumpUrl']
+          emitted=set(); lines_out=0
+          for path in asm.rglob('*.dart'):
+              try: lines=path.read_text('utf-8',errors='replace').splitlines()
+              except Exception: continue
+              for i,line in enumerate(lines):
+                  if not any(n.lower() in line.lower() for n in needles):
+                      continue
+                  start=i
+                  while start>0 and '** addr:' not in lines[start]: start-=1
+                  if '** addr:' not in lines[start]: start=max(0,i-80)
+                  end=len(lines)
+                  for j in range(start+1,len(lines)):
+                      if '** addr:' in lines[j]: end=j; break
+                  key=(str(path),start,end)
+                  if key in emitted: continue
+                  emitted.add(key)
+                  print(f'FUNCTION {path.name}:{start+1}-{end} hit={i+1}')
+                  lo=max(start,i-100); hi=min(end,i+180)
+                  for n in range(lo,hi):
+                      s=lines[n]
+                      if sensitive.search(s):
+                          s=re.sub(r'"[^"]*"','"<redacted>"',s)
+                      if len(s)>420: s=s[:420]+'...'
+                      print(s)
+                      lines_out+=1
+                      if lines_out>=1800: break
+                  if lines_out>=1800: break
+              if lines_out>=1800: break
+          print('ASM_LINES='+str(lines_out))
+          PY
