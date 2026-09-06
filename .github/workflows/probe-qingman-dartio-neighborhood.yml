@@ -1,4 +1,4 @@
-name: Map Qingman Dart IO Method Neighborhood
+name: Resolve Qingman Dart IO Native Names
 
 on:
   push:
@@ -32,7 +32,7 @@ jobs:
             /tmp/blutter/packages
           key: qingman-blutter-dart-3.12.2-arm64-v1
 
-      - name: Patch analyzer for code metadata only
+      - name: Patch analyzer for native-name metadata
         shell: bash
         run: |
           set -euo pipefail
@@ -44,22 +44,19 @@ jobs:
           block=(
               '\t\tapp.EnterScope();\n'
               '\t\t{\n'
-              '\t\t\tstd::cout << "=== CODE_METADATA_NEIGHBORHOOD ===\\n";\n'
-              '\t\t\tfor (uint64_t a = 0xaac900; a < 0xaacc00; a += 4) {\n'
+              '\t\t\tstd::cout << "=== NATIVE_NAME_MAP ===\\n";\n'
+              '\t\t\tconst uint64_t addrs[] = {0xaaca84, 0xaacb14, 0xaacba4};\n'
+              '\t\t\tfor (auto a : addrs) {\n'
               '\t\t\t\tauto* fn = app.GetFunction(a);\n'
-              '\t\t\t\tif (!fn || fn->Address() != a) continue;\n'
-              '\t\t\t\tstd::cout << "addr=0x" << std::hex << a << std::dec\n'
-              '\t\t\t\t          << " name=" << fn->FullName() << " size=0x" << std::hex << fn->Size() << std::dec\n'
-              '\t\t\t\t          << " stub=" << fn->IsStub();\n'
-              '\t\t\t\tif (!fn->IsStub()) {\n'
-              '\t\t\t\t\tauto* f = fn->AsFunction();\n'
-              '\t\t\t\t\tstd::cout << " params=" << f->NumParam()\n'
-              '\t\t\t\t\t          << " optional=" << f->NumOptionalParam()\n'
-              '\t\t\t\t\t          << " named=" << f->HasNamedParam()\n'
-              '\t\t\t\t\t          << " async=" << f->IsAsync()\n'
-              '\t\t\t\t\t          << " native=" << f->IsNative();\n'
-              '\t\t\t\t}\n'
-              '\t\t\t\tstd::cout << "\\n";\n'
+              '\t\t\t\tstd::cout << "addr=0x" << std::hex << a << std::dec;\n'
+              '\t\t\t\tif (!fn || fn->IsStub()) { std::cout << " unmapped\\n"; continue; }\n'
+              '\t\t\t\tauto* f = fn->AsFunction();\n'
+              '\t\t\t\tconst auto& df = dart::Function::Handle(f->Ptr());\n'
+              '\t\t\t\tconst auto& nn = dart::String::Handle(df.native_name());\n'
+              '\t\t\t\tstd::cout << " dart_name=" << fn->FullName();\n'
+              '\t\t\t\tif (!nn.IsNull()) std::cout << " native_name=" << nn.ToCString();\n'
+              '\t\t\t\telse std::cout << " native_name=<null>";\n'
+              '\t\t\t\tstd::cout << " params=" << f->NumParam() << " native=" << f->IsNative() << "\\n";\n'
               '\t\t\t}\n'
               '\t\t}\n'
               '#ifndef NO_CODE_ANALYSIS\n'
@@ -69,7 +66,7 @@ jobs:
           PY
           rm -f /tmp/blutter/bin/blutter_dartvm3.12.2_android_arm64
 
-      - name: Run metadata probe
+      - name: Run native-name probe
         shell: bash
         run: |
           set -euo pipefail
@@ -88,5 +85,5 @@ jobs:
           cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
           cd /tmp/blutter
           python3 blutter.py /tmp/app-lib /tmp/blutter-out | tee /tmp/blutter-run.log
-          echo '=== extracted code metadata ==='
-          grep -E 'CODE_METADATA_NEIGHBORHOOD|addr=0x' /tmp/blutter-run.log || true
+          echo '=== extracted native-name map ==='
+          grep -E 'NATIVE_NAME_MAP|addr=0x' /tmp/blutter-run.log || true
