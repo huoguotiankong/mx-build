@@ -15,55 +15,30 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Probe live config and public endpoints
+      - name: Probe current public endpoints
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import json, urllib.request, urllib.parse
-          cfg_url='https://lz-1382057604.cos.ap-hongkong.myqcloud.com/5A6F4D2B7E9A1C3D8F0B2E4A6C8E0D2F4B6A8C0E2D4F6A8B0C2E4D6F8A0C2E4B.json'
-          req=urllib.request.Request(cfg_url,headers={'User-Agent':'Dart/3.0 (dart:io)','Accept':'application/json'})
-          with urllib.request.urlopen(req,timeout=20) as r:
-              raw=r.read()
-              print('CONFIG_STATUS',r.status)
-              print('CONFIG_TYPE',r.headers.get('content-type'))
-          text=raw.decode('utf-8','replace')
-          print('CONFIG_RAW',text[:20000])
-          data=json.loads(text)
-          print('CONFIG_TYPE_PY',type(data).__name__)
-          def walk(v,p=''):
-              if isinstance(v,dict):
-                  for k,val in v.items():
-                      np=f'{p}.{k}' if p else k
-                      if isinstance(val,(str,int,float,bool)) or val is None:
-                          print('CFG',np,'=',val)
-                      else: walk(val,np)
-              elif isinstance(v,list):
-                  for i,val in enumerate(v[:50]): walk(val,f'{p}[{i}]')
-          walk(data)
-
-          urls=[]
-          def collect(v):
-              if isinstance(v,dict):
-                  for val in v.values(): collect(val)
-              elif isinstance(v,list):
-                  for val in v: collect(val)
-              elif isinstance(v,str) and v.startswith(('http://','https://')):
-                  urls.append(v.rstrip('/'))
-          collect(data)
-          print('URL_CANDIDATES',urls)
-          paths=['app/api/health','app/api/config','app/api/home/data','app/api/category/list','app/api/search/full?q=%E6%B5%B7%E8%B4%BC%E7%8E%8B']
-          seen=set()
-          for base in urls:
-              if base in seen: continue
-              seen.add(base)
-              for path in paths:
-                  u=base.rstrip('/')+'/'+path
-                  try:
-                      q=urllib.request.Request(u,headers={'User-Agent':'Dart/3.0 (dart:io)','Accept':'application/json'})
-                      with urllib.request.urlopen(q,timeout=12) as r:
-                          body=r.read(50000).decode('utf-8','replace')
-                          print('PROBE',u,'STATUS',r.status,'TYPE',r.headers.get('content-type'),'BODY',body[:5000])
-                  except Exception as e:
-                      print('PROBE',u,'ERROR',type(e).__name__,e)
+          import urllib.request, urllib.parse
+          base='http://bkbfblh.xn--vhqr42drhf5k7b.com'
+          paths=[
+            'app/api/health',
+            'app/api/config',
+            'app/api/home/data',
+            'app/api/category/list',
+            'app/api/rank/list',
+            'app/api/search/suggest?q='+urllib.parse.quote('海贼王'),
+            'app/api/search/full?q='+urllib.parse.quote('海贼王'),
+          ]
+          headers={'User-Agent':'Dart/3.0 (dart:io)','Accept':'application/json'}
+          for path in paths:
+              u=base+'/'+path
+              try:
+                  q=urllib.request.Request(u,headers=headers)
+                  with urllib.request.urlopen(q,timeout=20) as r:
+                      body=r.read(100000).decode('utf-8','replace')
+                      print('PROBE',u,'STATUS',r.status,'TYPE',r.headers.get('content-type'),'BODY',body[:12000])
+              except Exception as e:
+                  print('PROBE',u,'ERROR',type(e).__name__,e)
           PY
