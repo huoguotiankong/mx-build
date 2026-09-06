@@ -2,65 +2,24 @@ name: Probe Lizi Manga API
 
 on:
   push:
-    branches: [main]
     paths:
-      - ".github/workflows/probe-lizi-api.yml"
-  workflow_dispatch:
-
-permissions:
-  contents: read
+      - '.github/workflows/probe-lizi-api.yml'
 
 jobs:
   probe:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    runs-on: ubuntu-latest
     steps:
-      - name: Probe DoH and current public endpoints
+      - name: Probe discovered API bases
         shell: bash
         run: |
-          set -euo pipefail
-          host='bkbfblh.xn--vhqr42drhf5k7b.com'
-          echo '=== SYSTEM DNS ==='
-          getent ahosts "$host" || true
-          echo '=== ALIDNS ==='
-          curl -fsSL --retry 2 -H 'accept: application/dns-json' "https://dns.alidns.com/resolve?name=$host&type=A" | tee /tmp/alidns.json || true
-          echo
-          echo '=== 360 DOH ==='
-          curl -fsSL --retry 2 -H 'accept: application/dns-json' "https://doh.360.cn/resolve?name=$host&type=A" | tee /tmp/360.json || true
-          echo
-          python3 - <<'PY'
-          import json, subprocess, urllib.parse
-          host='bkbfblh.xn--vhqr42drhf5k7b.com'
-          ips=[]
-          for p in ['/tmp/alidns.json','/tmp/360.json']:
-              try:
-                  d=json.load(open(p))
-              except Exception:
-                  continue
-              for a in d.get('Answer',[]) or []:
-                  v=str(a.get('data','')).strip().strip('"')
-                  if a.get('type')==1 and v.count('.')==3:
-                      ips.append(v)
-          ips=list(dict.fromkeys(ips))
-          print('DOH_IPS',ips)
-          paths=[
-            'app/api/health',
-            'app/api/config',
-            'app/api/home/data',
-            'app/api/category/list',
-            'app/api/rank/list',
-            'app/api/search/suggest?q='+urllib.parse.quote('海贼王'),
-            'app/api/search/full?q='+urllib.parse.quote('海贼王'),
-          ]
-          for ip in ips:
-              print('=== IP',ip,'===')
-              for scheme,port in [('http',80),('https',443)]:
-                  for path in paths:
-                      url=f'{scheme}://{host}/{path}'
-                      cmd=['curl','-ksS','--max-time','12','--resolve',f'{host}:{port}:{ip}','-A','Dart/3.0 (dart:io)','-H','Accept: application/json','-w','\nHTTP_STATUS:%{http_code}\nFINAL:%{url_effective}\n',url]
-                      try:
-                          out=subprocess.check_output(cmd,stderr=subprocess.STDOUT).decode('utf-8','replace')
-                          print('PROBE',url,'VIA',ip,'OUT',out[:12000])
-                      except subprocess.CalledProcessError as e:
-                          print('PROBE',url,'VIA',ip,'ERROR',e.output.decode('utf-8','replace')[:2000])
-          PY
+          set -u
+          bases=(http://ai.xajtl.com http://crm.weichu.asia)
+          paths=(app/api/health app/api/config app/api/home/data app/api/category/list app/api/rank/list 'app/api/search/full?q=斗罗')
+          for base in "${bases[@]}"; do
+            echo "######## $base ########"
+            for path in "${paths[@]}"; do
+              echo "=== /$path ==="
+              curl -iLsS --connect-timeout 8 --max-time 15 -A 'Dart/3.5 (dart:io)' "$base/$path" | head -c 2500 || true
+              echo; echo
+            done
+          done
