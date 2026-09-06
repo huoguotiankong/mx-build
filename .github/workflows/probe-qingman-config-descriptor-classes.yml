@@ -1,4 +1,4 @@
-name: Identify Qingman Config Request Descriptor Classes
+name: Trace Qingman Request Metadata Dispatch
 
 on:
   push:
@@ -20,7 +20,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq python3-pyelftools cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          sudo apt-get install -y -qq python3-pyelftools python3-capstone cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
           git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
 
       - name: Restore analyzer cache
@@ -32,14 +32,16 @@ jobs:
             /tmp/blutter/packages
           key: qingman-blutter-dart-3.12.2-arm64-v1
 
-      - name: Trace config descriptor base class and network dispatch
+      - name: Trace constructor, QxNet dispatch, and public config route candidates
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY' > /tmp/apk_url
-          import json,urllib.request
+          import json,urllib.request,sys
           o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
-          print(o['data']['datas']['android']['downloadUrl'])
+          a=o['data']['datas']['android']
+          print(a['downloadUrl'])
+          print('OFFICIAL_VERSION='+str(a.get('version','')),file=sys.stderr)
           PY
           curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(head -1 /tmp/apk_url)" -o /tmp/qingman.apk
           rm -rf /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
@@ -53,74 +55,66 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import re
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
 
           sensitive=re.compile(r'(?i)(token|secret|password|cookie|authorization|bearer|private|clientp12|certificate|proof|signature|sign/key|k1a|k1b|k2a|k2b|k3a|k3b|seed)')
-          def clean(s):
-              if sensitive.search(s):
-                  s=re.sub(r'"[^"]*"','"<redacted>"',s)
-              return s[:800]
+          pp={}
+          pp_lines=Path('/tmp/blutter-out/pp.txt').read_text('utf-8',errors='replace').splitlines()
+          for line in pp_lines:
+              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s+(.*)$',line)
+              if m: pp[int(m.group(1),16)]=m.group(2)
 
-          print('=== PP NEIGHBORHOODS ===')
-          pp=Path('/tmp/blutter-out/pp.txt').read_text('utf-8',errors='replace').splitlines()
-          for needle in ('Type: txb','Type: Asb','txb','Asb','fPa'):
-              hits=[i for i,s in enumerate(pp) if needle.lower() in s.lower()]
-              print(f'PP needle={needle} hits={len(hits)}')
-              shown=set()
-              for i in hits[:20]:
-                  for n in range(max(0,i-60),min(len(pp),i+100)):
-                      if n in shown: continue
-                      shown.add(n)
-                      print(f'PP:{n+1}: {clean(pp[n])}')
+          def safe(v):
+              if not v: return ''
+              if sensitive.search(v): return '<redacted-sensitive>'
+              return v[:320]
 
-          print('=== BASE CLASS fPa DEFINITIONS ===')
-          asm_files=[]
-          for p in Path('/tmp/blutter-out/asm').rglob('*.dart'):
-              try: asm_files.append((p,p.read_text('utf-8',errors='replace').splitlines()))
-              except Exception: pass
-          for p,lines in asm_files:
-              for i,line in enumerate(lines):
-                  if re.match(r'\s*class\s+fPa\b',line):
-                      print(f'FPA file={p.name} line={i+1}')
-                      for n in range(max(0,i-15),min(len(lines),i+700)):
-                          print(clean(lines[n]))
+          with open('/tmp/app-lib/libapp.so','rb') as f:
+              elf=ELFile=ELFFile(f)
+              sec=elf.get_section_by_name('.text')
+              base=int(sec['sh_addr']); data=sec.data()
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.skipdata=True
 
-          print('=== TARGET SUBCLASS FILES ===')
-          for target in ('txb','Asb'):
-              for p,lines in asm_files:
-                  for i,line in enumerate(lines):
-                      if re.match(r'\s*class\s+'+target+r'\b',line):
-                          print(f'SUBCLASS {target} file={p.name} line={i+1}')
-                          for n in range(max(0,i-25),min(len(lines),i+180)):
-                              print(clean(lines[n]))
+          def dump(start,end):
+              pending={}
+              for ins in md.disasm(data[start-base:end-base],start):
+                  pending={r:(b,n-1) for r,(b,n) in pending.items() if n>1}
+                  op=ins.op_str.lower(); ann=''
+                  m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
+                  if ins.mnemonic=='add' and m:
+                      pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),18)
+                  elif ins.mnemonic in ('ldr','ldur','ldrsw'):
+                      m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
+                      if m:
+                          br=m.group(2); disp=int(m.group(3),0) if m.group(3) else 0
+                          off=disp if br=='x27' else (pending[br][0]+disp if br in pending else None)
+                          if off is not None and off in pp:
+                              ann=f' ; PP+0x{off:x}={safe(pp[off])}'
+                  print(f'{ins.address:#x} {ins.mnemonic:<8} {ins.op_str}{ann}')
 
-          print('=== NETWORK DISPATCH ADDRESS 0xaa0250 ===')
-          needle='0xaa0250'
-          emitted=set(); total=0
-          for p,lines in asm_files:
-              for i,line in enumerate(lines):
-                  if needle not in line.lower(): continue
-                  print(f'HIT file={p.name} line={i+1}: {clean(line)}')
-                  s=i
-                  while s>0 and '** addr:' not in lines[s]: s-=1
-                  if '** addr:' not in lines[s]: s=max(0,i-100)
-                  e=len(lines)
-                  for j in range(s+1,len(lines)):
-                      if '** addr:' in lines[j]: e=j; break
-                  key=(str(p),s,e)
-                  if key in emitted: continue
-                  emitted.add(key)
-                  print(f'CALLER_FUNCTION file={p.name} lines={s+1}-{e}')
-                  for n in range(s,min(e,s+500)):
-                      print(clean(lines[n])); total+=1
-                      if total>=3200: break
-                  if total>=3200: break
-              if total>=3200: break
+          print('=== COMMON REQUEST CONSTRUCTOR 0x3ea090 ===')
+          dump(0x3ea090,0x3ea340)
+          print('=== SHARED QXNET DISPATCH 0xaa0250 ===')
+          dump(0xaa0250,0xaa0a80)
 
-          print('=== FUNCTION DEFINITION STARTING AT 0xaa0250 ===')
-          for p,lines in asm_files:
-              for i,line in enumerate(lines):
-                  if '** addr: 0xaa0250' in line.lower():
-                      print(f'DEF file={p.name} line={i+1}')
-                      for n in range(i,min(len(lines),i+1000)):
-                          print(clean(lines[n]))
+          print('=== CONFIG/APP ROUTE STRING CANDIDATES ===')
+          route_re=re.compile(r'(?i)(?:api/[^" ]*(?:config|setting|version|startup|init)[^" ]*|[^" ]*(?:appconfig|chaping)[^" ]*)')
+          for off,val in sorted(pp.items()):
+              if sensitive.search(val): continue
+              if route_re.search(val):
+                  print(f'PP+0x{off:x} {val[:500]}')
+
+          print('=== APP/CHAPING MODEL NEIGHBORHOODS ===')
+          for needle in ('TypeArguments: <uxb?>','TypeArguments: <Bsb?>','Get app config failed','Get chaping config failed'):
+              hits=[i for i,s in enumerate(pp_lines) if needle.lower() in s.lower()]
+              print(f'NEEDLE {needle} hits={len(hits)}')
+              seen=set()
+              for i in hits[:8]:
+                  for n in range(max(0,i-90),min(len(pp_lines),i+120)):
+                      if n in seen: continue
+                      seen.add(n)
+                      s=pp_lines[n]
+                      if sensitive.search(s): s='<redacted-sensitive-line>'
+                      print(f'{n+1}: {s[:600]}')
           PY
