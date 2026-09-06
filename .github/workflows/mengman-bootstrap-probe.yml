@@ -1,4 +1,4 @@
-name: Mengman Catalog Probe
+name: Mengman Detail Probe
 
 on:
   push:
@@ -13,26 +13,23 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Fetch signed static catalog data
+      - name: Fetch signed detail data
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p /tmp/mengman-static
+          mkdir -p /tmp/mengman-detail
           python3 - <<'PY'
           import hashlib,time,urllib.request
           base='https://static.yisix.cn'
           seed='94e890e3a45ba392c0c519ed45190a4c'
           paths=[
-            '/static/category/1/1.zip',
-            '/static/category/1/2.zip',
-            '/static/category/2/1.zip',
-            '/static/comic/home.zip',
-            '/static/recommend/comic.zip',
-            '/static/comic/index/banner.zip',
-            '/static/column_index/comic.zip',
-            '/static/ranking/comic/reco.zip',
-            '/static/ranking/comic.zip',
-            '/static/ranking/hot.zip',
+            '/static/comic/0/2140.zip',
+            '/static/comic/5/2145.zip',
+            '/static/comic/40/2140.zip',
+            '/static/comic/2140/2140.zip',
+            '/static/comic/chapter/2140/0.zip',
+            '/static/comic/chapter/2140/1.zip',
+            '/comics/0/cover_1776966416457.enc',
           ]
           for path in paths:
               ts=str(int(time.time()))
@@ -44,17 +41,17 @@ jobs:
                   with urllib.request.urlopen(req,timeout=30) as r:
                       data=r.read()
                       print(path,'status',r.status,'len',len(data),'type',r.headers.get('content-type'),'head',data[:32].hex())
-                      open('/tmp/mengman-static/'+name,'wb').write(data)
+                      open('/tmp/mengman-detail/'+name,'wb').write(data)
               except Exception as e:
                   print(path,'ERROR',repr(e))
           PY
-          ls -lh /tmp/mengman-static
-          sha256sum /tmp/mengman-static/* || true
+          ls -lh /tmp/mengman-detail
+          sha256sum /tmp/mengman-detail/* || true
 
-      - name: Upload static data
+      - name: Upload detail data
         uses: actions/upload-artifact@v4
         with:
-          name: mengman-catalog-data
-          path: /tmp/mengman-static
+          name: mengman-detail-data
+          path: /tmp/mengman-detail
           if-no-files-found: error
           retention-days: 1
