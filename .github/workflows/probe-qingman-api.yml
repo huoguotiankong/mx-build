@@ -12,9 +12,9 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
-      - name: Inspect Qingman native security exports
+      - name: Decompile Qingman native bridge callers
         shell: bash
         run: |
           set -euo pipefail
@@ -27,22 +27,19 @@ jobs:
           PY
           echo "$(cat /tmp/version)"
           curl -fL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qingman.apk
-          unzip -p /tmp/qingman.apk lib/arm64-v8a/libqx_security.so > /tmp/libqx_security.so
-          unzip -p /tmp/qingman.apk lib/arm64-v8a/libapp.so > /tmp/libapp.so
-          echo '=== native ELF ==='
-          file /tmp/libqx_security.so
-          readelf -h /tmp/libqx_security.so | sed -n '1,30p'
-          echo '=== native needed libs ==='
-          readelf -d /tmp/libqx_security.so | grep -E 'NEEDED|SONAME' || true
-          echo '=== exported symbols ==='
-          readelf -Ws /tmp/libqx_security.so | grep -Ei 'Java_|bootstrap|proof|sign|header|guard|key|decrypt|encrypt|sha|md5|aes|rsa|hkdf|JNI_OnLoad' | head -250 || true
-          echo '=== defined dynamic symbols ==='
-          nm -D --defined-only /tmp/libqx_security.so | grep -Ei 'Java_|bootstrap|proof|sign|header|guard|key|decrypt|encrypt|sha|md5|aes|rsa|hkdf|JNI_OnLoad' | head -250 || true
-          echo '=== native relevant strings with offsets ==='
-          strings -a -t x /tmp/libqx_security.so | grep -Ei 'qm-bootstrap|qm-native|bootstrap(Sign|Proof|Decrypt)|buildHeaders|initializeSignKeys|apiGuard|appAccess|proofVersion|requestId|deviceId|registerChannel|signature|timestamp|AES|RSA|SHA|HKDF|MD5|android|key' | head -400 || true
-          echo '=== dart relevant strings with offsets ==='
-          strings -a -t x /tmp/libapp.so | grep -Ei 'bootstrap/domain|bootstrap(Sign|Proof|Decrypt)|initializeSignKeys|buildHeaders|X-(Api-Guard|Device-Id|QM-App-Access|QM-Proof|QM-Proof-Version|QM-Request-Id|Register-Channel|Signature|Timestamp)|appAccessToken|appKeyStr|sign/key|device/risk/token/report' | head -400 || true
-          echo '=== disassembly of exported JNI/security functions ==='
-          llvm-objdump -d --no-show-raw-insn /tmp/libqx_security.so \
-            | grep -E -A160 -B8 '<(JNI_OnLoad|Java_.*|.*bootstrap.*|.*buildHeaders.*|.*initializeSignKeys.*|.*apiGuard.*)>' \
-            | head -5000 || true
+          curl -fL --retry 2 --connect-timeout 20 --max-time 180 \
+            'https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip' \
+            -o /tmp/jadx.zip
+          mkdir -p /tmp/jadx-bin /tmp/jadx-out
+          unzip -q /tmp/jadx.zip -d /tmp/jadx-bin
+          /tmp/jadx-bin/bin/jadx --no-res --show-bad-code -d /tmp/jadx-out /tmp/qingman.apk >/tmp/jadx.log 2>&1 || true
+          echo '=== JADX summary ==='
+          tail -80 /tmp/jadx.log || true
+          echo '=== QxSecurityNative ==='
+          find /tmp/jadx-out -type f -path '*QxSecurityNative*' -print -exec sed -n '1,260p' {} \; || true
+          echo '=== security caller files ==='
+          grep -RIlE 'bootstrapSign|bootstrapProof|bootstrapDecrypt|initializeSignKeys|buildHeaders|QxSecurityNative' /tmp/jadx-out/sources 2>/dev/null | head -80 || true
+          echo '=== security caller excerpts ==='
+          grep -RInE -C 12 'bootstrapSign|bootstrapProof|bootstrapDecrypt|initializeSignKeys|buildHeaders|QxSecurityNative' /tmp/jadx-out/sources 2>/dev/null | head -1800 || true
+          echo '=== method channel / bridge excerpts ==='
+          grep -RInE -C 10 'MethodChannel|security|qx_security|native_security|QxSecurity' /tmp/jadx-out/sources/com 2>/dev/null | head -1800 || true
