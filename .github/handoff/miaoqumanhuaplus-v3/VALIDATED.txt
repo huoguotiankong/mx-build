@@ -1,0 +1,2 @@
+1.6.3 / source 3 / Android 106003
+Pinned legacy TLS workaround + static config fallback; Spotless Debug Release Lint signed
