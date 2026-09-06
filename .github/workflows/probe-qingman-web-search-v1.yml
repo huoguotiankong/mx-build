@@ -1,0 +1,50 @@
+name: Probe Qingman Web Search And Categories
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-qingman-web-search-v1.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Probe routes
+        shell: bash
+        run: |
+          set -euo pipefail
+          UA='Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Mobile Safari/537.36'
+          BASE='https://www.xydqyfw.com'
+          mkdir -p /tmp/qms
+          declare -A URLS=(
+            [home]="$BASE/"
+            [search]="$BASE/search/%E6%9C%AB%E4%B8%96"
+            [search2]="$BASE/search/%E6%9C%AB%E4%B8%96/2"
+            [category]="$BASE/category/"
+            [cat5a]="$BASE/category/list/5"
+            [cat5a2]="$BASE/category/list/5/page/2"
+            [cat5b]="$BASE/lists/5"
+            [cat5b2]="$BASE/lists/5/page/2"
+          )
+          for name in home search search2 category cat5a cat5a2 cat5b cat5b2; do
+            url="${URLS[$name]}"
+            out="/tmp/qms/$name.html"
+            code=$(curl -L --compressed --connect-timeout 10 --max-time 30 -A "$UA" -sS -o "$out" -w '%{http_code}' "$url" || true)
+            bytes=$(wc -c < "$out" 2>/dev/null || echo 0)
+            cards=$(grep -oE 'href="/newgszc/[0-9]+\.html"' "$out" 2>/dev/null | sort -u | wc -l || true)
+            title=$(grep -oPm1 '(?<=<title>).*?(?=</title>)' "$out" 2>/dev/null || true)
+            echo "ROUTE $name http=$code bytes=$bytes cards=$cards title=$title url=$url"
+            grep -oE 'href="/[^"]+"' "$out" 2>/dev/null | grep -E '/(search|category|lists)/' | sort -u | head -n 30 || true
+          done
+
+          echo '===== SEARCH FORM ====='
+          grep -oE '<form[^>]*>|<input[^>]*>|<button[^>]*>' /tmp/qms/home.html | grep -Ei 'search|keyword|query|name=|action=' | head -n 60 || true
+
+          echo '===== SEARCH RESULTS SAMPLE ====='
+          grep -oE 'href="/newgszc/[0-9]+\.html"[^>]*>[^<]*|<h3[^>]*cardtitle[^>]*>[^<]+' /tmp/qms/search.html | head -n 30 || true
