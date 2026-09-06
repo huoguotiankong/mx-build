@@ -1,0 +1,16 @@
+{
+  "versionName": "1.6.4",
+  "androidVersionCode": 106004,
+  "packageName": "eu.kanade.tachiyomi.extension.zh.qingman",
+  "apkSha256": "102940d3230d40a48d3db917a527bba35a59ed712446d85ce56a5dc135caece5",
+  "signingCertificateSha256": "1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620",
+  "permissions": [
+    "package: eu.kanade.tachiyomi.extension.zh.qingman"
+  ],
+  "dangerousPermissionCheck": "passed",
+  "nativeLibraryEntries": 0,
+  "certificateOrPrivateKeyEntries": 0,
+  "officialFlutterAssetEntries": 0,
+  "result": "passed",
+  "note": "Static package-surface audit only; OEM cloud reputation/real-device behavior still requires device validation."
+}
