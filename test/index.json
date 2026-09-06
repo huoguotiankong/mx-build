@@ -292,6 +292,28 @@
         ]
       },
       {
+        "name": "Qingman",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.qingman",
+        "resources": {
+          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.qingman-v1.6.1.apk",
+          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.qingman-v106001.png"
+        },
+        "extensionLib": "1.6",
+        "versionCode": 106001,
+        "versionName": "1.6.1",
+        "contentWarning": "SAFE",
+        "sources": [
+          {
+            "id": 5091633172929638041,
+            "name": "青漫",
+            "language": "zh-Hans",
+            "homeUrl": "https://sf85sdq66h.qingman.mom",
+            "mirrorUrls": [],
+            "message": null
+          }
+        ]
+      },
+      {
         "name": "Tencent Comics (ac.qq.com)",
         "packageName": "eu.kanade.tachiyomi.extension.zh.tencentcomics",
         "resources": {
