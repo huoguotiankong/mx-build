@@ -29,7 +29,7 @@ jobs:
             /tmp/blutter/dartsdk
             /tmp/blutter/packages
           key: qingman-blutter-dart-3.12.2-arm64-v1
-      - name: Isolate bootstrap AOT function
+      - name: Trace bootstrap AOT references
         shell: bash
         run: |
           set -euo pipefail
@@ -46,55 +46,40 @@ jobs:
           cd /tmp/blutter
           python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1 || true
           tail -10 /tmp/blutter.log || true
+          echo '=== bootstrap pool entries ==='
+          grep -nE 'bootstrap: 原生签名失败|bootstrap/domain|apiDomain|appAccessToken|bootstrapProof|bootstrapSign|String: "nonce"' /tmp/blutter-out/pp.txt || true
+          echo '=== raw exact offset references ==='
+          grep -RInE -C 18 '0xbfd0|0xc000|0xc010|0xc030|0xc038|0xc090|0xc098|0xc0a0|0xc0a8|0xc138|0xc140' /tmp/blutter-out/asm | head -12000 || true
+          echo '=== PP reference forms ==='
+          grep -RInE -C 24 '\[PP[^]]*(bfd0|c000|c010|c030|c038|c090|c098|c0a0|c0a8|c138|c140)|\[x27[^]]*(bfd0|c000|c010|c030|c038|c090|c098|c0a0|c0a8|c138|c140)' /tmp/blutter-out/asm | head -12000 || true
+          echo '=== nearest bootstrap-containing assembly file/function blocks ==='
           python3 - <<'PY'
           from pathlib import Path
           import re
-          pp=Path('/tmp/blutter-out/pp.txt').read_text(encoding='utf-8',errors='replace').splitlines()
-          targets=['https://mu8xm4cx.zermh.com/bootstrap/domain','bootstrap: 原生签名失败','bootstrapSign','bootstrapProof','apiDomain','appAccessToken','nonce']
-          offsets=[]
-          print('=== target pool entries ===')
-          for line in pp:
-              if any(t in line for t in targets):
-                  print(line)
-                  for pat in (r'\[PP[^#]*#0x([0-9a-fA-F]+)',r'PP[^0-9a-fA-F]*0x([0-9a-fA-F]+)',r'^0x([0-9a-fA-F]+)'):
-                      m=re.search(pat,line)
-                      if m:
-                          x=m.group(1).lower()
-                          if x not in offsets: offsets.append(x)
-          print('offsets=',offsets)
-          if not offsets:
-              # Blutter pp.txt commonly begins each pool row with decimal index/address-like metadata.
-              for i,line in enumerate(pp):
-                  if 'https://mu8xm4cx.zermh.com/bootstrap/domain' in line:
-                      print('bootstrap_pp_line_number=',i+1)
-          asm_files=list(Path('/tmp/blutter-out/asm').rglob('*'))
-          asm_files=[p for p in asm_files if p.is_file()]
-          refs=[]
-          for p in asm_files:
+          wanted={'bfd0','c000','c010','c030','c038','c090','c098','c0a0','c0a8','c138','c140'}
+          hits=[]
+          for p in Path('/tmp/blutter-out/asm').rglob('*'):
+              if not p.is_file(): continue
               lines=p.read_text(encoding='utf-8',errors='replace').splitlines()
               for i,line in enumerate(lines):
                   low=line.lower()
-                  matched=[o for o in offsets if f'#0x{o}' in low or f'0x{o}' in low]
-                  if not matched: continue
-                  # Keep only obvious PP/object-pool references where possible.
-                  if 'pp' not in low and '[x27' not in low: continue
-                  refs.append((p,i,line,matched))
-          print('=== exact asm references ===')
-          print('reference_count=',len(refs))
-          for p,i,line,matched in refs[:80]:
+                  if any(re.search(r'0x0*'+re.escape(o)+r'\b',low) for o in wanted):
+                      hits.append((p,i))
+          print('hit_count=',len(hits))
+          seen=set()
+          for p,i in hits[:120]:
               lines=p.read_text(encoding='utf-8',errors='replace').splitlines()
-              # Locate a likely function boundary in Blutter asm: previous blank/header containing address/function marker.
-              start=max(0,i-220); end=min(len(lines),i+320)
+              start=max(0,i-100); end=min(len(lines),i+180)
+              # Blutter emits function headers as lines ending in ':' and usually includes an address/name.
               for j in range(i,-1,-1):
-                  s=lines[j]
-                  if re.search(r'^(?:Function|\w.*Function|\[0x[0-9a-fA-F]+\].*):?$',s) or ('function' in s.lower() and '0x' in s.lower()):
+                  s=lines[j].strip()
+                  if j < i and s.endswith(':') and ('0x' in s or 'Function' in s or '::' in s):
                       start=j; break
-                  if i-j>700: break
-              for j in range(i+1,min(len(lines),i+900)):
-                  s=lines[j]
-                  if j>i+20 and (re.search(r'^(?:Function|\w.*Function|\[0x[0-9a-fA-F]+\].*):?$',s) or ('function' in s.lower() and '0x' in s.lower())):
-                      end=j; break
-              print(f'\n--- {p}:{i+1} offsets={matched} ---')
+                  if i-j>500: break
+              key=(str(p),start)
+              if key in seen: continue
+              seen.add(key)
+              print(f'\n--- {p}:{i+1} block_start={start+1} ---')
               for k in range(start,end):
                   print(f'{k+1:06d}: {lines[k]}')
           PY
