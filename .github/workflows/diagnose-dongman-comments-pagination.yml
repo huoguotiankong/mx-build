@@ -26,13 +26,10 @@ jobs:
               "$api/v2/comment?titleNo=2795&episodeNo=1&pageNo=$page&pageSize=20" \
               -o "/tmp/v2-$page.json"
           done
-          for ver in v1 v2; do
-            code="$(curl -sSL --compressed -o "/tmp/${ver}-probe.json" -w '%{http_code}' -H 'Accept: application/json' -H "User-Agent: $ua" \
-              "$api/$ver/comment?titleNo=2795&episodeNo=1&pageNo=1&pageSize=20")"
-            echo "$ver HTTP $code"
-          done
+          curl -fsSL --compressed -A 'Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140 Mobile Safari/537.36' \
+            'https://m.dongmanmanhua.cn/' -o /tmp/home.html
           python3 - <<'PY'
-          import collections, json, re
+          import collections, json, re, subprocess
 
           all_regular=[]
           all_best=[]
@@ -45,43 +42,42 @@ jobs:
               all_regular += regular
               print('page',page,'best',len(best),'regular',len(regular),
                     'count',data.get('count'),'showTotalCount',data.get('showTotalCount'),
-                    'ids',[x.get('_id') for x in regular[:1]], [x.get('_id') for x in regular[-1:]])
-          ids=[x.get('_id') for x in all_regular if isinstance(x,dict)]
-          print('regular_total_rows',len(ids),'unique',len(set(filter(None,ids))))
+                    'reply_sum_page',sum(int(x.get('replyCount') or 0) for x in best+regular if isinstance(x,dict)))
+          all_items={x.get('_id'):x for x in all_best+all_regular if isinstance(x,dict) and x.get('_id')}
+          print('unique_top_level',len(all_items),'reply_sum_unique',sum(int(x.get('replyCount') or 0) for x in all_items.values()))
+          print('imageNo_distribution_2795',collections.Counter(str(x.get('imageNo')) for x in all_items.values()).most_common(20))
 
-          image_values=[]
-          profile_keys=collections.Counter()
-          url_paths=collections.Counter()
-          samples=[]
-          for c in all_best+all_regular:
-              if not isinstance(c,dict): continue
-              if 'imageNo' in c: image_values.append(str(c.get('imageNo')))
-              for k,v in c.items():
-                  kl=k.lower()
-                  if any(t in kl for t in ('avatar','profile','image','photo','picture','icon','thumb')):
-                      profile_keys[(k,repr(v)[:160])] += 1
-                  if isinstance(v,str) and (v.startswith('http://') or v.startswith('https://')):
-                      url_paths[(k,v)] += 1
-              if len(samples)<3 and c.get('imageNo') not in (None,'','*'):
-                  samples.append(c)
-          print('imageNo_distribution',collections.Counter(image_values).most_common(20))
-          print('profile_like_fields')
-          for kv,n in profile_keys.most_common(30): print(' ',n,kv)
-          print('url_fields')
-          for kv,n in url_paths.most_common(20): print(' ',n,kv)
-          for i,c in enumerate(samples,1):
-              print('nondefault_image_sample',i,{k:c.get(k) for k in c if any(t in k.lower() for t in ('image','profile','avatar','neo','user'))})
+          home=open('/tmp/home.html',encoding='utf-8',errors='replace').read()
+          title_nos=[]
+          for m in re.finditer(r'title_no=(\d+)',home):
+              if m.group(1) not in title_nos: title_nos.append(m.group(1))
+              if len(title_nos)>=24: break
+          if '2795' not in title_nos: title_nos.insert(0,'2795')
+          seen=collections.Counter()
+          nondefault=[]
+          scanned=[]
+          for title in title_nos:
+              out=f'/tmp/scan-{title}.json'
+              url=f'https://apis.dongmanmanhua.cn/v2/comment?titleNo={title}&episodeNo=1&pageNo=1&pageSize=20'
+              p=subprocess.run(['curl','-fsSL','--compressed','-H','Accept: application/json','-H','User-Agent: Dongman/Android',url,'-o',out])
+              if p.returncode: continue
+              try: d=json.load(open(out,encoding='utf-8'))
+              except Exception: continue
+              data=d.get('data') or {}
+              items=(data.get('bestList') or [])+(data.get('commentList') or [])
+              if not items: continue
+              scanned.append((title,len(items),data.get('count'),data.get('showTotalCount')))
+              for c in items:
+                  if not isinstance(c,dict): continue
+                  val=str(c.get('imageNo'))
+                  seen[val]+=1
+                  if val not in ('None','','*'):
+                      nondefault.append((title,c.get('_id'),val,{k:c.get(k) for k in c if any(t in k.lower() for t in ('image','profile','avatar','user','neo'))}))
+          print('scanned_titles',scanned)
+          print('cross_title_imageNo_distribution',seen.most_common(30))
+          print('cross_title_nondefault',nondefault[:20])
 
-          for ver in ('v1','v2'):
-              try:
-                  d=json.load(open(f'/tmp/{ver}-probe.json',encoding='utf-8'))
-              except Exception as e:
-                  print(ver,'non-json',e); continue
-              print(ver,'top_keys',list(d) if isinstance(d,dict) else type(d).__name__)
-              data=d.get('data') if isinstance(d,dict) else None
-              if isinstance(data,dict):
-                  print(ver,'data_keys',list(data.keys()))
-                  items=(data.get('bestList') or [])+(data.get('commentList') or [])
-                  if items and isinstance(items[0],dict):
-                      print(ver,'comment_keys',sorted(items[0].keys()))
+          sample=next(iter(all_items.values()))
+          print('sample_keys',sorted(sample.keys()))
+          print('profile_like_fields',{k:sample.get(k) for k in sample if any(t in k.lower() for t in ('avatar','profile','image','photo','picture','icon','thumb'))})
           PY
