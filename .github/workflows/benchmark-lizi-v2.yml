@@ -1,0 +1,99 @@
+name: Benchmark Lizi v2 Routes
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/benchmark-lizi-v2.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Benchmark API and image routes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, subprocess, time, urllib.request
+
+          apis = ["http://ai.xajtl.com", "http://crm.weichu.asia"]
+          image_bases = [
+              "https://img.kunmu.asia",
+              "https://i.lzimg.xyz",
+              "https://cf-1.imgio.club",
+              "https://p.imgo.buzz",
+          ]
+
+          def fetch_json(url, timeout=10):
+              req = urllib.request.Request(url, headers={"User-Agent":"Dart/3.5 (dart:io)", "Accept":"application/json, text/plain, */*"})
+              t0=time.perf_counter()
+              with urllib.request.urlopen(req, timeout=timeout) as r:
+                  body=r.read()
+              return json.loads(body), time.perf_counter()-t0
+
+          selected = None
+          home = None
+          for base in apis:
+              try:
+                  root, dt = fetch_json(base + "/app/api/home/data")
+                  print(f"API {base} home: {dt:.3f}s")
+                  if home is None:
+                      home = root
+                      selected = base
+              except Exception as e:
+                  print(f"API {base} home FAILED: {e}")
+
+          if home is None:
+              raise SystemExit("No working Lizi API")
+
+          data = home.get("data") or {}
+          cover = None
+          comic_id = None
+          for sec in data.get("home_content_list") or []:
+              for comic in sec.get("comic_list") or []:
+                  cover = comic.get("picY") or comic.get("picX")
+                  comic_id = comic.get("id")
+                  if cover and comic_id:
+                      break
+              if cover and comic_id:
+                  break
+          print("sample comic", comic_id, "cover", cover)
+
+          page_path = None
+          try:
+              detail, dt = fetch_json(selected + f"/app/api/detail/{comic_id}")
+              print(f"API detail: {dt:.3f}s")
+              chapters=(detail.get("data") or {}).get("chapters") or []
+              if chapters:
+                  chapter_id=chapters[0].get("id")
+                  url=(selected + f"/app/api/chapter/v2/{chapter_id}?packname=com.hbsclj.uth&appsign256="
+                       "CDD266DF8B2399C24DA38E408B6D9825C7BD2AF073229847F551EA653EA096E1")
+                  chapter, dt=fetch_json(url)
+                  print(f"API chapter: {dt:.3f}s")
+                  pics=(chapter.get("data") or {}).get("pics") or []
+                  if pics: page_path=pics[0]
+          except Exception as e:
+              print("page path discovery failed", e)
+
+          def bench(label, base, path):
+              if not path:
+                  return
+              url = path if str(path).startswith(("http://","https://")) else base.rstrip('/') + '/' + str(path).lstrip('/')
+              cmd=["curl","-L","--max-time","12","--connect-timeout","4","-sS","-o","/dev/null","-w","%{http_code} %{time_connect} %{time_starttransfer} %{time_total} %{speed_download}",url]
+              try:
+                  out=subprocess.check_output(cmd, text=True, stderr=subprocess.STDOUT).strip()
+                  print(f"{label} {base}: {out}")
+              except subprocess.CalledProcessError as e:
+                  print(f"{label} {base}: FAILED {e.output.strip()}")
+
+          for base in image_bases:
+              bench("COVER", base, cover)
+          for base in image_bases:
+              bench("PAGE", base, page_path)
+          PY
