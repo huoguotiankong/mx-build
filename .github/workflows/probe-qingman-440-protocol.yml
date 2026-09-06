@@ -1,0 +1,106 @@
+name: Inspect Qingman 4.4.0 Pre-Bootstrap Protocol
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-440-protocol.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Download verified 4.4.0 mirror
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --compressed -A 'Mozilla/5.0 (Linux; Android 16)' --connect-timeout 15 --max-time 240 --retry 3 --retry-all-errors \
+            'https://down.qopcu.com/app/com.pctvke.nps%20%281%29.apk' -o /tmp/qm440.apk
+          unzip -tq /tmp/qm440.apk >/dev/null
+          got=$(md5sum /tmp/qm440.apk | awk '{print toupper($1)}')
+          echo "MD5=$got"
+          test "$got" = 'D2AEFAE425C73ABC05CF2EA737D7FD0C'
+
+      - name: Prepare AOT analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+          rm -rf /tmp/qm440-lib /tmp/qm440-out /tmp/qm440-extract
+          mkdir -p /tmp/qm440-lib /tmp/qm440-out /tmp/qm440-extract
+          unzip -q /tmp/qm440.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/qm440-extract
+          cp /tmp/qm440-extract/lib/arm64-v8a/libapp.so /tmp/qm440-lib/
+          cp /tmp/qm440-extract/lib/arm64-v8a/libflutter.so /tmp/qm440-lib/
+          cd /tmp/blutter
+          python3 blutter.py /tmp/qm440-lib /tmp/qm440-out >/tmp/qm440-blutter.log 2>&1
+          tail -30 /tmp/qm440-blutter.log
+
+      - name: Extract non-sensitive network protocol markers
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re,urllib.parse
+          pp=Path('/tmp/qm440-out/pp.txt').read_text('utf-8',errors='replace').splitlines()
+          vals=[]
+          for line in pp:
+              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s+String: "(.*)"$',line)
+              if m: vals.append((int(m.group(1),16),m.group(2)))
+
+          def sensitive(s):
+              return bool(re.search(r'(?i)(password|clientp12|privatekey|certificate|authorization|bearer|cookie|secret)',s))
+
+          print('=== ABSOLUTE_URLS ===')
+          seen=set()
+          for off,s in vals:
+              if sensitive(s): continue
+              for u in re.findall(r'https?://[^\s"<>]+',s):
+                  try:
+                      p=urllib.parse.urlsplit(u)
+                      q=urllib.parse.parse_qsl(p.query,keep_blank_values=True)
+                      safeq='&'.join(f'{k}=<value>' for k,_ in q)
+                      su=urllib.parse.urlunsplit((p.scheme,p.netloc,p.path,safeq,''))
+                  except Exception: su=u.split('?',1)[0]
+                  if su not in seen:
+                      seen.add(su); print(f'URL pp=0x{off:x} {su[:600]}')
+
+          print('=== HOST_LIKE_STRINGS ===')
+          seen=set()
+          host_re=re.compile(r'(?i)(?:[a-z0-9-]+\.)+(?:com|cn|net|org|app|vip|dev|pro|xyz|mom|top|cc|io|me)(?::\d+)?')
+          for off,s in vals:
+              if sensitive(s) or len(s)>400: continue
+              hits=host_re.findall(s)
+              if hits and s not in seen:
+                  seen.add(s); print(f'HOSTSTR pp=0x{off:x} {s}')
+                  if len(seen)>=300: break
+
+          print('=== API_ROUTE_STRINGS ===')
+          routes=[]
+          for off,s in vals:
+              if sensitive(s): continue
+              if re.fullmatch(r'/?(?:api/)?(?:comic|circle|user|radio)/[A-Za-z0-9_./-]{2,200}',s,re.I):
+                  if s not in [x[1] for x in routes]: routes.append((off,s))
+          for off,s in routes[:500]: print(f'ROUTE pp=0x{off:x} {s}')
+          print('route_count='+str(len(routes)))
+
+          print('=== HEADER_AND_TRANSPORT_MARKERS ===')
+          keys=('X-','User-Agent','Referer','Origin','Content-Type','application/json','apiGuard','sign/key','signature','canonical','timestamp','requestId','deviceId','dio','httpClient','baseUrl','base_url')
+          out=[]
+          for off,s in vals:
+              if sensitive(s) or len(s)>500: continue
+              if any(k.lower() in s.lower() for k in keys): out.append((off,s))
+          seen=set()
+          for off,s in out:
+              if s in seen: continue
+              seen.add(s); print(f'MARK pp=0x{off:x} {s}')
+              if len(seen)>=400: break
+          print('marker_count='+str(len(seen)))
+          PY
