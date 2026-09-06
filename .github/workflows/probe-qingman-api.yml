@@ -29,7 +29,7 @@ jobs:
             /tmp/blutter/dartsdk
             /tmp/blutter/packages
           key: qingman-blutter-dart-3.12.2-arm64-v1
-      - name: Locate bootstrap AOT owner
+      - name: Isolate bootstrap AOT function
         shell: bash
         run: |
           set -euo pipefail
@@ -45,30 +45,56 @@ jobs:
           cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
           cd /tmp/blutter
           python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1 || true
-          tail -12 /tmp/blutter.log || true
-          echo '=== static field references ==='
-          grep -RInE -C 160 'LoadStaticField\(0x12f4\)|StoreStaticField\(0x12f4\)|upb' /tmp/blutter-out/asm | head -32000 || true
-          echo '=== nearby object-pool code addresses ==='
+          tail -10 /tmp/blutter.log || true
           python3 - <<'PY'
+          from pathlib import Path
           import re
-          p='/tmp/blutter-out/pp.txt'
-          lines=open(p,encoding='utf-8',errors='replace').read().splitlines()
-          hits=[i for i,l in enumerate(lines) if 'bootstrap: 原生签名失败' in l or 'mu8xm4cx.zermh.com/bootstrap/domain' in l]
-          addrs=[]
-          for i in hits:
-              a=max(0,i-180); b=min(len(lines),i+180)
-              print('\n--- pool neighborhood',i+1,'---')
-              for l in lines[a:b]:
-                  if any(k in l for k in ('AnonymousClosure','Function:','Field <','bootstrap:','bootstrap/domain','nonce','apiDomain','Content-Type')):
-                      print(l)
-                  for m in re.findall(r'\(0x([0-9a-fA-F]+)\)',l):
-                      v='0x'+m
-                      if v not in addrs:addrs.append(v)
-          print('ADDRS='+'|'.join(addrs[:120]))
-          open('/tmp/addrs','w').write('|'.join(addrs[:120]))
+          pp=Path('/tmp/blutter-out/pp.txt').read_text(encoding='utf-8',errors='replace').splitlines()
+          targets=['https://mu8xm4cx.zermh.com/bootstrap/domain','bootstrap: 原生签名失败','bootstrapSign','bootstrapProof','apiDomain','appAccessToken','nonce']
+          offsets=[]
+          print('=== target pool entries ===')
+          for line in pp:
+              if any(t in line for t in targets):
+                  print(line)
+                  for pat in (r'\[PP[^#]*#0x([0-9a-fA-F]+)',r'PP[^0-9a-fA-F]*0x([0-9a-fA-F]+)',r'^0x([0-9a-fA-F]+)'):
+                      m=re.search(pat,line)
+                      if m:
+                          x=m.group(1).lower()
+                          if x not in offsets: offsets.append(x)
+          print('offsets=',offsets)
+          if not offsets:
+              # Blutter pp.txt commonly begins each pool row with decimal index/address-like metadata.
+              for i,line in enumerate(pp):
+                  if 'https://mu8xm4cx.zermh.com/bootstrap/domain' in line:
+                      print('bootstrap_pp_line_number=',i+1)
+          asm_files=list(Path('/tmp/blutter-out/asm').rglob('*'))
+          asm_files=[p for p in asm_files if p.is_file()]
+          refs=[]
+          for p in asm_files:
+              lines=p.read_text(encoding='utf-8',errors='replace').splitlines()
+              for i,line in enumerate(lines):
+                  low=line.lower()
+                  matched=[o for o in offsets if f'#0x{o}' in low or f'0x{o}' in low]
+                  if not matched: continue
+                  # Keep only obvious PP/object-pool references where possible.
+                  if 'pp' not in low and '[x27' not in low: continue
+                  refs.append((p,i,line,matched))
+          print('=== exact asm references ===')
+          print('reference_count=',len(refs))
+          for p,i,line,matched in refs[:80]:
+              lines=p.read_text(encoding='utf-8',errors='replace').splitlines()
+              # Locate a likely function boundary in Blutter asm: previous blank/header containing address/function marker.
+              start=max(0,i-220); end=min(len(lines),i+320)
+              for j in range(i,-1,-1):
+                  s=lines[j]
+                  if re.search(r'^(?:Function|\w.*Function|\[0x[0-9a-fA-F]+\].*):?$',s) or ('function' in s.lower() and '0x' in s.lower()):
+                      start=j; break
+                  if i-j>700: break
+              for j in range(i+1,min(len(lines),i+900)):
+                  s=lines[j]
+                  if j>i+20 and (re.search(r'^(?:Function|\w.*Function|\[0x[0-9a-fA-F]+\].*):?$',s) or ('function' in s.lower() and '0x' in s.lower())):
+                      end=j; break
+              print(f'\n--- {p}:{i+1} offsets={matched} ---')
+              for k in range(start,end):
+                  print(f'{k+1:06d}: {lines[k]}')
           PY
-          ADDRS="$(cat /tmp/addrs)"
-          if [ -n "$ADDRS" ]; then
-            echo '=== candidate address references ==='
-            grep -RInE -C 140 "$ADDRS" /tmp/blutter-out/asm | head -36000 || true
-          fi
