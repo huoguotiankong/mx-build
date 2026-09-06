@@ -29,7 +29,7 @@ jobs:
             /tmp/blutter/dartsdk
             /tmp/blutter/packages
           key: qingman-blutter-dart-3.12.2-arm64-v1
-      - name: Inspect bootstrap pool neighborhood
+      - name: Dump bootstrap AOT class and security pool
         shell: bash
         run: |
           set -euo pipefail
@@ -46,9 +46,11 @@ jobs:
           cd /tmp/blutter
           python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1 || true
           tail -8 /tmp/blutter.log || true
-          echo '=== pp bootstrap neighborhood ==='
-          sed -n '8040,8240p' /tmp/blutter-out/pp.txt
-          echo '=== all bootstrap mentions outside pp ==='
-          grep -RInE 'bootstrap|appAccessToken|apiDomain|canonicalRequest|X-QM-' /tmp/blutter-out --exclude=pp.txt | head -4000 || true
-          echo '=== static field 0x12f4 neighborhood ==='
-          grep -RInE -C 100 'StaticField\(0x12f4\)|field_12f4|0x12f4' /tmp/blutter-out/asm | head -10000 || true
+          echo '=== full zzm.dart ==='
+          sed -n '1,1600p' /tmp/blutter-out/asm/zzm.dart || true
+          echo '=== exact bootstrap closure/function address references ==='
+          grep -RInE -C 220 '0x516018|516018|upb|_HYh|0x12f4' /tmp/blutter-out/asm | head -30000 || true
+          echo '=== network security pool neighborhood ==='
+          sed -n '5960,6260p' /tmp/blutter-out/pp.txt || true
+          echo '=== bootstrap pool neighborhood ==='
+          sed -n '8030,8235p' /tmp/blutter-out/pp.txt || true
