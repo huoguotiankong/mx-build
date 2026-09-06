@@ -92,11 +92,12 @@ jobs:
               raise SystemExit(f"Signing bundle missing fields: {', '.join(missing)}")
           path = Path(os.environ['RUNNER_TEMP']) / 'mx-app.jks'
           path.write_bytes(base64.b64decode(bundle['signingKey']))
+          store_password = str(bundle['storePassword'])
           values = {
               'MX_KEYSTORE_PATH': str(path),
               'MX_KEY_ALIAS': str(bundle['alias']),
-              'MX_KEYSTORE_PASSWORD': str(bundle['storePassword']),
-              'MX_KEY_PASSWORD': str(bundle.get('keyPassword') or bundle['storePassword']),
+              'MX_KEYSTORE_PASSWORD': store_password,
+              'MX_KEY_PASSWORD': store_password,
           }
           with Path(os.environ['GITHUB_ENV']).open('a', encoding='utf-8') as f:
               for name, value in values.items():
@@ -111,6 +112,25 @@ jobs:
           expected="c230be9c78bf5d28a101c2cb785923b899aa569ead15961309dea8bbcb34ec33"
           actual="$(keytool -exportcert -alias "$MX_KEY_ALIAS" -keystore "$MX_KEYSTORE_PATH" -storepass "$MX_KEYSTORE_PASSWORD" | sha256sum | awk '{print $1}')"
           [[ "$actual" == "$expected" ]] || { echo "::error::MX signing certificate mismatch"; exit 1; }
+
+      - name: Verify private key password
+        shell: bash
+        run: |
+          set -euo pipefail
+          probe="$RUNNER_TEMP/mx-private-key-probe.p12"
+          rm -f "$probe"
+          keytool -importkeystore \
+            -srckeystore "$MX_KEYSTORE_PATH" \
+            -srcstorepass "$MX_KEYSTORE_PASSWORD" \
+            -srcalias "$MX_KEY_ALIAS" \
+            -srckeypass "$MX_KEY_PASSWORD" \
+            -destkeystore "$probe" \
+            -deststoretype PKCS12 \
+            -deststorepass "$MX_KEYSTORE_PASSWORD" \
+            -destkeypass "$MX_KEYSTORE_PASSWORD" \
+            -noprompt >/dev/null
+          rm -f "$probe"
+          echo "Private signing key password verified"
 
       - name: Build signed Preview APKs
         id: preview_build
@@ -142,28 +162,32 @@ jobs:
           log_path = Path(sys.argv[1])
           summary_path = Path(sys.argv[2])
           lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+          useful = [
+              line for line in lines
+              if "malformed kotlin.Metadata" not in line
+          ]
           pattern = re.compile(
-              r"(?:FAILURE:|What went wrong:|Execution failed|Task .* FAILED|^e: |error:|AAPT|R8|OutOfMemory|Could not |Exception|Caused by:)",
+              r"(?:FAILURE:|What went wrong:|Execution failed|Task .* FAILED|^e: |error:|AAPT|R8|OutOfMemory|KeytoolException|Failed to read key|Get Key failed|Caused by:)",
               re.IGNORECASE,
           )
-          hits = [line for line in lines if pattern.search(line)]
-          tail = lines[-80:]
+          hits = [line for line in useful if pattern.search(line)]
+          tail = useful[-60:]
           merged = []
           seen = set()
-          for line in hits[-80:] + tail:
+          for line in hits[-60:] + tail:
               if line not in seen:
                   seen.add(line)
                   merged.append(line)
           if not merged:
               merged = ["Preview build failed but no diagnostic lines were captured."]
-          summary_path.write_text("\n".join(merged[-160:]) + "\n", encoding="utf-8")
+          summary_path.write_text("\n".join(merged[-120:]) + "\n", encoding="utf-8")
           PY
 
             {
               echo "### MX Preview build failed"
               echo
               echo '```text'
-              tail -n 80 "$summary"
+              tail -n 60 "$summary"
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
             echo "::error::Preview APK build failed. Compact diagnostics saved as mx-preview-build-summary artifact."
@@ -263,4 +287,4 @@ jobs:
       - name: Cleanup signing material
         if: always()
         shell: bash
-        run: rm -f "$RUNNER_TEMP/mx-app.jks"
+        run: rm -f "$RUNNER_TEMP/mx-app.jks" "$RUNNER_TEMP/mx-private-key-probe.p12"
