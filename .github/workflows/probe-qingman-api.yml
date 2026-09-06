@@ -29,7 +29,7 @@ jobs:
             /tmp/blutter/dartsdk
             /tmp/blutter/packages
           key: qingman-blutter-dart-3.12.2-arm64-v1
-      - name: Locate bootstrap AOT function
+      - name: Inspect bootstrap pool neighborhood
         shell: bash
         run: |
           set -euo pipefail
@@ -46,9 +46,9 @@ jobs:
           cd /tmp/blutter
           python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1 || true
           tail -8 /tmp/blutter.log || true
-          echo '=== files with bootstrap literals ==='
-          grep -RIlE 'bootstrap/domain|bootstrap: 原生签名失败|apiDomain 已应用|appAccessToken 已应用|bootstrapSign|bootstrapProof' /tmp/blutter-out/asm | head -80 || true
-          echo '=== literal contexts ==='
-          grep -RInE -C 100 'bootstrap/domain|bootstrap: 原生签名失败|apiDomain 已应用|appAccessToken 已应用|bootstrapSign|bootstrapProof' /tmp/blutter-out/asm | head -22000 || true
-          echo '=== related request/header literals ==='
-          grep -RInE -C 12 'X-QM-Proof|X-QM-App-Access|X-Device-Id|X-QM-Request-Id|X-Timestamp|X-Signature|canonicalRequest' /tmp/blutter-out/asm | head -10000 || true
+          echo '=== pp bootstrap neighborhood ==='
+          sed -n '8040,8240p' /tmp/blutter-out/pp.txt
+          echo '=== all bootstrap mentions outside pp ==='
+          grep -RInE 'bootstrap|appAccessToken|apiDomain|canonicalRequest|X-QM-' /tmp/blutter-out --exclude=pp.txt | head -4000 || true
+          echo '=== static field 0x12f4 neighborhood ==='
+          grep -RInE -C 100 'StaticField\(0x12f4\)|field_12f4|0x12f4' /tmp/blutter-out/asm | head -10000 || true
