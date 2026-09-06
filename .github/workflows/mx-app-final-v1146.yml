@@ -175,6 +175,7 @@ jobs:
         run: |
           set -euo pipefail
           ./gradlew assemblePreview \
+            -Dorg.gradle.jvmargs="-Xmx4g -Dfile.encoding=UTF-8 --add-opens=java.base/java.io=ALL-UNNAMED" \
             -Pdisable-code-shrink \
             --no-configuration-cache \
             -Pandroid.injected.signing.store.file="$MX_KEYSTORE_PATH" \
