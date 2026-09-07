@@ -1,4 +1,4 @@
-requested: 2026-09-06T16:50:43-07:00
+requested: 2026-09-06T17:00:10-07:00
 source: mx-dev/fix/qingman-v3-runtime-clean
-source_sha: 3f408da8f66b148d0b1b95663dbf3b74f2a9fd64
-reason: validate latest auth header alignment with Spotless and Debug build
+source_sha: c2ebf2c24d17a4926c0bb9a32cf0b2d1a4d603d3
+reason: validate official raw Authorization token behavior with Spotless and Debug build
