@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/probe-qingman-image-domain.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -69,12 +70,16 @@ jobs:
           hdr={'Accept':'application/json, text/plain, */*','User-Agent':UA,'appVersion':'4.4.5','platform':'android','X-Device-Id':did,'X-QM-App-Access':access,'Content-Type':'application/json'}
           endpoints=[
               ('home','POST','api/comic/comics/v1/homeList?page=1&pageNum=1&pageSize=20'),
+              ('dynamicVersionGet','GET','api/radio/api/config/version'),
+              ('dynamicVersionPost','POST','api/radio/api/config/version'),
               ('adConfig','GET','api/radio/api/config/getAdConfig'),
               ('interstitial','GET','api/radio/api/config/homepage/interstitial'),
               ('signKey','GET','api/comic/comics/sign/key'),
               ('categories','POST','api/comic/categories/list'),
           ]
           domainish=('domain','host','url','line','cdn','server','oss','image','img','pic','cover')
+          exact_fields=('baseimgurl','freeurl','customerurl','officialurl','promotionurl')
+          sensitive=('token','secret','password','cookie','authorization','bearer','private','clientp12','certificate','proof','signature','key')
           def public_value(v):
               if not isinstance(v,str): return None
               s=v.strip()
@@ -90,14 +95,19 @@ jobs:
           def walk(x,path=''):
               if isinstance(x,dict):
                   for k,v in x.items():
-                      kp=(path+'.'+k).strip('.')
-                      if any(t in k.lower() for t in domainish):
+                      kl=str(k).lower(); kp=(path+'.'+str(k)).strip('.')
+                      if any(t in kl for t in sensitive):
+                          continue
+                      if kl in exact_fields:
+                          pv=public_value(v)
+                          print('EXACT_FIELD='+kp+' '+(pv if pv else 'type='+type(v).__name__))
+                      elif any(t in kl for t in domainish):
                           pv=public_value(v)
                           if pv: print('field='+kp+' '+pv)
                           elif isinstance(v,(list,dict)): print('field='+kp+' type='+type(v).__name__)
                       walk(v,kp)
               elif isinstance(x,list):
-                  for i,v in enumerate(x[:40]): walk(v,path+'[]')
+                  for i,v in enumerate(x[:80]): walk(v,path+'[]')
           for name,method,path in endpoints:
               url=f'http://{host}/'+path
               req=urllib.request.Request(url,headers=hdr,method=method,data=(b'{}' if method=='POST' else None))
@@ -106,6 +116,9 @@ jobs:
                       raw=r.read().decode('utf-8','replace')
                       obj=json.loads(raw)
                       print(f'endpoint={name} http={r.status} code={obj.get("code") if isinstance(obj,dict) else "?"}')
+                      if isinstance(obj,dict):
+                          safe_keys=[str(k) for k in obj.keys() if not any(t in str(k).lower() for t in sensitive)]
+                          print('endpoint='+name+' top_keys='+','.join(safe_keys[:40]))
                       walk(obj,name)
               except urllib.error.HTTPError as e:
                   print(f'endpoint={name} http={e.code}')
