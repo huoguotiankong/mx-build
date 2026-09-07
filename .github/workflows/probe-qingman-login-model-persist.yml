@@ -1,0 +1,212 @@
+name: Persist Qingman Login Model Xrefs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-login-model-persist.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools python3-capstone cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+      - uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+      - name: Inspect official login request and session model
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/apk_url
+          import json,urllib.request
+          a=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=30))['data']['datas']['android']
+          if (str(a.get('version','')),str(a.get('versionCode',''))) != ('4.4.5','445'):
+              raise SystemExit('official version changed')
+          print(a['downloadUrl'])
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/out /tmp/x
+          mkdir -p /tmp/app-lib /tmp/out /tmp/x
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/x
+          cp /tmp/x/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/x/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter && python3 blutter.py /tmp/app-lib /tmp/out >/tmp/blutter.log 2>&1
+          cd "$GITHUB_WORKSPACE"
+          python3 - <<'PY' > .github/qingman-login-model-result.txt
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
+          import re,bisect
+
+          SAFE_STRINGS={
+              'userName','username','password','deviceId','loginType','type','platform','android','userId','uid','memberId',
+              'user_info','qm_user_id','qm_auth_token','qm_is_guest','qm_identity_type','code','msg','message','data','result',
+              'accessToken','refreshToken','token','authToken','Authorization','appVersion','deviceModel','mobileOs','appCode',
+              'clientIp','userPlatform','X-Register-Channel','api/appapi/user/f9384dh/login'
+          }
+          SENSITIVE=re.compile(r'(?i)(clientp12|privatekey|keystore|storepassword|keypassword|bootstrapproof|bootstrapdecrypt)')
+          SECRET_VALUE=re.compile(r'(?i)(bearer\s+)[A-Za-z0-9._~+/=-]{8,}')
+          def safe(s):
+              s=SECRET_VALUE.sub(r'\1<redacted>',s)
+              if SENSITIVE.search(s): return '<redacted-sensitive-structure>'
+              return s[:900]
+
+          pp={}
+          for line in Path('/tmp/out/pp.txt').read_text('utf-8',errors='replace').splitlines():
+              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s+(.*)$',line)
+              if m: pp[int(m.group(1),16)]=m.group(2)
+          target_offsets={}
+          for off,val in pp.items():
+              m=re.fullmatch(r'String: "([^"]*)"',val)
+              if m and m.group(1) in SAFE_STRINGS:
+                  target_offsets[off]=m.group(1)
+
+          syms={}
+          for line in Path('/tmp/out/ida_script/addNames.py').read_text('utf-8',errors='replace').splitlines():
+              m=re.search(r'set_name\((0x[0-9a-fA-F]+|\d+),\s*[ru]?([\'\"])(.*?)\2',line)
+              if m:
+                  try: syms[int(m.group(1),0)]=m.group(3)
+                  except: pass
+
+          funcs=[]
+          asm_files=list(Path('/tmp/out/asm').rglob('*.dart'))
+          for p in asm_files:
+              ls=p.read_text('utf-8',errors='replace').splitlines()
+              for i,line in enumerate(ls):
+                  m=re.search(r'\*\* addr: 0x([0-9a-fA-F]+), size: 0x([0-9a-fA-F]+)',line)
+                  if not m: continue
+                  st=int(m.group(1),16); en=st+int(m.group(2),16); decl=''
+                  for j in range(i-1,max(-1,i-10),-1):
+                      t=ls[j].strip()
+                      if t and not t.startswith('//'):
+                          decl=t; break
+                  funcs.append((st,en,p,decl))
+          funcs.sort(key=lambda x:x[0]); starts=[f[0] for f in funcs]
+          def owner(a):
+              i=bisect.bisect_right(starts,a)-1
+              return funcs[i] if i>=0 and funcs[i][0]<=a<funcs[i][1] else None
+
+          with open('/tmp/app-lib/libapp.so','rb') as f:
+              elf=ELFFile(f); sec=elf.get_section_by_name('.text'); base=int(sec['sh_addr']); blob=sec.data()
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.skipdata=True
+          insns=list(md.disasm(blob,base)); addrs=[i.address for i in insns]
+
+          xrefs={off:[] for off in target_offsets}
+          pending={}
+          for ins in insns:
+              pending={r:(o,n-1) for r,(o,n) in pending.items() if n>1}
+              op=ins.op_str.lower()
+              m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
+              if ins.mnemonic=='add' and m:
+                  pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),48)
+              if ins.mnemonic in ('ldr','ldur','ldrsw'):
+                  m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
+                  if m:
+                      br=m.group(2); d=int(m.group(3),0) if m.group(3) else 0
+                      off=d if br=='x27' else (pending[br][0]+d if br in pending else None)
+                      if off in xrefs: xrefs[off].append(ins.address)
+
+          def annotate(ins,pending):
+              out=[]; op=ins.op_str.lower()
+              m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
+              if ins.mnemonic=='add' and m:
+                  pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),48)
+              if ins.mnemonic in ('ldr','ldur','ldrsw'):
+                  m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
+                  if m:
+                      br=m.group(2); d=int(m.group(3),0) if m.group(3) else 0
+                      off=d if br=='x27' else (pending[br][0]+d if br in pending else None)
+                      if off in target_offsets: out.append(f'KEY={target_offsets[off]}')
+                      elif off in pp:
+                          val=pp[off]
+                          if any(k in val for k in ('TypeArguments: <ftb','TypeArguments: <Map<String, dynamic>','api/appapi/user/f9384dh/login')):
+                              out.append('PP='+safe(val))
+              if ins.mnemonic=='bl' and ins.op_str.startswith('#'):
+                  try: t=int(ins.op_str[1:],0); out.append('CALL='+safe(syms.get(t,f'0x{t:x}')))
+                  except: pass
+              return out
+
+          def dump(center,before=45,after=70):
+              i=bisect.bisect_left(addrs,center); lo=max(0,i-before); hi=min(len(insns),i+after)
+              pending={}
+              for ins in insns[lo:hi]:
+                  pending={r:(o,n-1) for r,(o,n) in pending.items() if n>1}
+                  anns=annotate(ins,pending)
+                  print(safe(f'0x{ins.address:x}: {ins.mnemonic:<7} {ins.op_str:<52}'+((' ; '+' | '.join(anns)) if anns else '')))
+
+          print('Qingman 4.4.5 login model xrefs — identifier-only, no credential values')
+          print('\n===== SAFE IDENTIFIER OBJECT POOL =====')
+          for off,name in sorted(target_offsets.items()):
+              print(f'PP+0x{off:x}: {name}')
+
+          focus={'userName','password','deviceId','qm_auth_token','qm_user_id','user_info','accessToken','refreshToken','token','authToken','api/appapi/user/f9384dh/login'}
+          print('\n===== XREF CONTEXTS =====')
+          seen=set()
+          for off,name in sorted(target_offsets.items()):
+              if name not in focus: continue
+              refs=xrefs.get(off,[])
+              print(f'\n--- {name} PP+0x{off:x}: refs='+(','.join(f'0x{x:x}' for x in refs[:40]) if refs else '<none>'))
+              for x in refs[:10]:
+                  if x in seen: continue
+                  seen.add(x)
+                  f=owner(x)
+                  print('OWNER='+(safe(f'{f[2].name} :: {f[3]} [0x{f[0]:x}-0x{f[1]:x}]') if f else '<raw-unmapped>'))
+                  dump(x)
+
+          print('\n===== KNOWN LOGIN/PERSISTENCE RANGES =====')
+          for a,label in [
+              (0xaaf3a4,'login async request'),(0xaaf5ec,'login helper'),(0xaaf6f8,'login caller'),
+              (0xb128e4,'persist user info'),(0xb12ab0,'load user id'),(0xb12be0,'restore token/user id'),(0xb12f34,'identity finalize'),
+              (0x3ea234,'ftb serializer'),(0x3ea14c,'ftb parser')
+          ]:
+              print(f'\n--- {label} 0x{a:x} ---')
+              dump(a,35,90)
+
+          print('\n===== BLUTTER TEXT CONTEXTS =====')
+          pats=[r'\bftb\b',r'api/appapi/user/f9384dh/login',r'qm_auth_token',r'qm_user_id',r'"userName"',r'"password"',r'"deviceId"']
+          hits=0
+          for p in asm_files:
+              ls=p.read_text('utf-8',errors='replace').splitlines()
+              for i,line in enumerate(ls):
+                  if not any(re.search(pat,line) for pat in pats): continue
+                  print(f'--- {p.name}:{i+1} ---')
+                  for s in ls[max(0,i-16):min(len(ls),i+36)]:
+                      # Generated source contains identifiers/structure only here. Still redact obvious sensitive structures.
+                      print(safe(s))
+                  hits+=1
+                  if hits>=80: break
+              if hits>=80: break
+          PY
+      - name: Persist sanitized result
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .github/qingman-login-model-result.txt
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'chore(qingman): record login model xrefs'
+          for attempt in 1 2 3 4 5; do
+            git fetch origin main
+            if git rebase origin/main && git push origin HEAD:main; then exit 0; fi
+            git rebase --abort 2>/dev/null || true
+            sleep $((attempt*2))
+          done
+          exit 1
