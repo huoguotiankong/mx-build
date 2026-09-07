@@ -30,7 +30,7 @@ jobs:
             /tmp/blutter/dartsdk
             /tmp/blutter/packages
           key: qingman-blutter-dart-3.12.2-arm64-v1
-      - name: Enumerate route candidates
+      - name: Trace selector metadata
         shell: bash
         run: |
           set -euo pipefail
@@ -48,24 +48,33 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import re
-          pp=Path('/tmp/out/pp.txt').read_text('utf-8',errors='replace').splitlines()
+          root=Path('/tmp/out')
+          pats=(re.compile(r'(?i)0x(?:beba|ceba)\b'),re.compile(r'\b(?:48826|52922)\b'))
+          print('=== SELECTOR METADATA HITS ===')
+          count=0
+          for p in [root/'objs.txt',root/'pp.txt']+list((root/'asm').glob('*.dart')):
+              try: lines=p.read_text('utf-8',errors='replace').splitlines()
+              except Exception: continue
+              for i,z in enumerate(lines):
+                  if any(q.search(z) for q in pats):
+                      count+=1
+                      print(f'FILE={p.name} LINE={i+1}')
+                      for x in lines[max(0,i-12):min(len(lines),i+28)]: print(x[:900])
+                      if count>=40: break
+              if count>=40: break
+          print('hit_count='+str(count))
+
+          print('=== ALL fPa SUBCLASSES CIDS ===')
           rows=[]
-          for line in pp:
-              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\].*String: "([^"]+)"',line)
-              if not m: continue
-              s=m.group(2)
-              if s.startswith('api/') or s.startswith('/api/'):
-                  rows.append((int(m.group(1),16),s))
-          print('route_count='+str(len(rows)))
-          for off,s in rows:
-              print(f'0x{off:x} {s}')
-          print('=== APPCONFIG-LIKE NON-API STRINGS ===')
-          needles=('config','domain','line','route','server','baseurl','baseurl','image','imgurl','freeurl','officialurl','customerurl','promotionurl')
-          for line in pp:
-              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\].*String: "([^"]+)"',line)
-              if not m: continue
-              s=m.group(2); low=s.lower()
-              if any(n in low for n in needles) and len(s)<220:
-                  if not any(x in low for x in ('token','password','authorization','certificate','private','secret')):
-                      print(f'0x{int(m.group(1),16):x} {s}')
+          for p in (root/'asm').glob('*.dart'):
+              lines=p.read_text('utf-8',errors='replace').splitlines()
+              for i,z in enumerate(lines):
+                  m=re.match(r'class\s+([A-Za-z0-9_$]+)\s+extends\s+fPa\b',z.strip())
+                  if not m: continue
+                  cid='?'
+                  for j in range(max(0,i-5),i):
+                      cm=re.search(r'class id:\s*(\d+)',lines[j])
+                      if cm: cid=cm.group(1)
+                  rows.append((int(cid) if cid.isdigit() else 999999,m.group(1),p.name,i+1))
+          for cid,name,file,line in sorted(rows): print(f'cid={cid} class={name} file={file} line={line}')
           PY
