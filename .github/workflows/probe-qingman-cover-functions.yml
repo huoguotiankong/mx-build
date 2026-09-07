@@ -1,0 +1,72 @@
+name: Identify Qingman Cover Helper Functions
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-cover-functions.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+      - name: Restore analyzer cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+      - name: Identify target functions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/apk_url
+          import json,urllib.request
+          a=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))['data']['datas']['android']
+          if str(a.get('version'))!='4.4.5' or str(a.get('versionCode'))!='445': raise SystemExit('Unexpected Qingman version')
+          print(a['downloadUrl'])
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qm.apk
+          rm -rf /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          mkdir -p /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          unzip -q /tmp/qm.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/apk-extract
+          cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter
+          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          targets=[0x47fe98,0x480050,0x48054c,0x642e84,0xb86224,0x4c9b08,0x38cb20,0x44ae8c,0x495f50,0x49ee40]
+          files=[p for p in Path('/tmp/blutter-out').rglob('*.dart') if p.is_file()]
+          for target in targets:
+              found=[]
+              for p in files:
+                  lines=p.read_text('utf-8',errors='replace').splitlines()
+                  for i,line in enumerate(lines):
+                      m=re.search(r'\*\* addr: 0x([0-9a-fA-F]+), size: 0x([0-9a-fA-F]+)',line)
+                      if not m: continue
+                      st=int(m.group(1),16); sz=int(m.group(2),16)
+                      if st<=target<st+sz:
+                          found.append((p,i,st,sz,lines))
+              print(f'=== TARGET 0x{target:x} matches={len(found)} ===')
+              for p,i,st,sz,lines in found[:3]:
+                  print(f'FILE={p.name} FUNC=0x{st:x}-0x{st+sz:x}')
+                  # Include function signature immediately above addr marker and first 80 lines of generated pseudocode/comments.
+                  for z in lines[max(0,i-4):min(len(lines),i+90)]:
+                      if len(z)>520: z=z[:520]
+                      print(z)
+          PY
