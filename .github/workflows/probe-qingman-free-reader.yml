@@ -84,19 +84,32 @@ jobs:
           dump('freeLine list transformation',0x489d5c,0x489f90)
           dump('reader chapter request/fallback',0x488900,0x488c80)
           dump('reader type request helper',0xae28c0,0xae2a40)
+          dump('generated comic buy/cache/detail api methods',0x7e2500,0x7e2900)
 
-          print('\n=== BLUTTER DECLARATIONS ===')
-          targets=(0x489d10,0x489d5c,0x489e4c,0x489f88,0x488ad8,0xae2908)
+          print('\n=== NON-MEMBER / FREE / UNLOCK SAFE STRINGS ===')
+          terms=('会员','免费','试看','广告','解锁','free','preview','trial','vip','member','unlock','adUnlockcomic','freeLine','freeUrl')
+          for off,val in sorted(pp.items()):
+              if sensitive.search(val):
+                  continue
+              low=val.lower()
+              if any(t.lower() in low for t in terms):
+                  print(f'PP+0x{off:x} {safe(val)}')
+
+          print('\n=== BLUTTER DECLARATIONS AROUND BUY/CACHE/DETAIL ===')
+          targets=(0x7e25e0,0x7e26b8,0x7e27b0,0x489d10,0x489d5c,0x489e4c,0x488ad8,0xae2908)
           for p in Path('/tmp/blutter-out/asm').rglob('*.dart'):
               lines=p.read_text('utf-8',errors='replace').splitlines()
               for i,s in enumerate(lines):
                   m=re.search(r'\*\* addr: 0x([0-9a-fA-F]+), size: 0x([0-9a-fA-F]+)',s)
                   if not m: continue
                   st=int(m.group(1),16); sz=int(m.group(2),16)
-                  if any(st<=t<st+sz for t in targets) or any(abs(st-t)<=0x60 for t in targets):
+                  if any(st<=t<st+sz for t in targets) or any(abs(st-t)<=0x80 for t in targets):
                       print(f'FILE={p.name} {s.strip()}')
-                      for j in range(max(0,i-5),min(len(lines),i+80)):
+                      emitted=0
+                      for j in range(max(0,i-8),min(len(lines),i+150)):
                           z=lines[j]
                           if sensitive.search(z): continue
-                          print(safe(z))
+                          if any(k in z for k in ('api/comic/','freeLine','freeUrl','preview','unlock','member','vip','会员','免费','广告','解锁','LoadField','StoreField','call 0x','Await','ReturnAsync')):
+                              print(safe(z)); emitted += 1
+                              if emitted >= 120: break
           PY
