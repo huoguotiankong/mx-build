@@ -1,4 +1,4 @@
-requested: 2026-09-07T01:49:00Z
+requested: 2026-09-07T01:58:00Z
 source: mx-dev/fix/qingman-v3-runtime-clean
-source_sha: bccbd9c040d79fcbb5c1877c3db2a9201c517d6d
-reason: validate v7 live-confirmed official search endpoint, recursive reader image parsing, diagnostics, Spotless, and Debug build
+source_sha: 9947e2760b3f1ebd9f06248dd3639bb1e5f3703e
+reason: validate v8 live-confirmed official search, recursive reader parsing, version bump, Spotless, and Debug build
