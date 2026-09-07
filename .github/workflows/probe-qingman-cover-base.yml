@@ -20,10 +20,15 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PY' >/tmp/apk_url
-          import json,urllib.request
+          import json,urllib.request,urllib.parse,pathlib
           a=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))['data']['datas']['android']
           if str(a.get('version'))!='4.4.5' or str(a.get('versionCode'))!='445': raise SystemExit('Unexpected Qingman version')
-          print(a['downloadUrl'])
+          u=a['downloadUrl']
+          p=urllib.parse.urlsplit(u)
+          origin=f'{p.scheme}://{p.netloc}'
+          pathlib.Path('/tmp/download_origin').write_text(origin)
+          print(u)
+          print('download_origin='+origin, file=__import__('sys').stderr)
           PY
           curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qm.apk
           rm -rf /tmp/qm && mkdir -p /tmp/qm
@@ -97,13 +102,22 @@ jobs:
           PY
           rm -f "$out"
 
-      - name: Test candidate image bases
+      - name: Test candidate image bases including version download origin
         shell: bash
         run: |
           set -euo pipefail
           rel=$(cat /tmp/cover_rel)
           rel="/${rel#/}"
-          for base in 'https://img-qingman.dmzj.com' 'http://img-qingman.dmzj.com'; do
+          download_origin=$(cat /tmp/download_origin)
+          api_host=$(cat /tmp/host)
+          bases=(
+            "$download_origin"
+            "https://bass8ycl.zermh.com"
+            "http://$api_host"
+            'https://img-qingman.dmzj.com'
+            'http://img-qingman.dmzj.com'
+          )
+          for base in "${bases[@]}"; do
             for mode in plain ua referer; do
               args=()
               [[ "$mode" == ua ]] && args=(-H 'User-Agent: qingman/4.4.5 (Android)')
@@ -111,8 +125,17 @@ jobs:
               hdr=$(mktemp); body=$(mktemp); err=$(mktemp)
               code=$(curl -sS -L --connect-timeout 8 --max-time 25 -D "$hdr" -o "$body" -w '%{http_code}' "${args[@]}" "$base$rel" 2>"$err" || true)
               ctype=$(awk 'BEGIN{IGNORECASE=1}/^content-type:/{v=$0}END{sub(/^content-type:[ ]*/,"",v);gsub("\r", "", v);print v}' "$hdr")
-              printf 'base=%s mode=%s http=%s bytes=%s ctype=%s err=%s\n' "$base" "$mode" "$code" "$(wc -c < "$body" | tr -d ' ')" "$ctype" "$(tr '\n' ' ' < "$err" | cut -c1-100)"
+              magic=$(python3 - "$body" <<'PY'
+          import sys,pathlib
+          b=pathlib.Path(sys.argv[1]).read_bytes()[:16]
+          if b[:4] in (b'RIFF',): print('riff')
+          elif b[:8]==b'\x89PNG\r\n\x1a\n': print('png')
+          elif b[:3]==b'\xff\xd8\xff': print('jpeg')
+          else: print('other')
+          PY
+              )
+              printf 'base=%s mode=%s http=%s bytes=%s ctype=%s magic=%s err=%s\n' "$base" "$mode" "$code" "$(wc -c < "$body" | tr -d ' ')" "$ctype" "$magic" "$(tr '\n' ' ' < "$err" | cut -c1-100)"
               rm -f "$hdr" "$body" "$err"
             done
           done
-          rm -f /tmp/host /tmp/access /tmp/did /tmp/cover_rel
+          rm -f /tmp/host /tmp/access /tmp/did /tmp/cover_rel /tmp/download_origin
