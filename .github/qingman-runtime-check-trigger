@@ -1,4 +1,4 @@
-requested: 2026-09-06T17:00:10-07:00
+requested: 2026-09-07T01:18:00Z
 source: mx-dev/fix/qingman-v3-runtime-clean
-source_sha: c2ebf2c24d17a4926c0bb9a32cf0b2d1a4d603d3
-reason: validate official raw Authorization token behavior with Spotless and Debug build
+source_sha: d5a8c4d0bf504d611deee45a1dd00169e62f04e4
+reason: validate v6 dynamic media host resolution, relative cover normalization, reader media normalization, Spotless, and Debug build
