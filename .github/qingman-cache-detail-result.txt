@@ -1,61 +1,36 @@
-Qingman 4.4.5 cache/detail helper ABI probe
-[target symbols]
-0xacc934 <unnamed>
-0xaa1538 <unnamed>
-0x45b890 <unnamed>
-0x464410 <unnamed>
-0x4643b4 <unnamed>
-0xaa0250 <unnamed>
-0xacc3e0 <unnamed>
+Qingman 4.4.5 cache/detail call contract probe
+[owners]
+0xacc358: <unmapped>
+0xacc3e0: <unmapped>
+0xacc934: <unmapped>
 
-[exact strings]
-PP+0x6298 String: "Referer"
-PP+0x9048 String: "api/comic/chapter/ie84hfh8/cache/detail"
-PP+0x96d8 String: "deviceId"
-PP+0xfb98 String: "chapterId"
-PP+0x18840 String: "lastChapterId"
-PP+0x18c70 String: "comicId"
-PP+0x18c78 String: "imageUrl"
-PP+0x19eb0 String: "comicIds"
-PP+0x1fe30 String: "topicList"
-PP+0x20a30 String: "imageUrls"
-PP+0x225c8 String: "解析本地广播剧缓存失败: chapterId="
-PP+0x225d8 String: "解密缓存广播剧音频失败: comicId="
-PP+0x225e0 String: " chapterId="
-PP+0x22648 String: "pageUrls"
-PP+0x226c0 String: "referer"
-PP+0x227d0 String: "广播剧章节缺少播放地址（cover 字段为空）: chapterId="
-PP+0x23d00 String: "horizontalImageUrl"
-PP+0x23d08 String: "verticalImageUrl"
-PP+0x24260 String: "Read progress loaded: comicId="
-PP+0x24f18 String: " 张图片下载失败被跳过 chapterId="
-PP+0x24f38 String: "[漫画缓存] 图片下载失败已跳过 chapterId="
-PP+0x24f58 String: "刷新下载地址失败：接口未返回有效地址 chapterId="
-PP+0x24f60 String: "[下载token刷新] 已更新下载地址 chapterId="
-PP+0x24f70 String: "[下载token刷新] 重拉 cache/detail 失败 chapterId="
-PP+0x24ff0 String: "nextChapterId"
-PP+0x24ff8 String: "preChapterId"
-PP+0x25000 String: "picList"
-PP+0x25088 String: " referer="
-PP+0x25800 String: "comicIdsStr"
-PP+0x29eb8 String: "Read progress saved: comicId="
-PP+0x29ec0 String: "[更新写入] comicId="
-PP+0x29f08 String: "加载本章精彩评论失败: chapterId="
-PP+0x2a2a0 String: "阅读页命中本地缓存: comicId="
-PP+0x2a2a8 String: ", chapterId="
-PP+0x2a2b8 String: "阅读页走网络章节详情: comicId="
-PP+0x2a2e0 String: "阅读页网络失败，回退本地缓存: comicId="
-PP+0x2a440 String: "超清(type=2)章节详情返回 code=0，兜底降级为标清(type=1)重试一次: comicId="
-PP+0x2fe00 String: "[广播剧token替换] chapterId="
-PP+0x2fe10 String: "后台已用新 token 恢复播放: chapterId="
-PP+0x30cc8 String: "取消收藏成功: comicId="
-PP+0x30cd0 String: "收藏成功: comicId="
-PP+0x31e28 String: "跳转到阅读页: comicId="
-PP+0x31e50 String: "删除观看记录成功: comicId="
-PP+0x38f00 String: "claimedImageUrl"
-PP+0x40078 String: "取消收藏成功: comicIds="
+[refresh caller just before cache/detail]
+0xacc380: b.ls    #0xacc3d8
+0xacc384: add     x0, x27, #0x24, lsl #12
+0xacc388: ldr     x0, [x0, #0xf78] ; PP=TypeArguments: <List<String>?>
+0xacc38c: bl      #0xa93d80 ; CALL=InitAsyncStub_a93d80
+0xacc390: ldur    x1, [x29, #-0x10]
+0xacc394: ldur    x2, [x29, #-0x18]
+0xacc398: ldur    x3, [x29, #-0x20]
+0xacc39c: ldur    x5, [x29, #-0x28]
+0xacc3a0: bl      #0xacc934 ; CALL=0xacc934
+0xacc3a4: mov     x1, x0
+0xacc3a8: stur    x1, [x29, #-0x18]
+0xacc3ac: bl      #0xa93b3c ; CALL=AwaitStub_a93b3c
+0xacc3b0: cmp     w0, w22
+0xacc3b4: b.ne    #0xacc3c0
+0xacc3b8: mov     x2, x22
+0xacc3bc: b       #0xacc3cc
+0xacc3c0: ldur    w1, [x0, #0x1b]
+0xacc3c4: add     x1, x1, x28, lsl #32
+0xacc3c8: mov     x2, x1
+0xacc3cc: ldur    x1, [x29, #-0x10]
+0xacc3d0: bl      #0xacc3e0 ; CALL=0xacc3e0
+0xacc3d4: b       #0xa9ab6c
+0xacc3d8: bl      #0xbb602c ; CALL=StackOverflowSharedWithoutFPURegsStub_bb602c
+0xacc3dc: b       #0xacc384
 
-[full cache/detail request helper 0xacc934-0xacca30]
+[cache/detail request helper]
 0xacc934: stp     x29, x30, [x15, #-0x10]!
 0xacc938: mov     x29, x15
 0xacc93c: sub     x15, x15, #0xb8
@@ -75,7 +50,7 @@ PP+0x40078 String: "取消收藏成功: comicIds="
 0xacc974: ldr     x0, [x0, #0xa70] ; PP=TypeArguments: <oub?>
 0xacc978: bl      #0xa93d80 ; CALL=InitAsyncStub_a93d80
 0xacc97c: ldr     x0, [x26, #0x78]
-0xacc980: ldr     x0, [x0, #0x2710] ; PP=List<(dynamic this, NTa) => void?>(7) [Closure: (NTa) => void from Function 'Vrh': static. (0x7fb2d46419e4), Closure: (NTa) => void from Function '_Crh@1133011378': static. (0x7fb2
+0xacc980: ldr     x0, [x0, #0x2710] ; PP=List<(dynamic this, NTa) => void?>(7) [Closure: (NTa) => void from Function 'Vrh': static. (0x7f9a79e419e4), Closure: (NTa) => void from Function '_Crh@1133011378': static. (0x7f9a
 0xacc984: ldr     x16, [x26, #0x90]
 0xacc988: cmp     w0, w16
 0xacc98c: b.ne    #0xacc99c
@@ -102,7 +77,7 @@ PP+0x40078 String: "取消收藏成功: comicIds="
 0xacc9e0: bl      #0x4643b4 ; CALL=0x4643b4
 0xacc9e4: stur    x0, [x29, #-0x90]
 0xacc9e8: ldr     x0, [x26, #0x78]
-0xacc9ec: ldr     x0, [x0, #0x25c0] ; PP=Closure: (int, Uint32List, int) => int from Function '_Lvh@1140369473': static. (0x7fb2d4635788)
+0xacc9ec: ldr     x0, [x0, #0x25c0] ; PP=Closure: (int, Uint32List, int) => int from Function '_Lvh@1140369473': static. (0x7f9a79e35788)
 0xacc9f0: ldr     x16, [x26, #0x90]
 0xacc9f4: cmp     w0, w16
 0xacc9f8: b.ne    #0xacca04
@@ -119,3 +94,85 @@ PP+0x40078 String: "取消收藏成功: comicIds="
 0xacca24: mov     x1, x22
 0xacca28: stur    x3, [x29, #-0xb0]
 0xacca2c: cmp     w0, w22
+
+[cache/detail response extractor]
+0xacc3e0: stp     x29, x30, [x15, #-0x10]!
+0xacc3e4: mov     x29, x15
+0xacc3e8: sub     x15, x15, #0x30
+0xacc3ec: stur    x22, [x29, #-8]
+0xacc3f0: stur    x1, [x29, #-0x10]
+0xacc3f4: mov     x16, x2
+0xacc3f8: mov     x2, x1
+0xacc3fc: mov     x1, x16
+0xacc400: stur    x1, [x29, #-0x18]
+0xacc404: ldr     x16, [x26, #0x48]
+0xacc408: cmp     x15, x16
+0xacc40c: b.ls    #0xacc878
+0xacc410: add     x0, x27, #0x24, lsl #12
+0xacc414: ldr     x0, [x0, #0xf78] ; PP=TypeArguments: <List<String>?>
+0xacc418: bl      #0xa93d80 ; CALL=InitAsyncStub_a93d80
+0xacc41c: ldur    x1, [x29, #-0x18]
+0xacc420: cmp     w1, w22
+0xacc424: b.ne    #0xacc430
+0xacc428: mov     x0, x22
+0xacc42c: b       #0xa9192c
+0xacc430: bl      #0x461990 ; CALL=0x461990
+0xacc434: mov     x1, x0
+0xacc438: stur    x1, [x29, #-0x10]
+0xacc43c: bl      #0xa93b3c ; CALL=AwaitStub_a93b3c
+0xacc440: ldur    w1, [x0, #7]
+0xacc444: cbnz    w1, #0xacc450
+0xacc448: mov     x0, x22
+0xacc44c: b       #0xa9192c
+0xacc450: mov     x2, x0
+0xacc454: ldr     x1, [x27, #0x19c0] ; PP=Obj!Af@575fd1 : {
+0xacc458: ldr     x4, [x27, #0x278] ; PP=List(5) [0, 0x2, 0, 0x2, Null]
+0xacc45c: bl      #0x92c540 ; CALL=0x92c540
+0xacc460: mov     x3, x0
+0xacc464: mov     x2, x22
+0xacc468: mov     x1, x22
+0xacc46c: stur    x3, [x29, #-0x10]
+0xacc470: cmp     w0, w22
+0xacc474: b.eq    #0xacc518
+0xacc478: tbz     w0, #0, #0xacc518
+0xacc47c: ldur    x3, [x0, #-1]
+0xacc480: ubfx    x3, x3, #0xc, #0x14
+0xacc484: movz    x17, #0x1af5
+0xacc488: cmp     x3, x17
+0xacc48c: b.eq    #0xacc520
+0xacc490: sub     x3, x3, #0x5a
+0xacc494: cmp     x3, #2
+0xacc498: b.ls    #0xacc520
+0xacc49c: ldur    x4, [x0, #-1]
+0xacc4a0: ubfx    x4, x4, #0xc, #0x14
+0xacc4a4: ldr     x3, [x26, #0x688]
+0xacc4a8: ldr     x3, [x3, #0x18]
+0xacc4ac: ldr     x3, [x3, x4, lsl #3]
+0xacc4b0: ldur    w3, [x3, #0x2b]
+0xacc4b4: add     x3, x3, x28, lsl #32
+0xacc4b8: cmp     w3, w22
+0xacc4bc: b.eq    #0xacc518
+0xacc4c0: ldur    w3, [x3, #0xf]
+0xacc4c4: lsr     x3, x3, #3
+0xacc4c8: movz    x17, #0x1af5
+0xacc4cc: cmp     x3, x17
+0xacc4d0: b.eq    #0xacc520
+0xacc4d4: add     x3, x27, #0x24, lsl #12
+0xacc4d8: ldr     x3, [x3, #0xf80] ; PP=SubtypeTestCache
+0xacc4dc: ldr     x30, [x27, #0x4e0] ; PP=Stub: Subtype1TestCache (0x312fcc)
+0xacc4e0: ldur    x30, [x30, #7]
+0xacc4e4: blr     x30
+0xacc4e8: cmp     w7, w22
+0xacc4ec: b.eq    #0xacc4f8
+0xacc4f0: tbnz    w7, #4, #0xacc518
+0xacc4f4: b       #0xacc520
+0xacc4f8: add     x8, x27, #0x24, lsl #12
+0xacc4fc: ldr     x8, [x8, #0xf88] ; PP=Type: List
+0xacc500: add     x3, x27, #0x24, lsl #12
+0xacc504: ldr     x3, [x3, #0xf90] ; PP=SubtypeTestCache
+0xacc508: ldr     x30, [x27, #0x488] ; PP=Stub: InstanceOf (0x3012f4)
+0xacc50c: ldur    x30, [x30, #7]
+0xacc510: blr     x30
+0xacc514: b       #0xacc524
+0xacc518: add     x0, x22, #0x30
+0xacc51c: b       #0xacc524
