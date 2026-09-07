@@ -47,14 +47,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils-aarch64-linux-gnu >/dev/null
           SO=/tmp/qm-guard/lib/arm64-v8a/libqx_security.so
           strings -a -t x "$SO" >/tmp/qm-guard/strings.txt
           readelf -rW "$SO" >/tmp/qm-guard/rela.txt
           readelf -SW "$SO" >/tmp/qm-guard/sections.txt
-          llvm-objdump -d --no-show-raw-insn "$SO" >/tmp/qm-guard/disasm.txt
+          aarch64-linux-gnu-objdump -d "$SO" >/tmp/qm-guard/disasm.txt
           python3 - <<'PY'
           from pathlib import Path
-          import hashlib,re,struct
+          import hashlib,re
           so=Path('/tmp/qm-guard/lib/arm64-v8a/libqx_security.so')
           raw=so.read_bytes()
           strings=Path('/tmp/qm-guard/strings.txt').read_text('utf-8',errors='replace').splitlines()
@@ -71,7 +73,7 @@ jobs:
           api_name=str_off('apiGuard')
           by_slot={}
           for line in rels:
-              m=re.match(r'([0-9a-fA-F]{16})\s+[0-9a-fA-F]{16}\s+R_AARCH64_RELATIVE\s+([0-9a-fA-F]+)\s*$',line)
+              m=re.match(r'\s*([0-9a-fA-F]+)\s+[0-9a-fA-F]+\s+R_AARCH64_RELATIVE\s+([0-9a-fA-F]+)\s*$',line)
               if m:
                   by_slot[int(m.group(1),16)]=int(m.group(2),16)
           slots=[slot for slot,val in by_slot.items() if val==api_name]
@@ -93,8 +95,6 @@ jobs:
           print(f'APIGUARD_SIGNATURE={sig}')
           print(f'APIGUARD_FUNCTION_VA=0x{fn:x}')
 
-          # Native registration table uses triples; collect candidate JNI function addresses and
-          # pick the nearest greater one as a conservative body boundary.
           fn_candidates=[]
           for s in sorted(by_slot):
               if s>=slot-0x300 and s<=slot+0x300 and (s-slot)%24==16:
@@ -112,14 +112,16 @@ jobs:
           if text is None:
               raise SystemExit('missing .text mapping')
           text_va,text_off,text_size=text
-          if not (text_va<=fn<end<=text_va+text_size):
-              raise SystemExit(f'apiGuard body outside .text fn=0x{fn:x} end=0x{end:x}')
+          if not (text_va<=fn<text_va+text_size):
+              raise SystemExit(f'apiGuard function outside .text fn=0x{fn:x}')
+          if end<=fn or end>text_va+text_size:
+              end=min(fn+0x600,text_va+text_size)
           body=raw[text_off+(fn-text_va):text_off+(end-text_va)]
+          body_sha=hashlib.sha256(body).hexdigest()
           print(f'APIGUARD_BODY_SIZE={len(body)}')
-          print(f'APIGUARD_BODY_SHA256={hashlib.sha256(body).hexdigest()}')
-          print('LEGACY_443_BODY_MATCH=' + str(hashlib.sha256(body).hexdigest()=='0aadb977eb5846592d2c2fb490712986be9c9bed9640fa26905fcfcb73f56a52').lower())
+          print(f'APIGUARD_BODY_SHA256={body_sha}')
+          print('LEGACY_443_BODY_MATCH=' + str(body_sha=='0aadb977eb5846592d2c2fb490712986be9c9bed9640fa26905fcfcb73f56a52').lower())
 
-          # Print only the small apiGuard disassembly window for contract analysis.
           dis=Path('/tmp/qm-guard/disasm.txt').read_text('utf-8',errors='replace').splitlines()
           started=False; count=0
           print('=== APIGUARD_DISASM ===')
@@ -131,7 +133,7 @@ jobs:
                   started=True
                   print(line[:260])
                   count+=1
-                  if count>=260: break
+                  if count>=320: break
               elif started and a>=end:
                   break
           print(f'APIGUARD_DISASM_LINES={count}')
