@@ -1,0 +1,134 @@
+name: Patch Qingman v17 Image Request Preflight
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/patch-qingman-v17-image-preflight.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Check private repo token
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+        run: test -n "$MX_PRIVATE_READ_TOKEN"
+
+      - name: Checkout current Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          ref: main
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout Qingman development branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: fix/qingman-v3-runtime-clean
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: dev
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Patch v17 reader image request contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          gradle=Path('dev/src/zh/qingman/build.gradle.kts')
+          g=gradle.read_text('utf-8')
+          if 'versionCode = 16' not in g: raise SystemExit('Expected Qingman source versionCode 16')
+          g=g.replace('versionCode = 16','versionCode = 17',1)
+          gradle.write_text(g,'utf-8')
+
+          p=Path('dev/src/zh/qingman/src/eu/kanade/tachiyomi/extension/zh/qingman/Qingman.kt')
+          s=p.read_text('utf-8')
+          if 'import keiyoushi.network.get\n' not in s:
+              s=s.replace('import keiyoushi.annotation.Source\n','import keiyoushi.annotation.Source\nimport keiyoushi.network.get\n',1)
+          if 'import java.util.concurrent.ConcurrentHashMap\n' not in s:
+              s=s.replace('import java.io.IOException\n','import java.io.IOException\nimport java.util.concurrent.ConcurrentHashMap\n',1)
+
+          old='''    @Volatile\n    private var cachedMediaBaseUrl: String? = null\n'''
+          new='''    @Volatile\n    private var cachedMediaBaseUrl: String? = null\n\n    private val readerImageProfiles = ConcurrentHashMap<String, ReaderImageProfile>()\n'''
+          if old not in s: raise SystemExit('cachedMediaBaseUrl marker missing')
+          s=s.replace(old,new,1)
+
+          old='''            if (resolvedUrls.isNotEmpty()) {\n                return resolvedUrls.mapIndexed { index, imageUrl ->\n                    Page(index, url = referer, imageUrl = imageUrl)\n                }\n            }\n'''
+          new='''            if (resolvedUrls.isNotEmpty()) {\n                val profile = selectReaderImageProfile(resolvedUrls.first(), referer)\n                resolvedUrls.forEach { imageUrl -> readerImageProfiles[imageUrl] = profile }\n                return resolvedUrls.mapIndexed { index, imageUrl ->\n                    Page(index, url = referer, imageUrl = imageUrl)\n                }\n            }\n'''
+          if old not in s: raise SystemExit('page return marker missing')
+          s=s.replace(old,new,1)
+
+          old='''    override fun imageRequest(page: Page): Request {\n        // The official image downloader builds a dedicated request option/header map.\n        // Do not leak API-only appVersion/platform headers to the signed image CDN.\n        val imageHeaders = Headers.Builder()\n            .set("Accept", "image/*,*/*;q=0.8")\n            .apply {\n                page.url.takeIf(String::isNotBlank)?.let { set("Referer", it) }\n            }\n            .build()\n        return GET(page.imageUrl!!, imageHeaders)\n    }\n\n'''
+          new='''    override fun imageRequest(page: Page): Request {\n        val imageUrl = page.imageUrl ?: throw IOException("青漫正文图片地址为空")\n        val profile = readerImageProfiles[imageUrl]\n            ?: ReaderImageProfile.UA_REFERER\n        return GET(\n            imageUrl,\n            readerImageHeaders(\n                profile = profile,\n                referer = page.url,\n                probe = false,\n            ),\n        )\n    }\n\n    private suspend fun selectReaderImageProfile(imageUrl: String, referer: String): ReaderImageProfile {\n        val results = mutableListOf<String>()\n        val profiles = listOf(\n            ReaderImageProfile.UA_REFERER,\n            ReaderImageProfile.UA_REFERER_RANGE,\n            ReaderImageProfile.UA_ONLY,\n            ReaderImageProfile.REFERER_ONLY,\n            ReaderImageProfile.UA_REFERER_ORIGIN,\n            ReaderImageProfile.APP_REFERER,\n            ReaderImageProfile.BARE,\n        ).filterNot { it.includeReferer && referer.isBlank() }\n\n        for (profile in profiles) {\n            val headers = readerImageHeaders(profile, referer, probe = true)\n            val probeResult = runCatching {\n                client.get(imageUrl, headers, ensureSuccess = false).use { response ->\n                    val status = response.code\n                    val contentType = response.header("Content-Type")\n                        .orEmpty()\n                        .substringBefore(';')\n                        .trim()\n                        .ifBlank { "?" }\n                    val accepted = status in 200..299 &&\n                        !contentType.startsWith("text/", ignoreCase = true) &&\n                        !contentType.contains("json", ignoreCase = true)\n                    Triple(status, contentType, accepted)\n                }\n            }.getOrElse { error ->\n                results += "${profile.label}=ERR(${error::class.java.simpleName})"\n                continue\n            }\n\n            val (status, contentType, accepted) = probeResult\n            results += "${profile.label}=$status/$contentType"\n            if (accepted) return profile\n        }\n\n        throw IOException(\n            buildString {\n                append("青漫正文图片预检失败；")\n                append(readerImageTargetDiagnostic(imageUrl))\n                append("；referer=")\n                append(readerRefererDiagnostic(referer))\n                append("；")\n                append(results.joinToString(","))\n            },\n        )\n    }\n\n    private fun readerImageHeaders(\n        profile: ReaderImageProfile,\n        referer: String,\n        probe: Boolean,\n    ): Headers = Headers.Builder()\n        .set("Accept", "image/avif,image/webp,image/*,*/*;q=0.8")\n        .apply {\n            if (profile.includeUserAgent) set("User-Agent", "qingman/4.4.5 (Android)")\n            if (profile.includeReferer && referer.isNotBlank()) set("Referer", referer)\n            if (profile.includeRange) set("Range", if (probe) "bytes=0-1" else "bytes=0-")\n            if (profile.includeOrigin) set("Origin", "https://www.qingman.app")\n            if (profile.includeAppHeaders) {\n                set("appVersion", "4.4.5")\n                set("platform", "android")\n            }\n        }\n        .build()\n\n    private fun readerImageTargetDiagnostic(value: String): String {\n        val parsed = value.toHttpUrlOrNull()\n            ?: return "url=unparsed,len=${value.length}"\n        val path = parsed.encodedPath\n            .take(96)\n            .ifBlank { "/" }\n        val queryKeys = parsed.queryParameterNames\n            .sorted()\n            .joinToString("|")\n            .ifBlank { "无" }\n        return "url=${parsed.scheme}://${parsed.host}$path,queryKeys=$queryKeys"\n    }\n\n    private fun readerRefererDiagnostic(value: String): String {\n        if (value.isBlank()) return "无"\n        val parsed = value.toHttpUrlOrNull() ?: return "非URL(len=${value.length})"\n        return "${parsed.scheme}://${parsed.host}"\n    }\n\n'''
+          if old not in s: raise SystemExit('imageRequest marker missing')
+          s=s.replace(old,new,1)
+
+          marker='''    private data class CategoryOption(\n        val name: String,\n        val id: String,\n    ) {\n'''
+          insert='''    private enum class ReaderImageProfile(\n        val label: String,\n        val includeUserAgent: Boolean,\n        val includeReferer: Boolean,\n        val includeRange: Boolean = false,\n        val includeOrigin: Boolean = false,\n        val includeAppHeaders: Boolean = false,\n    ) {\n        UA_REFERER("ua+referer", includeUserAgent = true, includeReferer = true),\n        UA_REFERER_RANGE("ua+referer+range", includeUserAgent = true, includeReferer = true, includeRange = true),\n        UA_ONLY("ua", includeUserAgent = true, includeReferer = false),\n        REFERER_ONLY("referer", includeUserAgent = false, includeReferer = true),\n        UA_REFERER_ORIGIN("ua+referer+origin", includeUserAgent = true, includeReferer = true, includeOrigin = true),\n        APP_REFERER("app+referer", includeUserAgent = true, includeReferer = true, includeAppHeaders = true),\n        BARE("bare", includeUserAgent = false, includeReferer = false),\n    }\n\n'''+marker
+          if marker not in s: raise SystemExit('CategoryOption marker missing')
+          s=s.replace(marker,insert,1)
+          p.write_text(s,'utf-8')
+          PY
+
+          python3 dev/scripts/validate_sources.py
+          git -C dev diff --check
+          grep -q 'versionCode = 17' dev/src/zh/qingman/build.gradle.kts
+          grep -q 'selectReaderImageProfile' dev/src/zh/qingman/src/eu/kanade/tachiyomi/extension/zh/qingman/Qingman.kt
+          grep -q 'Range.*bytes=0-1' dev/src/zh/qingman/src/eu/kanade/tachiyomi/extension/zh/qingman/Qingman.kt
+          grep -q '\.reversed()' dev/src/zh/qingman/src/eu/kanade/tachiyomi/extension/zh/qingman/Qingman.kt
+          if sed -n '/override suspend fun getPageList/,/override fun imageRequest/p' dev/src/zh/qingman/src/eu/kanade/tachiyomi/extension/zh/qingman/Qingman.kt | grep -q 'fetchReaderCacheRoot'; then
+            echo '::error::Online reader regressed to cache/detail'
+            exit 1
+          fi
+
+      - name: Overlay and prepare verified official bootstrap material
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf upstream/src/zh/qingman
+          cp -a dev/src/zh/qingman upstream/src/zh/qingman
+          python3 -m pip install --disable-pip-version-check pyelftools >/dev/null
+          python3 dev/scripts/prepare_qingman_bootstrap.py --module upstream/src/zh/qingman
+          material='upstream/src/zh/qingman/src/eu/kanade/tachiyomi/extension/zh/qingman/QingmanBootstrapMaterial.kt'
+          ! grep -q 'val seed: ByteArray = byteArrayOf()' "$material"
+          ! grep -q 'val signCipher: ByteArray = byteArrayOf()' "$material"
+          ! grep -q 'val aesCipher: ByteArray = byteArrayOf()' "$material"
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Validate formatting and compile
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:qingman:spotlessCheck :src:zh:qingman:assembleDebug
+
+      - name: Commit validated v17 source
+        working-directory: dev
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/zh/qingman
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo '::error::No v17 source changes to commit'
+            exit 1
+          fi
+          git commit -m 'fix(qingman): diagnose and adapt reader image request headers'
+          git push origin HEAD:fix/qingman-v3-runtime-clean
