@@ -1,4 +1,4 @@
-requested: 2026-09-07T02:53:00Z
+requested: 2026-09-07T03:33:00Z
 source: mx-dev/fix/qingman-v3-runtime-clean
-source_sha: 584bfcb6fbbb7e7aa0a2182c8e56f543ba73ece5
-reason: validate v9 official reader referer propagation, image request headers, version bump, Spotless, and Debug build
+source_sha: dd76d8d9c22c46ade6481e91864349cfc2d3dab7
+reason: validate v10 reader deviceId request body, version bump, Spotless, and Debug build
