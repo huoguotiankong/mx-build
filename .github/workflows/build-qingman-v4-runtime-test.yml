@@ -1,4 +1,4 @@
-name: Build And Stage Qingman v4 Runtime Test
+name: Build And Stage Qingman Runtime Test
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: build-qingman-v4-runtime-test
+  group: build-qingman-runtime-test
   cancel-in-progress: false
 
 jobs:
@@ -212,17 +212,19 @@ jobs:
         shell: bash
         run: |
           {
-            echo '### Qingman v4 runtime signed test build'
+            echo '### Qingman runtime signed test build'
             echo
             echo "- Source commit: \`${{ steps.version.outputs.source_sha }}\`"
             echo "- Version: \`${{ steps.version.outputs.version_name }}\`"
             echo '- Official 4.4.5 bootstrap material was generated only inside the temporary build tree.'
             echo '- Stable signing identity verified.'
             echo '- Signed release APK uploaded as a temporary test artifact.'
-            echo '- Isolated test store staged; formal repo was not modified.'
+            echo '- Isolated test store staged; public test repo was not modified by this workflow.'
             echo '- Android real-device validation remains required.'
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Cleanup signing material
         if: always()
         run: rm -f upstream/signingkey.jks
+
+# trigger: v1.6.6 dynamic media resolution d5a8c4d0
