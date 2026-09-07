@@ -107,3 +107,5 @@ jobs:
           window('reader-model-pageurls-referer-A',0x45f2c0,0x45f460)
           window('reader-model-pageurls-referer-B',0x460000,0x460760)
           PY
+
+# rerun: 2026-09-07 v13 cache level-gate follow-up
