@@ -67,9 +67,9 @@ jobs:
                   print(line[:500])
 
           print('=== EXACT BUILDER/CALLER SOURCE ===')
-          needles=('0x4cfcfc','0xb02b78','0xb02b60')
+          needles=('0x4cfcfc','0xb02b78','0xb02b60','0xb02900')
           total=0
-          for p in asm.glob('*.dart'):
+          for p in asm.rglob('*.dart'):
               lines=p.read_text('utf-8',errors='replace').splitlines()
               for i,line in enumerate(lines):
                   if not any(n in line.lower() for n in needles): continue
@@ -80,7 +80,7 @@ jobs:
           print('xref_blocks='+str(total))
 
           print('=== FUNCTIONS AROUND APPCONFIG ERROR/MODEL ===')
-          for p in asm.glob('*.dart'):
+          for p in asm.rglob('*.dart'):
               lines=p.read_text('utf-8',errors='replace').splitlines()
               hits=[]
               for i,line in enumerate(lines):
@@ -101,3 +101,5 @@ jobs:
                   if 'config' in s.lower() and s not in seen: seen.append(s)
           for s in seen: print('route='+s)
           PY
+
+# rerun: 2026-09-07 v13 ordinary reader image base follow-up
