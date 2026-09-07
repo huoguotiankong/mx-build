@@ -1,0 +1,159 @@
+name: Probe Qingman v17 PageUrls Contract
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-v17-pageurls-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: probe-qingman-v17-pageurls-contract
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools python3-capstone cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+
+      - name: Restore analyzer cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+
+      - name: Analyze pageUrls representation and consumers
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/apk_url
+          import json, urllib.request
+          cfg=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version', timeout=20))
+          print(cfg['data']['datas']['android']['downloadUrl'])
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          mkdir -p /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/apk-extract
+          cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter
+          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
+          cd "$GITHUB_WORKSPACE"
+          python3 - <<'PY' > reports/qingman-v17-pageurls-contract.txt
+          from pathlib import Path
+          import re
+
+          root=Path('/tmp/blutter-out')
+          deny=re.compile(r'(?i)(password|passwd|pwd|cookie|authorization|bearer|private|p12|certificate|secret)')
+          targets=('pageUrls','pageUrl','referer','totalPages','comic_cache_tasks')
+          print('Qingman 4.4.5 pageUrls contract probe')
+          print('sensitive_values_logged=false')
+
+          print('\n===== PP pageUrls neighborhood =====')
+          pp=root.joinpath('pp.txt').read_text('utf-8',errors='replace').splitlines()
+          hit=None
+          for i,line in enumerate(pp):
+              if 'String: "pageUrls"' in line:
+                  hit=i; break
+          if hit is None:
+              print('pageUrls_pp=missing')
+          else:
+              for line in pp[max(0,hit-28):min(len(pp),hit+36)]:
+                  if not deny.search(line): print(line[:1200])
+
+          print('\n===== GENERATED DART pageUrls contexts =====')
+          found=0
+          for p in root.joinpath('asm').rglob('*.dart'):
+              lines=p.read_text('utf-8',errors='replace').splitlines()
+              idx=[i for i,s in enumerate(lines) if 'pageUrls' in s]
+              if not idx: continue
+              print(f'--- FILE {p.name} ---')
+              emitted=[]
+              for i in idx[:12]:
+                  a=max(0,i-90); b=min(len(lines),i+150)
+                  if any(abs(a-x)<40 for x in emitted): continue
+                  emitted.append(a)
+                  for s in lines[a:b]:
+                      if deny.search(s): continue
+                      print(s[:1500])
+                  print('--- END CONTEXT ---')
+                  found += 1
+                  if found >= 12: break
+              if found >= 12: break
+          if not found: print('NO_GENERATED_PAGEURL_CONTEXT')
+
+          print('\n===== RAW address windows for known pageUrls xrefs =====')
+          # Search textual AOT addresses in generated Dart. These xrefs are from the current 4.4.5 PP scan.
+          for target in ('0x45f368','0x460080','0x45f398','0x46068c','0x461008'):
+              print(f'--- TARGET {target} ---')
+              matches=[]
+              for p in root.joinpath('asm').rglob('*.dart'):
+                  lines=p.read_text('utf-8',errors='replace').splitlines()
+                  for i,s in enumerate(lines):
+                      if target in s:
+                          matches.append((p,i,lines))
+              if not matches:
+                  print('NO_TEXT_MATCH')
+                  continue
+              for p,i,lines in matches[:4]:
+                  print(f'FILE={p.name} line={i+1}')
+                  for s in lines[max(0,i-80):min(len(lines),i+130)]:
+                      if not deny.search(s): print(s[:1500])
+
+          print('\n===== Candidate split/delimiter evidence near page model files =====')
+          # Search only files that contain pageUrls/referer, then report split/regex/delimiter-related code.
+          patterns=('split(', 'RegExp', '_StringBase::split', 'StringBase::split', 'replaceAll', 'replaceFirst', 'jsonDecode', 'List<String', 'TypeArguments: <String>', 'TypeArguments: <List<String', 'String: ","', 'String: ";"', 'String: "|"', 'String: "\\n"', 'String: "#"')
+          for p in root.joinpath('asm').rglob('*.dart'):
+              text=p.read_text('utf-8',errors='replace')
+              if 'pageUrls' not in text and 'String: "referer"' not in text: continue
+              lines=text.splitlines()
+              hits=[(i,s) for i,s in enumerate(lines) if any(q in s for q in patterns)]
+              if not hits: continue
+              print(f'--- FILE {p.name} ---')
+              for i,s in hits[:100]:
+                  if deny.search(s): continue
+                  print(f'{i+1}: {s[:1500]}')
+
+          print('\n===== page model class declarations =====')
+          for p in root.joinpath('asm').rglob('*.dart'):
+              text=p.read_text('utf-8',errors='replace')
+              if 'pageUrls' not in text: continue
+              for i,s in enumerate(text.splitlines()):
+                  if s.lstrip().startswith('class ') or 'List<String' in s or 'pageUrls' in s or 'referer' in s:
+                      if not deny.search(s): print(f'{p.name}:{i+1}: {s[:1500]}')
+          PY
+
+      - name: Persist report
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s reports/qingman-v17-pageurls-contract.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add reports/qingman-v17-pageurls-contract.txt
+          if git diff --cached --quiet; then
+            echo 'No report changes'
+          else
+            git commit -m 'probe(qingman): record v17 pageUrls contract'
+            git push origin HEAD:main
+          fi
