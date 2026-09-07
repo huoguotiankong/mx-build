@@ -1,0 +1,35 @@
+name: Probe Qingman Auth Literals
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-auth-literals.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Inspect current auth string literals
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/apk_url
+          import json,urllib.request
+          a=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))['data']['datas']['android']
+          if str(a.get('version'))!='4.4.5' or str(a.get('versionCode'))!='445': raise SystemExit('Unexpected Qingman version')
+          print(a['downloadUrl'])
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qm.apk
+          unzip -q -j /tmp/qm.apk 'lib/arm64-v8a/libapp.so' -d /tmp
+          echo '=== AUTH LITERALS ==='
+          strings -a /tmp/libapp.so | grep -E '^(Authorization|authorization|Bearer|Bearer |Token|token)$' | sort | uniq -c || true
+          echo '=== BEARER CONTAINS ==='
+          count=$(strings -a /tmp/libapp.so | grep -Fic 'Bearer' || true)
+          echo "bearer_literal_count=$count"
+          echo '=== AUTH HEADER RELATED ==='
+          strings -a /tmp/libapp.so | grep -E '^(qm_auth_token|Authorization|authorization|X-Auth-Token|X-Token)$' | sort -u || true
