@@ -2,7 +2,7 @@
   "versionName": "1.6.7",
   "androidVersionCode": 106007,
   "packageName": "eu.kanade.tachiyomi.extension.zh.qingman",
-  "apkSha256": "a487b0459cad04b505caf98c03cfd90580c4c4d516a8ea5639f94d63a95438f1",
+  "apkSha256": "cfb0eff362f1f713f81296c5459050a1f099556aa21bf93eadaa1f4e90e09658",
   "signingCertificateSha256": "1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620",
   "permissions": [
     "package: eu.kanade.tachiyomi.extension.zh.qingman"
