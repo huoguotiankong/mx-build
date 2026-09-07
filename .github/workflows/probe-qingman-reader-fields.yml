@@ -1,0 +1,53 @@
+name: Verify Qingman Reader Response Fields
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-reader-fields.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Inspect current official reader field strings
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/apk_url
+          import json, urllib.request, sys
+          root=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
+          a=root['data']['datas']['android']
+          print('OFFICIAL_VERSION='+str(a.get('version'))+' CODE='+str(a.get('versionCode')), file=sys.stderr)
+          if str(a.get('version'))!='4.4.5' or int(a.get('versionCode',0))!=445:
+              raise SystemExit('Unexpected Qingman version')
+          print(a['downloadUrl'])
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qingman.apk
+          unzip -p /tmp/qingman.apk lib/arm64-v8a/libapp.so > /tmp/libapp.so
+          strings -a /tmp/libapp.so > /tmp/strings.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          lines=Path('/tmp/strings.txt').read_text('utf-8',errors='replace').splitlines()
+          wanted=['pageUrls','pageUrl','imageUrls','imageUrl','picList','picUrl','freeLine','freeUrl','ComicReadSelectedImageLine','api/comic/chapter/ie84hfh8/detail']
+          print('=== PRESENCE ===')
+          for key in wanted:
+              hits=[i for i,s in enumerate(lines) if s==key]
+              print(f'{key}={len(hits)}')
+          print('=== CONTEXT ===')
+          seen=set()
+          for key in ('pageUrls','imageUrls','picList','freeLine','ComicReadSelectedImageLine'):
+              for i,s in enumerate(lines):
+                  if s!=key or (key,i) in seen: continue
+                  seen.add((key,i))
+                  print(f'--- {key} @ strings[{i}] ---')
+                  for z in lines[max(0,i-12):min(len(lines),i+13)]:
+                      if len(z)<=120:
+                          print(z)
+                  break
+          PY
