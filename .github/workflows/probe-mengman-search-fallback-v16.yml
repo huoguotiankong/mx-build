@@ -1,0 +1,169 @@
+name: Probe Mengman bounded static search fallback v16
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-mengman-search-fallback-v16.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - name: Benchmark live bounded static search
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import concurrent.futures, hashlib, io, json, re, struct, subprocess, tempfile, time, urllib.request, zipfile
+
+          text=open('.github/workflows/probe-mengman-native-seed-v4.yml','r',encoding='utf-8').read()
+          m=re.search(r"SS0_HEX='([0-9a-f]+)'",text)
+          if not m: raise SystemExit('SS0 table not found')
+          SS0=list(struct.unpack('<256I',bytes.fromhex(m.group(1))))
+          KC=[0x9e3779b9,0x3c6ef373,0x78dde6e6,0xf1bbcdcc,0xe3779b99,0xc6ef3733,0x8dde6e67,0x1bbcdccf,0x3779b99e,0x6ef3733c,0xdde6e678,0xbbcdccf1,0x779b99e3,0xef3733c6,0xde6e678d,0xbcdccf1b]
+          MASK=0xffffffff
+          A5=[x>>24 for x in SS0]; A6=[(x>>16)&255 for x in SS0]; A7=[(x>>8)&255 for x in SS0]; A8=[x&255 for x in SS0]
+
+          def G(x):
+              x &= MASK
+              b3=(x>>24)&255; b2=(x>>16)&255; b1=(x>>8)&255; b0=x&255
+              return ((A6[b2]^A5[b3]^A7[b1]^A8[b0])<<24 | (A6[b1]^A5[b2]^A7[b0]^A8[b3])<<16 | (A6[b0]^A5[b1]^A7[b3]^A8[b2])<<8 | (A6[b3]^A5[b0]^A7[b2]^A8[b1])) & MASK
+
+          def schedule(key):
+              a,b,c,d=struct.unpack('>4I',key); rk=[]
+              for i,kc in enumerate(KC):
+                  rk += [G(c+a-kc),G(b-d+kc)]
+                  if i%2==0:
+                      oa,ob=a,b; a,b=((oa>>8)|(ob<<24))&MASK,((ob>>8)|(oa<<24))&MASK
+                  else:
+                      oc,od=c,d; c,d=((oc<<8)|(od>>24))&MASK,((od<<8)|(oc>>24))&MASK
+              return rk
+
+          def block(key,src):
+              rk=schedule(key); w24,w23,w9,w8=struct.unpack('>4I',src)
+              for rr in range(15,-1,-1):
+                  old0,old1=w24,w23; t0=rk[2*rr]^w9; t1=rk[2*rr+1]^w8
+                  x=G(t0^t1); y=G(x+t0); z=G(y+x)
+                  w24,w23,w9,w8=w9,w8,((z+y)&MASK)^old0,(z^old1)&MASK
+              return struct.pack('>4I',w9,w24,w8,w23)
+
+          def transform(key,data):
+              return b''.join(block(key,data[i:i+16]) for i in range(0,len(data),16))
+
+          def fetch(url):
+              req=urllib.request.Request(url,headers={'User-Agent':'okhttp/4.12.0','Accept':'*/*'})
+              with urllib.request.urlopen(req,timeout=30) as r: return r.read()
+
+          def chunks(png):
+              out=[]; p=8
+              while p+12<=len(png):
+                  n=struct.unpack('>I',png[p:p+4])[0]; typ=png[p+4:p+8]; s=p+8; e=s+n
+                  if typ==b'tEXt':
+                      out.append(png[s:e])
+                      if len(out)==2:return out
+                  p=e+4
+              raise RuntimeError('missing tEXt')
+
+          def signed(path):
+              ts=int(time.time()); seed='94e890e3a45ba392c0c519ed45190a4c'
+              sign=hashlib.md5((seed+path+str(ts)).encode()).hexdigest()
+              return f'https://static.yisix.cn{path}?ts={ts}&sign={sign}'
+
+          boot=chunks(fetch('https://static.yisix.cn/bootstrap/a1.png'))
+          plain=transform(boot[0][83:99],boot[1]); key=plain[1194:1210]; iv=plain[1210:1226]
+
+          def aes_dec(ct):
+              with tempfile.TemporaryDirectory() as td:
+                  fi=td+'/i'; fo=td+'/o'; open(fi,'wb').write(ct)
+                  p=subprocess.run(['openssl','enc','-aes-128-cbc','-d','-K',key.hex(),'-iv',iv.hex(),'-in',fi,'-out',fo],stderr=subprocess.PIPE)
+                  if p.returncode: raise RuntimeError(p.stderr.decode('utf-8','replace'))
+                  return open(fo,'rb').read()
+
+          cache={}
+          def bundle(path):
+              if path in cache:return cache[path]
+              dec=aes_dec(fetch(signed(path)))
+              with zipfile.ZipFile(io.BytesIO(dec)) as z:
+                  vals=[json.loads(z.read(n).decode()) for n in z.namelist() if n.lower().endswith('.json')]
+              cache[path]=vals
+              return vals
+
+          def objects(x):
+              out=[]
+              def walk(v):
+                  if isinstance(v,dict): out.append(v); [walk(q) for q in v.values()]
+                  elif isinstance(v,list): [walk(q) for q in v]
+              walk(x); return out
+
+          def comics(vals):
+              out={}
+              for root in vals:
+                  for o in objects(root):
+                      cid=o.get('id') or o.get('comic_id') or o.get('comicId')
+                      title=o.get('title') or o.get('comic_title') or o.get('comicTitle') or o.get('name')
+                      cover=o.get('cover') or o.get('cover_url') or o.get('coverUrl') or o.get('comic_cover') or o.get('comicCover')
+                      if str(cid).isdigit() and isinstance(title,str) and title.strip() and (cover or 'latest_chapter' in o or 'total_chapters' in o or 'favorite_count' in o):
+                          out[str(cid)]={'id':str(cid),'title':title,'author':str(o.get('author') or o.get('author_name') or ''),'genre':str(o.get('tags') or o.get('category_name') or ''),'description':str(o.get('description') or o.get('desc') or '')}
+              return list(out.values())
+
+          cat_objs=objects(bundle('/static/category/list.zip'))
+          plans=[]
+          for o in cat_objs:
+              cid=o.get('id') or o.get('category_id'); count=o.get('comic_count') or o.get('comicCount')
+              if str(cid).isdigit() and isinstance(count,(int,float)):
+                  plans.append((int(cid),max(1,(int(count)+19)//20)))
+          plans=list(dict.fromkeys(plans))
+          print('PLAN',plans,'TOTAL_PAGES',sum(p for _,p in plans))
+
+          maxp=max(p for _,p in plans)
+          targets=[(cid,p) for p in range(1,maxp+1) for cid,pages in plans if p<=pages]
+
+          def norm(s):return ' '.join(str(s).strip().lower().split())
+          def matches(c,q):
+              hay=norm(' '.join([c['title'],c['author'],c['genre'],c['description']]))
+              return all(t in hay for t in norm(q).split())
+
+          def fetch_target(t):
+              cid,p=t
+              try:return comics(bundle(f'/static/category/{cid}/{p}.zip'))
+              except Exception as e:
+                  print('FETCH_FAIL',cid,p,type(e).__name__,str(e)[:100]); return []
+
+          rankings=[]
+          with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
+              for vals in ex.map(lambda typ: comics(bundle(f'/static/ranking/{typ}.zip')), ['hot','new','favorite']): rankings.extend(vals)
+
+          def search(q,budget=48,workers=8,min_after_hit=24):
+              start=time.monotonic(); result={}
+              for c in rankings:
+                  if matches(c,q): result.setdefault(c['id'],c)
+              scanned=0; batches=0
+              while scanned < min(budget,len(targets)):
+                  end=min(scanned+workers,budget,len(targets)); batch=targets[scanned:end]
+                  with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+                      pages=list(ex.map(fetch_target,batch))
+                  for items in pages:
+                      for c in items:
+                          if matches(c,q): result.setdefault(c['id'],c)
+                  scanned=end; batches+=1
+                  if len(norm(q))>=4 and result and scanned>=min_after_hit: break
+                  if len(result)>=20: break
+              elapsed=time.monotonic()-start
+              print('SEARCH',json.dumps(q,ensure_ascii=False),'hits',len(result),'scanned',scanned,'batches',batches,'elapsed_s',round(elapsed,3),'sample',[(x['id'],x['title']) for x in list(result.values())[:10]])
+              return result,elapsed,scanned
+
+          exact,exact_t,exact_n=search('仙帝归来')
+          broad,broad_t,broad_n=search('仙')
+          assert any(c['id']=='2140' for c in exact.values()), 'expected comic 2140 missing from exact search'
+          assert exact_t < 25, f'exact fallback unexpectedly slow: {exact_t:.2f}s'
+          assert exact_n <= 48
+          assert broad_n <= 48
+          print('BOUNDED_FALLBACK_OK')
+          PY
