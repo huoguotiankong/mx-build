@@ -114,7 +114,7 @@ jobs:
 
           print('=== DIRECT BLUTTER ADDRESS CONTEXT ===')
           asm_files=[]
-          for p in Path('/tmp/blutter-out/asm').rglob('*.dart'):
+          for p in Path('/tmp/blutter-out').rglob('*.dart'):
               try: asm_files.append((p,p.read_text('utf-8',errors='replace').splitlines()))
               except Exception: pass
           sensitive=re.compile(r'(?i)(token|secret|password|cookie|authorization|bearer|private|clientp12|certificate|proof|signature|sign/key)')
@@ -161,3 +161,5 @@ jobs:
               if shown>=1200: break
           print('LITERAL_LINES='+str(shown))
           PY
+
+# rerun: 2026-09-07 v13 ordinary-reader image-base follow-up
