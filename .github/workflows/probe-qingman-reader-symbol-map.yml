@@ -46,15 +46,15 @@ jobs:
           cp /tmp/x/lib/arm64-v8a/libapp.so /tmp/app-lib/
           cp /tmp/x/lib/arm64-v8a/libflutter.so /tmp/app-lib/
           cd /tmp/blutter && python3 blutter.py /tmp/app-lib /tmp/out >/tmp/blutter.log 2>&1
-          echo '=== OUTPUT FILES ==='
-          find /tmp/out -maxdepth 3 -type f | sort | head -160
+          echo '=== OUTPUT FILES SAMPLE ==='
+          find /tmp/out -maxdepth 3 -type f | sort | sed -n '1,160p'
           echo '=== ADDRESS HITS ==='
           for a in 45f368 45f398 460080 46068c 461be0 462044 46ee8c 470e58 489d3c 48f000 490594 4cfec8 4cfee0 4d0434 4d0484 acc318 accfbc acd2ac acd328 b072b0; do
             echo "--- $a ---"
-            grep -R -n -i --exclude='pp.txt' --exclude='objs.txt' "$a" /tmp/out 2>/dev/null | head -20 || true
+            grep -R -n -i --exclude='pp.txt' --exclude='objs.txt' "$a" /tmp/out 2>/dev/null | sed -n '1,20p' || true
           done
           echo '=== SEMANTIC HITS ==='
           for q in 'baseImgUrl' 'freeUrl' 'pageUrls' 'referer' 'picList' 'decryptImage' 'cache/detail' 'ComicReadSelectedImageLine' 'freeLine'; do
             echo "--- $q ---"
-            grep -R -n -F --exclude='pp.txt' --exclude='objs.txt' "$q" /tmp/out 2>/dev/null | head -40 || true
+            grep -R -n -F --exclude='pp.txt' --exclude='objs.txt' "$q" /tmp/out 2>/dev/null | sed -n '1,40p' || true
           done
