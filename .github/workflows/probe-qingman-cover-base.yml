@@ -36,7 +36,7 @@ jobs:
           echo 'static_image_hosts:'
           strings -a /tmp/qm/libapp.so | grep -Eo 'https?://[^"[:space:]]+' | sed -E 's#(https?://[^/]+).*#\1#' | grep -Ei 'qingman|dmzj|image|img|cdn' | sort -u || true
 
-      - name: Bootstrap and fetch one relative cover
+      - name: Bootstrap, verify dynamic version route, and fetch one relative cover
         shell: bash
         run: |
           set -euo pipefail
@@ -73,6 +73,33 @@ jobs:
           os.chmod('/tmp/access',0o600); os.chmod('/tmp/did',0o600)
           PY
           host=$(cat /tmp/host); access=$(cat /tmp/access); did=$(cat /tmp/did)
+
+          version_out=$(mktemp); version_hdr=$(mktemp)
+          version_code=$(curl -sS --connect-timeout 8 --max-time 25 -D "$version_hdr" -o "$version_out" -w '%{http_code}' \
+            -H 'Accept: application/json, text/plain, */*' \
+            -H 'User-Agent: qingman/4.4.5 (Android)' \
+            -H 'appVersion: 4.4.5' -H 'platform: android' \
+            -H "X-Device-Id: $did" -H "X-QM-App-Access: $access" \
+            "http://$host/api/radio/api/config/version" || true)
+          echo "dynamic_version_http=$version_code"
+          python3 - "$version_out" <<'PY'
+          import json,sys,urllib.parse,pathlib
+          p=pathlib.Path(sys.argv[1])
+          try:o=json.loads(p.read_text())
+          except Exception as e: raise SystemExit('dynamic version response is not JSON')
+          a=((o.get('data') or {}).get('datas') or {}).get('android') or {}
+          u=str(a.get('downloadUrl') or '').strip()
+          if not u: raise SystemExit('dynamic version missing downloadUrl')
+          s=urllib.parse.urlsplit(u); origin=f'{s.scheme}://{s.netloc}'
+          pathlib.Path('/tmp/dynamic_download_origin').write_text(origin)
+          print('dynamic_download_origin='+origin)
+          PY
+          static_origin=$(cat /tmp/download_origin); dynamic_origin=$(cat /tmp/dynamic_download_origin)
+          echo "version_origin_match=$([[ "$static_origin" == "$dynamic_origin" ]] && echo true || echo false)"
+          test "$version_code" = 200
+          test "$static_origin" = "$dynamic_origin"
+          rm -f "$version_out" "$version_hdr"
+
           out=$(mktemp)
           curl -fsS --connect-timeout 8 --max-time 25 -X POST \
             -H 'Accept: application/json, text/plain, */*' \
@@ -138,4 +165,4 @@ jobs:
               rm -f "$hdr" "$body" "$err"
             done
           done
-          rm -f /tmp/host /tmp/access /tmp/did /tmp/cover_rel /tmp/download_origin
+          rm -f /tmp/host /tmp/access /tmp/did /tmp/cover_rel /tmp/download_origin /tmp/dynamic_download_origin
