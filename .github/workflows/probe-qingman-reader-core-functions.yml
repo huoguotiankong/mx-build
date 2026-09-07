@@ -1,0 +1,79 @@
+name: Dump Qingman Reader Core Functions
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-reader-core-functions.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dump:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev python3-pyelftools python3-capstone >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+      - uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+      - name: Dump target functions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/apk_url
+          import json,urllib.request
+          a=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=30))['data']['datas']['android']
+          if (str(a.get('version','')),str(a.get('versionCode',''))) != ('4.4.5','445'): raise SystemExit('official version changed')
+          print(a['downloadUrl'])
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/out /tmp/x
+          mkdir -p /tmp/app-lib /tmp/out /tmp/x
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/x
+          cp /tmp/x/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/x/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter && python3 blutter.py /tmp/app-lib /tmp/out >/tmp/blutter.log 2>&1
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          starts={0x45ef90:'detail/parser vji',0x46001c:'reader response parser',0x489090:'freeLine consumer',0x48ef08:'selected line consumer',0x48f370:'image request pipeline',0xacb36c:'download token refresh manager'}
+          deny=re.compile(r'(?i)(password|passwd|pwd|authorization|bearer|cookie|clientp12|privatekey|certificate|keystore|storepassword|keypassword|bootstrapproof|bootstrapdecrypt)')
+          found={}
+          for p in Path('/tmp/out/asm').glob('*.dart'):
+              lines=p.read_text('utf-8',errors='replace').splitlines()
+              for i,line in enumerate(lines):
+                  m=re.search(r'// \*\* addr: 0x([0-9a-fA-F]+), size: 0x([0-9a-fA-F]+)',line)
+                  if not m: continue
+                  a=int(m.group(1),16)
+                  if a in starts:
+                      end=len(lines)
+                      for j in range(i+1,len(lines)):
+                          if re.search(r'// \*\* addr: 0x[0-9a-fA-F]+, size:',lines[j]):
+                              end=j; break
+                      found[a]=(p,lines,i,end,int(m.group(2),16))
+          for a,label in starts.items():
+              print(f'===== {label} 0x{a:x} =====')
+              if a not in found:
+                  print('NOT_FOUND'); continue
+              p,lines,i,end,size=found[a]
+              print(f'FILE={p.name} SIZE=0x{size:x} LINES={end-i}')
+              for line in lines[max(0,i-8):min(end,i+1500)]:
+                  if deny.search(line):
+                      print('<redacted-sensitive-line>')
+                  else:
+                      print(line[:520])
+              if end > i+1500: print('FUNCTION_TRUNCATED')
+          PY
