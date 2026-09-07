@@ -104,4 +104,4 @@ v1.6.14 调整：
 
 状态：源码和构建通过后仍标记为“待实机验证”；只有用户实机确认正文可读后才算正文修复完成。
 '''
-    d.write_text(ds.rstrip() + note + '\n', 'utf-8')
+    d.write_text((ds.rstrip() + note).rstrip() + '\n', 'utf-8')
