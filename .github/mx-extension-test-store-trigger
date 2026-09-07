@@ -1,3 +1,3 @@
-source=qingman
-ref=fix/qingman-v3-runtime-clean
-requested=qingman-v5-raw-auth-fix-c2ebf2c-20260907
+source=mengman
+ref=source/mengman-v1
+requested=mengman-v1-signed-test-20260907
