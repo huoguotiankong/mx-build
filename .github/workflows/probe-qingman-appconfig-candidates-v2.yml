@@ -13,9 +13,9 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-24.04
-    timeout-minutes: 12
+    timeout-minutes: 10
     steps:
-      - name: Bootstrap, probe AppConfig routes, and verify public media candidates
+      - name: Probe legacy AppConfig route on current backend
         shell: bash
         run: |
           set -euo pipefail
@@ -31,7 +31,6 @@ jobs:
           BOOTSTRAP='https://mu8xm4cx.zermh.com/bootstrap/domain'
           vr=json.load(urllib.request.urlopen(urllib.request.Request(VERSION,headers={'User-Agent':'mx-qingman-probe/1.0'}),timeout=20))['data']['datas']['android']
           if str(vr.get('version'))!='4.4.5' or str(vr.get('versionCode'))!='445': raise SystemExit('Unexpected Qingman version')
-          download_host=urllib.parse.urlsplit(vr['downloadUrl']).hostname or ''
 
           with tempfile.TemporaryDirectory() as td:
               apk=os.path.join(td,'q.apk'); so=os.path.join(td,'libqx_security.so')
@@ -55,97 +54,97 @@ jobs:
 
           base=hashlib.sha256(seed).digest()
           def deob(c,k):
-              out=b''; i=0
-              while len(out)<len(c):
-                  out += hashlib.sha256(base+bytes([k])+i.to_bytes(4,'big')).digest(); i+=1
-              return bytes(a^b for a,b in zip(c,out))
+              stream=b''; i=0
+              while len(stream)<len(c):
+                  stream += hashlib.sha256(base+bytes([k])+i.to_bytes(4,'big')).digest(); i+=1
+              return bytes(a^b for a,b in zip(c,stream))
           sm=deob(sc,1); aes=deob(ac,2)
           ts=str(int(time.time()*1000)); did=uuid.uuid4().hex; nonce=uuid.uuid4().hex
           sig=hashlib.sha256(ts.encode()+nonce.encode()+did.encode()+sm).hexdigest()
           body=json.dumps({'timestamp':ts,'nonce':nonce,'sign':sig,'deviceId':did},separators=(',',':')).encode()
-          boot_headers={'Content-Type':'application/json','Accept':'application/json, text/plain, */*','User-Agent':UA,'appVersion':'4.4.5','platform':'android','X-Device-Id':did}
-          br=json.load(urllib.request.urlopen(urllib.request.Request(BOOTSTRAP,data=body,headers=boot_headers,method='POST'),timeout=20))
-          enc=br['data']; blob=base64.urlsafe_b64decode(enc+'='*((4-len(enc)%4)%4)); cfg=json.loads(AESGCM(aes).decrypt(blob[:12],blob[12:],(ts+'|'+nonce).encode()))
+          bh={'Content-Type':'application/json','Accept':'application/json, text/plain, */*','User-Agent':UA,'appVersion':'4.4.5','platform':'android','X-Device-Id':did}
+          br=json.load(urllib.request.urlopen(urllib.request.Request(BOOTSTRAP,data=body,headers=bh,method='POST'),timeout=20))
+          enc=br['data']; blob=base64.urlsafe_b64decode(enc+'='*((4-len(enc)%4)%4))
+          cfg=json.loads(AESGCM(aes).decrypt(blob[:12],blob[12:],(ts+'|'+nonce).encode()))
           api_host=urllib.parse.urlsplit(cfg['apiDomain']).hostname; access=cfg['appAccessToken']
-          if not api_host or not access: raise SystemExit('bootstrap missing fields')
+          if not api_host or not access: raise SystemExit('bootstrap fields missing')
           headers={'Accept':'application/json, text/plain, */*','Content-Type':'application/json','User-Agent':UA,'appVersion':'4.4.5','platform':'android','X-Device-Id':did,'X-QM-App-Access':access}
 
-          def request_json(method,path):
-              req=urllib.request.Request('http://'+api_host+'/'+path,headers=headers,method=method,data=(b'{}' if method=='POST' else None))
+          def req(method,path):
+              u='http://'+api_host+'/'+path
+              data=b'{}' if method=='POST' else None
               try:
-                  with urllib.request.urlopen(req,timeout=15) as r:
-                      raw=r.read(512*1024).decode('utf-8','replace')
-                      return r.status,json.loads(raw)
+                  with urllib.request.urlopen(urllib.request.Request(u,headers=headers,data=data,method=method),timeout=20) as r:
+                      raw=r.read(1024*1024).decode('utf-8','replace'); status=r.status
               except urllib.error.HTTPError as e:
-                  raw=e.read(128*1024).decode('utf-8','replace')
-                  try: obj=json.loads(raw)
-                  except Exception: obj={'_nonjson':True}
-                  return e.code,obj
+                  raw=e.read(256*1024).decode('utf-8','replace'); status=e.code
               except Exception as e:
-                  return 0,{'_error':type(e).__name__+':'+str(e)[:80]}
+                  print(f'route={path} method={method} transport_error={type(e).__name__}'); return None
+              try: obj=json.loads(raw)
+              except Exception:
+                  print(f'route={path} method={method} http={status} nonjson=true'); return None
+              code=obj.get('code') if isinstance(obj,dict) else None
+              msg=obj.get('msg') if isinstance(obj,dict) else None
+              print(f'route={path} method={method} http={status} code={code} msg={repr(str(msg)[:120])}')
+              return obj
 
-          def find_field(x,target):
+          def find(x,key):
               if isinstance(x,dict):
                   for k,v in x.items():
-                      if str(k).lower()==target.lower(): return v
-                      z=find_field(v,target)
+                      if str(k).lower()==key.lower(): return v
+                      z=find(v,key)
                       if z is not None:return z
               elif isinstance(x,list):
                   for v in x:
-                      z=find_field(v,target)
+                      z=find(v,key)
                       if z is not None:return z
               return None
 
-          home_status,home=request_json('POST','api/comic/comics/v1/homeList?page=1&pageNum=1&pageSize=20')
-          cover=None
-          def find_cover(x):
-              global cover
-              if cover:return
+          def find_relative_cover(x):
               if isinstance(x,dict):
                   for k in ('verticalCover','comicCoverUrl','cover','horizontalCover'):
                       v=x.get(k)
-                      if isinstance(v,str) and v.startswith('/'):
-                          cover=v; return
-                  for v in x.values():find_cover(v)
+                      if isinstance(v,str) and v.startswith('/'): return v
+                  for v in x.values():
+                      z=find_relative_cover(v)
+                      if z:return z
               elif isinstance(x,list):
-                  for v in x:find_cover(v)
-          find_cover(home)
-          print('home_ok='+str(home_status==200)+' relative_cover='+str(bool(cover)).lower()+' download_host='+download_host)
+                  for v in x:
+                      z=find_relative_cover(v)
+                      if z:return z
+              return None
+
+          home=req('POST','api/comic/comics/v1/homeList?page=1&pageNum=1&pageSize=20')
+          cover=find_relative_cover(home)
+          print('relative_cover_found='+str(bool(cover)).lower())
 
           candidates=[
-              'api/radio/api/config/appConfig','api/radio/api/config/appconfig','api/radio/api/config/getAppConfig','api/radio/api/config/getAppconfig',
-              'api/radio/api/config/app','api/radio/api/config/getApp','api/radio/api/config/common','api/radio/api/config/base','api/radio/api/config/config',
-              'api/radio/api/config/getConfig','api/radio/api/config/init','api/radio/api/config/initialize','api/radio/api/config/bootstrap','api/radio/api/config/application',
-              'api/radio/api/app/config','api/appapi/config','api/appapi/config/app','api/appapi/config/appConfig','api/comic/config/app','api/comic/config/appConfig',
-              'api/comic/common/config','api/comic/common/appConfig'
+              'api/appapi/theme/appconfig',
+              'api/appapi/theme/appConfig',
+              'api/appapi/theme/config',
+              'api/appapi/theme/getappconfig',
+              'api/appapi/theme/getAppConfig',
           ]
-          seen=set()
+          found_base=None
           for path in candidates:
               for method in ('GET','POST'):
-                  status,obj=request_json(method,path)
-                  code=obj.get('code') if isinstance(obj,dict) else None
-                  msg=obj.get('msg') if isinstance(obj,dict) else None
-                  base_img=find_field(obj,'baseImgUrl')
-                  marker=(status,code,str(msg)[:60],str(base_img)[:180])
-                  if status not in (404,405) or base_img is not None or marker not in seen:
-                      print('route='+path+' method='+method+' http='+str(status)+' code='+str(code)+' msg='+repr(str(msg)[:80]))
-                  seen.add(marker)
-                  if isinstance(base_img,str) and base_img.strip():
-                      p=urllib.parse.urlsplit(base_img.strip())
-                      print('FOUND_BASE_IMG route='+path+' method='+method+' scheme='+p.scheme+' host='+(p.hostname or '')+' path='+p.path[:120])
+                  obj=req(method,path)
+                  if obj is None: continue
+                  b=find(obj,'baseImgUrl')
+                  if isinstance(b,str) and b.strip():
+                      p=urllib.parse.urlsplit(b.strip())
+                      print(f'FOUND_BASE_IMG route={path} method={method} scheme={p.scheme} host={p.hostname or ""} path={p.path[:120]}')
+                      found_base=b.strip(); break
+              if found_base: break
 
-          if cover:
-              media_hosts=[]
-              if download_host: media_hosts.append(('apk_download_host','https://'+download_host))
-              media_hosts += [('official_site','https://www.qingman.app')]
-              for label,base_url in media_hosts:
-                  req=urllib.request.Request(base_url.rstrip('/')+cover,headers={'User-Agent':UA,'Accept':'image/avif,image/webp,image/*,*/*;q=0.8','Referer':'https://www.qingman.app/'})
-                  try:
-                      with urllib.request.urlopen(req,timeout=15) as r:
-                          b=r.read(32); ctype=r.headers.get('Content-Type','')
-                          print('media='+label+' http='+str(r.status)+' ctype='+ctype+' magic='+b[:12].hex()+' final_host='+(urllib.parse.urlsplit(r.geturl()).hostname or ''))
-                  except urllib.error.HTTPError as e:
-                      print('media='+label+' http='+str(e.code)+' ctype='+e.headers.get('Content-Type',''))
-                  except Exception as e:
-                      print('media='+label+' error='+type(e).__name__+':'+str(e)[:100])
+          if found_base and cover:
+              url=found_base.rstrip('/')+'/'+cover.lstrip('/')
+              try:
+                  with urllib.request.urlopen(urllib.request.Request(url,headers={'User-Agent':UA,'Accept':'image/avif,image/webp,image/*,*/*;q=0.8','Referer':'https://www.qingman.app/'}),timeout=20) as r:
+                      magic=r.read(16); ctype=r.headers.get('Content-Type','')
+                      print(f'VERIFY_COVER http={r.status} ctype={ctype} magic={magic.hex()} final_host={urllib.parse.urlsplit(r.geturl()).hostname or ""}')
+              except urllib.error.HTTPError as e:
+                  print(f'VERIFY_COVER http={e.code} ctype={e.headers.get("Content-Type","")}')
+              except Exception as e:
+                  print(f'VERIFY_COVER error={type(e).__name__}:{str(e)[:100]}')
           PY
