@@ -1,3 +1,4 @@
+# Trigger compact Qingman route-dispatch trace.
 name: Compact Qingman Route Dispatch Trace
 
 on:
@@ -46,7 +47,6 @@ jobs:
                   for i,z in enumerate(lines):
                       if needle not in z.lower(): continue
                       found=True
-                      # nearest function and class header
                       fhead='?'; chead='?'; cid='?'
                       for j in range(i,-1,-1):
                           if fhead=='?' and '** addr:' in lines[j]:
