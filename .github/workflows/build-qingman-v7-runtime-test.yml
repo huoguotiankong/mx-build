@@ -67,7 +67,7 @@ jobs:
               raise SystemExit(f'Expected Qingman v1.6.7, got code={source_code} name={version_name}')
           with Path(os.environ['GITHUB_OUTPUT']).open('a',encoding='utf-8') as f:
               f.write(f'source_code={source_code}\nversion_name={version_name}\n')
-          print(f'Qingman source={version_name} sha={os.popen("git -C dev rev-parse HEAD").read().strip()}')
+          print(f'Qingman source={version_name}')
           PY
 
       - name: Validate source and reader patch
@@ -102,14 +102,19 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Spotless and build signed debug/release
+      - name: Spotless check
         working-directory: upstream
         shell: bash
-        env:
-          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
         run: |
           set -euo pipefail
           ./gradlew :src:zh:qingman:spotlessCheck
+
+      - name: Prepare stable signing key
+        env:
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+        shell: bash
+        run: |
+          set -euo pipefail
           python3 - <<'PY'
           import base64,json,os
           from pathlib import Path
@@ -117,11 +122,17 @@ jobs:
           required=('signingKey','alias','storePassword','keyPassword')
           missing=[k for k in required if not bundle.get(k)]
           if missing: raise SystemExit('Signing bundle missing: '+', '.join(missing))
-          Path('signingkey.jks').write_bytes(base64.b64decode(bundle['signingKey']))
+          Path('upstream/signingkey.jks').write_bytes(base64.b64decode(bundle['signingKey']))
           with Path(os.environ['GITHUB_ENV']).open('a',encoding='utf-8') as f:
               for env_name,key in (('ALIAS','alias'),('KEY_STORE_PASSWORD','storePassword'),('KEY_PASSWORD','keyPassword')):
                   value=str(bundle[key]); print(f'::add-mask::{value}'); f.write(f'{env_name}<<EOF_SIGN\n{value}\nEOF_SIGN\n')
           PY
+
+      - name: Build signed debug and release APKs
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
           ./gradlew :src:zh:qingman:assembleDebug :src:zh:qingman:assembleRelease
 
       - name: Verify stable signing identity
@@ -197,4 +208,4 @@ jobs:
         if: always()
         run: rm -f upstream/signingkey.jks
 
-# trigger: qingman-v1.6.7-reader-fix
+# trigger: signing-step-order-v2
