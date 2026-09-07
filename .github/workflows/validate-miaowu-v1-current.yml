@@ -70,8 +70,6 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-        with:
-          build-root-directory: upstream
 
       - name: Check formatting
         working-directory: upstream
@@ -99,3 +97,5 @@ jobs:
             echo "- No source or APK artifact was uploaded from this workflow"
             echo "- Android device functionality remains a separate validation step"
           } >> "$GITHUB_STEP_SUMMARY"
+
+# Revalidation target: mx-dev source/miaowumanhua-v1 @ 90cbd3104d276c24da3c9e1c6f4dff9bd36531b1
