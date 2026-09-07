@@ -1,0 +1,84 @@
+name: Disassemble Qingman Reader Transport Windows
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-reader-disasm-windows.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Prepare APK and analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools python3-capstone >/dev/null
+          python3 - <<'PY' >/tmp/apk_url
+          import json,urllib.request,sys
+          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=30))
+          a=o['data']['datas']['android']
+          print(a['downloadUrl'])
+          if (str(a.get('version','')),str(a.get('versionCode',''))) != ('4.4.5','445'):
+              raise SystemExit('unexpected official version')
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qingman.apk
+          unzip -p /tmp/qingman.apk lib/arm64-v8a/libapp.so >/tmp/libapp.so
+          python3 - <<'PY'
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
+          import re,subprocess
+          # Generate pool text via strings-like scan is not enough. Use known PP offsets from prior validated Blutter output.
+          pp={
+            0x6298:'Referer',0x18c78:'imageUrl',0x1eba0:'baseImgUrl',0x1eba8:'freeUrl',0x20a30:'imageUrls',
+            0x21130:'decryptImage',0x22648:'pageUrls',0x226c0:'referer',0x25000:'picList',0x25088:' referer=',
+            0x2a458:'freeLine',0x2a508:'ComicReadSelectedImageLine',0x342f0:'useWebView',0x38f00:'claimedImageUrl',
+            0x3d060:'decryptCacheImage',0x4b8b8:'User-Agent',0x9048:'api/comic/chapter/ie84hfh8/cache/detail',
+          }
+          windows=[
+            ('page_model',0x45f180,0x460760),
+            ('reader_line',0x489c80,0x490700),
+            ('image_claim',0x763680,0x763b20),
+            ('image_urls',0x7b8380,0x7b8660),
+            ('reader_download',0xaccf00,0xacd3f0),
+            ('decrypt_image_call',0xb071e0,0xb073d0),
+            ('decrypt_cache_call',0xb680f0,0xb68300),
+            ('referer_builder',0x3a6140,0x3a6480),
+          ]
+          deny=re.compile(r'(?i)(password|cookie|authorization|bearer|clientp12|privatekey|certificate|keystore)')
+          with open('/tmp/libapp.so','rb') as f:
+              elf=ELFFile(f); sec=elf.get_section_by_name('.text'); base=int(sec['sh_addr']); data=sec.data()
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.skipdata=True
+          for title,start,end in windows:
+              print(f'=== {title} {start:#x}-{end:#x} ===')
+              if not (base<=start<end<=base+len(data)):
+                  print('WINDOW_OUTSIDE_TEXT'); continue
+              pending={}; emitted=0
+              for ins in md.disasm(data[start-base:end-base],start):
+                  pending={r:(b,n-1) for r,(b,n) in pending.items() if n>1}
+                  op=ins.op_str.lower(); ann=[]
+                  m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
+                  if ins.mnemonic=='add' and m:
+                      pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),24)
+                  if ins.mnemonic in ('ldr','ldur','ldrsw'):
+                      m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
+                      if m:
+                          br=m.group(2); disp=int(m.group(3),0) if m.group(3) else 0
+                          off=disp if br=='x27' else (pending[br][0]+disp if br in pending else None)
+                          if off in pp: ann.append(f'PP={pp[off]}(0x{off:x})')
+                  if ins.mnemonic in ('bl','blr','ret','b','b.eq','b.ne','b.ls','b.hi','cbz','cbnz','tbz','tbnz'):
+                      ann.append('CTRL')
+                  if ann or ins.mnemonic.startswith(('st','ldur','ldr')):
+                      text=f'0x{ins.address:x}: {ins.mnemonic:<7} {ins.op_str:<45}'
+                      if ann: text+=' ; '+' | '.join(ann)
+                      if not deny.search(text): print(text[:420]); emitted+=1
+                      if emitted>=900: print('WINDOW_TRUNCATED'); break
+              print('EMITTED='+str(emitted))
+          PY
