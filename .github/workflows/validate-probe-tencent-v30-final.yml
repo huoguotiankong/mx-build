@@ -1,0 +1,217 @@
+name: Validate and probe Tencent v30 final
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/validate-probe-tencent-v30-final.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check private source token
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]]
+
+      - name: Checkout Tencent v30 final branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: fix/tencentcomics-filter-v30-final
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: dev
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Validate repository anchors
+        working-directory: dev
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/validate_sources.py
+          grep -F 'versionCode = 30' src/zh/tencentcomics/build.gradle.kts
+          grep -F 'TencentClassifyApi(client, headers).fetch(page, filters)' src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+          grep -F 'Classify/comicClassifyList' src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentClassifyApi.kt
+          grep -F 'Classify/comicClassifyDetail' src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentClassifyApi.kt
+          git diff --check
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Checkout current Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Overlay Tencent extension
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf upstream/src/zh/tencentcomics
+          cp -a dev/src/zh/tencentcomics upstream/src/zh/tencentcomics
+
+      - name: Spotless check
+        working-directory: upstream
+        run: ./gradlew :src:zh:tencentcomics:spotlessCheck
+
+      - name: Build debug and release
+        working-directory: upstream
+        run: ./gradlew :src:zh:tencentcomics:assembleDebug :src:zh:tencentcomics:assembleRelease
+
+      - name: Lint release
+        working-directory: upstream
+        run: ./gradlew :src:zh:tencentcomics:lintRelease
+
+      - name: Install probe dependency
+        run: python3 -m pip install --disable-pip-version-check pycryptodome
+
+      - name: Probe anonymous classify API
+        working-directory: dev
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64
+          import hashlib
+          import json
+          import re
+          import time
+          import urllib.parse
+          import urllib.request
+          from pathlib import Path
+          from Crypto.Cipher import DES3
+          from Crypto.Util.Padding import unpad
+
+          src = Path('src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt').read_text(encoding='utf-8')
+          def const(name):
+              m = re.search(rf'const val {name} = "([^"]+)"', src)
+              if not m:
+                  raise RuntimeError(f'missing {name}')
+              return m.group(1)
+
+          version = const('APP_VERSION')
+          channel = const('APP_CHANNEL')
+          user_agent = const('APP_USER_AGENT')
+          suffix = const('APP_SC_SUFFIX')
+          key = const('APP_RESPONSE_DES_EDE3_KEY').encode()
+          hosts = ['https://a.ac.qq.com', 'https://android.ac.qq.com']
+
+          def headers(localtime, sc):
+              return {
+                  'Accept': 'application/json, text/plain, */*',
+                  'User-Agent': user_agent,
+                  'version': version,
+                  'channel': channel,
+                  'fakeduin': '0',
+                  'localtime': localtime,
+                  'userstate': '1',
+                  'oversea': '1',
+                  'sc': sc,
+              }
+
+          def decode(raw):
+              text = raw.decode('utf-8', 'replace').strip()
+              if text.startswith('{') or text.startswith('['):
+                  return json.loads(text)
+              encrypted = base64.b64decode(text)
+              plain = unpad(DES3.new(key, DES3.MODE_ECB).decrypt(encrypted), 8)
+              return json.loads(plain.decode('utf-8'))
+
+          def do_get(host, path):
+              localtime = str(int(time.time() * 1000))
+              decoded_path = urllib.parse.unquote(path.replace('//', '/'))
+              hostname = urllib.parse.urlparse(host).hostname
+              sc = hashlib.md5((decoded_path + hostname + '0' + localtime + suffix).encode()).hexdigest()
+              req = urllib.request.Request(host + path, headers=headers(localtime, sc), method='GET')
+              with urllib.request.urlopen(req, timeout=20) as response:
+                  return response.status, decode(response.read())
+
+          def do_post(host, path, fields):
+              body_text = urllib.parse.urlencode(fields)
+              body = body_text.encode()
+              localtime = str(int(time.time() * 1000))
+              hostname = urllib.parse.urlparse(host).hostname
+              sc = hashlib.md5((body_text + hostname + '0' + localtime + suffix).encode()).hexdigest()
+              h = headers(localtime, sc)
+              h['Content-Type'] = 'application/x-www-form-urlencoded'
+              req = urllib.request.Request(host + path, data=body, headers=h, method='POST')
+              with urllib.request.urlopen(req, timeout=20) as response:
+                  return response.status, decode(response.read())
+
+          def get_array(data, *names):
+              for name in names:
+                  value = data.get(name)
+                  if isinstance(value, list):
+                      return value
+              return []
+
+          def item_id(items, index=0):
+              if not items:
+                  return 0
+              value = items[min(index, len(items) - 1)].get('id', 0)
+              return int(value)
+
+          last_error = None
+          for host in hosts:
+              try:
+                  status, root = do_get(host, f'/{version}/Classify/comicClassifyList')
+                  code = root.get('errorCode', root.get('error_code'))
+                  data = root.get('data') or {}
+                  print('classify-list', host, 'http', status, 'code', code, 'keys', sorted(data.keys()))
+                  for key_name, value in data.items():
+                      if isinstance(value, list):
+                          labels = []
+                          for item in value[:6]:
+                              if isinstance(item, dict):
+                                  labels.append((item.get('id'), item.get('title')))
+                          print('group', key_name, 'count', len(value), 'sample', labels)
+                  if code not in (None, 2):
+                      raise RuntimeError(f'list error code {code}')
+
+                  tags = get_array(data, 'tagList', 'tag_list')
+                  hot = get_array(data, 'hotCondition', 'hot_condition')
+                  finish = get_array(data, 'finishCondition', 'finish_condition')
+                  pay = get_array(data, 'payCondition', 'pay_condition')
+                  fields = {
+                      'tag_id': item_id(tags, 0),
+                      'hot_condition_id': item_id(hot, 0),
+                      'finish_condition_id': item_id(finish, 0),
+                      'pay_condition_id': item_id(pay, 0),
+                      'nation_condition_id': 0,
+                      'brand_condition_id': 0,
+                      'page': 1,
+                  }
+                  status2, root2 = do_post(host, f'/{version}/Classify/comicClassifyDetail', fields)
+                  code2 = root2.get('errorCode', root2.get('error_code'))
+                  data2 = root2.get('data') or {}
+                  print('classify-detail', host, 'http', status2, 'code', code2, 'keys', sorted(data2.keys()))
+                  for key_name, value in data2.items():
+                      if isinstance(value, list):
+                          print('detail-list', key_name, 'count', len(value))
+                  if code2 not in (None, 2):
+                      raise RuntimeError(f'detail error code {code2}')
+                  if not isinstance(data2, dict):
+                      raise RuntimeError('detail data is not object')
+                  print('CLASSIFY_PROBE_OK', host)
+                  break
+              except Exception as exc:
+                  last_error = exc
+                  print('CLASSIFY_PROBE_FAIL', host, type(exc).__name__, str(exc)[:300])
+          else:
+              raise SystemExit(f'all classify hosts failed: {last_error}')
+          PY
