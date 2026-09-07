@@ -1,0 +1,135 @@
+name: Trace Qingman Reader Image Pipeline
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-reader-image-pipeline.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trace:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools python3-capstone cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+      - uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+      - name: Trace reader image model and request builder
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/apk_url
+          import json,urllib.request,sys
+          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=30))
+          a=o['data']['datas']['android']
+          print(a['downloadUrl'])
+          print('OFFICIAL_VERSION='+str(a.get('version','')),file=sys.stderr)
+          print('OFFICIAL_VERSION_CODE='+str(a.get('versionCode','')),file=sys.stderr)
+          if (str(a.get('version','')),str(a.get('versionCode',''))) != ('4.4.5','445'):
+              raise SystemExit('unexpected official version')
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          mkdir -p /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/apk-extract
+          cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter
+          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
+          python3 - <<'PY'
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
+          import bisect,re
+
+          deny=re.compile(r'(?i)(password|passwd|pwd|cookie|authorization|bearer|clientp12|privatekey|certificate|keystore|storepassword|keypassword)')
+          wanted={
+            'Referer','referer','User-Agent','Accept','Origin','origin','pageUrls','imageUrls','picList',
+            'claimedImageUrl','useWebView','freeLine','ComicReadSelectedImageLine','baseImgUrl','freeUrl',
+            'decryptImage','decryptCacheImage','cache/detail','imageUrl'
+          }
+          pp={}; targets={}
+          for line in Path('/tmp/blutter-out/pp.txt').read_text('utf-8',errors='replace').splitlines():
+              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s+(.*)$',line)
+              if not m: continue
+              off=int(m.group(1),16); val=m.group(2); pp[off]=val
+              for name in wanted:
+                  if f'"{name}"' in val or name in val:
+                      if not deny.search(val): targets.setdefault(off,name)
+          print('=== TARGETS ===')
+          for o,n in sorted(targets.items()): print(f'{n}=0x{o:x} {pp[o][:180]}')
+
+          with open('/tmp/app-lib/libapp.so','rb') as f:
+              elf=ELFFile(f); sec=elf.get_section_by_name('.text'); base=int(sec['sh_addr']); data=sec.data()
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.skipdata=True
+          pending={}; refs=[]
+          for ins in md.disasm(data,base):
+              pending={r:(b,n-1) for r,(b,n) in pending.items() if n>1}
+              op=ins.op_str.lower()
+              m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
+              if ins.mnemonic=='add' and m:
+                  pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),32); continue
+              if ins.mnemonic in ('ldr','ldur','ldrsw'):
+                  m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
+                  if not m: continue
+                  br=m.group(2); disp=int(m.group(3),0) if m.group(3) else 0
+                  off=disp if br=='x27' else (pending[br][0]+disp if br in pending else None)
+                  if off in targets: refs.append((int(ins.address),off,targets[off]))
+          print('\n=== XREFS ===')
+          for a,o,n in refs: print(f'0x{a:x} {n} pp=0x{o:x}')
+
+          asm=[]
+          for p in Path('/tmp/blutter-out/asm').rglob('*.dart'):
+              lines=p.read_text('utf-8',errors='replace').splitlines()
+              starts=[]
+              for i,line in enumerate(lines):
+                  m=re.search(r'\*\* addr: 0x([0-9a-fA-F]+), size: 0x([0-9a-fA-F]+)',line)
+                  if m: starts.append((int(m.group(1),16),int(m.group(2),16),i))
+              if starts: asm.append((p,lines,starts))
+
+          def locate(addr):
+              for p,lines,starts in asm:
+                  for a,size,i in starts:
+                      if a <= addr < a+size:
+                          return p,lines,i,a,size
+              return None
+
+          focus_names={'Referer','referer','pageUrls','imageUrls','picList','claimedImageUrl','useWebView','freeLine','ComicReadSelectedImageLine','baseImgUrl','freeUrl','decryptImage','decryptCacheImage','imageUrl','User-Agent'}
+          seen=set(); printed=0
+          print('\n=== FOCUSED FUNCTIONS ===')
+          for addr,off,name in refs:
+              if name not in focus_names: continue
+              hit=locate(addr)
+              if not hit: continue
+              p,lines,i,a,size=hit
+              key=(str(p),a)
+              if key in seen: continue
+              seen.add(key)
+              end=len(lines)
+              for j in range(i+1,len(lines)):
+                  if '** addr:' in lines[j]: end=j; break
+              print(f'FUNCTION trigger={name} xref=0x{addr:x} addr=0x{a:x} size=0x{size:x} file={p.name}')
+              for n in range(i,min(end,i+360)):
+                  line=lines[n]
+                  if deny.search(line): line='<redacted-sensitive-line>'
+                  print(line[:420])
+                  printed+=1
+                  if printed>=3600: break
+              if printed>=3600: break
+          print('FUNCTION_DUMP_LINES='+str(printed))
+          PY
