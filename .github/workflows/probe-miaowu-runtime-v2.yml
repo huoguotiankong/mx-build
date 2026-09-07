@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     steps:
-      - name: Validate web pagination and image codec
+      - name: Complete web fallback validation
         shell: bash
         run: |
           set -euo pipefail
@@ -33,26 +33,35 @@ jobs:
                       print('\nURL',url,'STATUS',r.status,'FINAL',r.geturl(),'LEN',len(b))
                       return b
               except urllib.error.HTTPError as e:
-                  b=e.read(4000); print('\nURL',url,'HTTP',e.code,'BODY',b.decode('utf-8','replace')[:800]); return b''
+                  b=e.read(4000); print('\nURL',url,'HTTP',e.code,'BODY',b.decode('utf-8','replace')[:400]); return b''
               except Exception as e:
                   print('\nURL',url,'ERR',repr(e)); return b''
           def text(url): return get(url).decode('utf-8','replace')
           def summary(label,t):
               print('\n--',label,'--')
               print('TITLE',re.findall(r'<title>(.*?)</title>',t,re.I|re.S)[:1])
-              print('ITEMS',[(u,re.sub('<.*?>','',n).strip()) for u,n in re.findall(r'<a[^>]+href=["\'](/\d+\.html)["\'][^>]*>.*?(?:class=["\']comic-name["\'][^>]*>(.*?)</|alt=["\']([^"\']+))',t,re.I|re.S)[:8]])
-              print('PAGINATION',re.findall(r'href=["\']([^"\']+)["\'][^>]*>(?:\s*<[^>]+>)*\s*(\d+|下一页|下页|&gt;)',t,re.I)[:30])
-              print('ALL PAGE LINKS', [x for x in re.findall(r'href=["\']([^"\']+)["\']',t,re.I) if 'rank/' in x or 'category/' in x or 'search' in x][-40:])
+              links=re.findall(r'href=["\']([^"\']+)["\']',t,re.I)
+              print('COMIC LINKS', [x for x in links if re.fullmatch(r'/\d+\.html',x)][:15])
+              print('PAGE LINKS', [x for x in links if any(k in x for k in ['rank/','category/','search'])][-60:])
+              for cls in ['comic-list-item','comic-item','m-up-item1','pagination','page']:
+                  if cls in t: print('HAS CLASS',cls)
+              # short snippets around first comic item
+              for marker in ['comic-list-item','comic-item','m-up-item1']:
+                  p=t.find(marker)
+                  if p>=0: print('SNIP',marker,t[max(0,p-250):p+1600].replace('\n',' ')[:1800]); break
 
-          for label,url in [
-              ('rank1p1','https://mh.iqtao.cn/rank/1-1.html'),
-              ('rank1p2','https://mh.iqtao.cn/rank/1-2.html'),
-              ('rank5p1','https://mh.iqtao.cn/rank/5-1.html'),
+          urls=[
+              ('rank_index_1','https://mh.iqtao.cn/index.php/rank/1-1.html'),
+              ('rank_index_5','https://mh.iqtao.cn/index.php/rank/5-1.html'),
               ('category','https://mh.iqtao.cn/category/tags/642'),
+              ('category_index','https://mh.iqtao.cn/index.php/category/tags/642'),
+              ('category_p2a','https://mh.iqtao.cn/category/tags/642/2'),
+              ('category_p2b','https://mh.iqtao.cn/category/tags/642/2.html'),
               ('search19','https://mh.iqtao.cn/search?key=19%E5%A4%A9'),
               ('searchdouluo','https://mh.iqtao.cn/search?key=%E6%96%97%E7%BD%97'),
-          ]:
-              summary(label,text(url))
+              ('searchdouluo_p2','https://mh.iqtao.cn/search?key=%E6%96%97%E7%BD%97&page=2'),
+          ]
+          for label,url in urls: summary(label,text(url))
 
           reader=text('https://mh.iqtao.cn/128/221583.html')
           imgs=[]
@@ -62,10 +71,9 @@ jobs:
           if imgs:
               u='https:'+imgs[0] if imgs[0].startswith('//') else imgs[0]
               for ref in [None,'https://mh.iqtao.cn/128/221583.html']:
-                  b=get(u,200000,ref)
+                  b=get(u,500000,ref)
                   print('IMAGE REF',ref,'PREFIX',b[:16].hex(),'SHA',hashlib.sha256(b).hexdigest() if b else '')
                   if b:
                       dec=bytes((((x-47)&255)^0xAB) for x in b)
-                      print('DECRYPT PREFIX',dec[:16].hex(),'ASCII',repr(dec[:12]))
-                      print('MAGIC', dec[:3]==b'\xff\xd8\xff', dec[:4]==b'\x89PNG', dec[:4]==b'RIFF' and dec[8:12]==b'WEBP')
+                      print('DECRYPT PREFIX',dec[:16].hex(),'MAGIC JPEG/PNG/WEBP',dec[:3]==b'\xff\xd8\xff',dec[:4]==b'\x89PNG',dec[:4]==b'RIFF' and dec[8:12]==b'WEBP')
           PY
