@@ -1,0 +1,151 @@
+name: Trace Qingman v13 Reader Contract
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-reader-v13-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trace:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev python3-pyelftools python3-capstone >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+
+      - name: Restore analyzer cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+
+      - name: Trace exact cache and image contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/apk_url
+          import json, urllib.request
+          a=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=30))['data']['datas']['android']
+          if (str(a.get('version','')),str(a.get('versionCode',''))) != ('4.4.5','445'):
+              raise SystemExit(f"official version changed: {a.get('version')} / {a.get('versionCode')}")
+          print(a['downloadUrl'])
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/out /tmp/x
+          mkdir -p /tmp/app-lib /tmp/out /tmp/x
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/x
+          cp /tmp/x/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/x/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter && python3 blutter.py /tmp/app-lib /tmp/out >/tmp/blutter.log 2>&1
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
+
+          targets={
+              0x4619ec:'cache model helper',
+              0x461f94:'oub serializer/parser delegate',
+              0x46231c:'picList element closure',
+              0x464984:'official cache image request closure',
+              0xacc19c:'cache refresh caller',
+              0xacc358:'cache/detail wrapper',
+              0xaccfbc:'Referer request xref',
+              0xacd0ac:'image request construction',
+              0xacd2ac:'download status/referer log',
+              0xacd328:'download failure/referer log',
+          }
+          deny=re.compile(r'(?i)(password|passwd|pwd|authorization|bearer|cookie|clientp12|privatekey|certificate|keystore|storepassword|keypassword|bootstrapproof|bootstrapdecrypt|qm_auth_token)')
+          addr_re=re.compile(r'// \*\* addr: 0x([0-9a-fA-F]+), size: 0x([0-9a-fA-F]+)')
+          funcs=[]
+          for p in Path('/tmp/out/asm').glob('*.dart'):
+              lines=p.read_text('utf-8',errors='replace').splitlines()
+              starts=[]
+              for i,line in enumerate(lines):
+                  m=addr_re.search(line)
+                  if m: starts.append((i,int(m.group(1),16),int(m.group(2),16)))
+              for n,(i,a,size) in enumerate(starts):
+                  end=starts[n+1][0] if n+1<len(starts) else len(lines)
+                  funcs.append((a,a+size,p,lines,i,end))
+
+          print('=== ENCLOSING BLUTTER FUNCTIONS ===')
+          for target,label in targets.items():
+              matches=[f for f in funcs if f[0] <= target < f[1]]
+              print(f'\n===== {label} target=0x{target:x} =====')
+              if not matches:
+                  print('NO_BLUTTER_FUNCTION')
+                  continue
+              a,b,p,lines,i,end=min(matches,key=lambda f:f[1]-f[0])
+              print(f'FILE={p.name} FUNCTION=0x{a:x}-0x{b:x} SIZE=0x{b-a:x}')
+              # Full source/asm function for small/medium functions; crop only giant functions.
+              selected=lines[max(0,i-5):end]
+              if len(selected)>1300:
+                  center=next((k for k,x in enumerate(selected) if f'0x{target:x}' in x.lower()),len(selected)//2)
+                  selected=selected[max(0,center-420):min(len(selected),center+620)]
+                  print('FUNCTION_CROPPED_AROUND_TARGET')
+              for line in selected:
+                  print('<redacted-sensitive-line>' if deny.search(line) else line[:620])
+
+          print('\n=== MODEL / SEMANTIC SOURCE HITS ===')
+          needles=('class Vtb','class fpb','class cqb','class oub','picList','String: "pic"','String: "referer"','String: "Referer"','String: "bytes="','"options"','Download failed with status','刷新下载地址失败','已更新下载地址')
+          count=0
+          for p in Path('/tmp/out/asm').glob('*.dart'):
+              lines=p.read_text('utf-8',errors='replace').splitlines()
+              hits=[i for i,line in enumerate(lines) if any(n in line for n in needles)]
+              for i in hits:
+                  print(f'--- {p.name}:{i+1} ---')
+                  for line in lines[max(0,i-14):min(len(lines),i+28)]:
+                      print('<redacted-sensitive-line>' if deny.search(line) else line[:620])
+                  count += 1
+                  if count>=80: break
+              if count>=80: break
+
+          pp=Path('/tmp/out/pp.txt').read_text('utf-8',errors='replace').splitlines()
+          wanted=('"pic"','"picList"','"referer"','"Referer"','"bytes="','"options"','"url"','"pageUrls"','"imageUrl"','"baseImgUrl"','"freeUrl"','"ComicReadSelectedImageLine"')
+          ppmap={}
+          print('\n=== RELEVANT PP OFFSETS ===')
+          for line in pp:
+              if any(w in line for w in wanted) and not deny.search(line):
+                  m=re.search(r'\[pp\+0x([0-9a-fA-F]+)\]',line)
+                  if m:
+                      off=int(m.group(1),16); ppmap[off]=line.strip(); print(line[:900])
+
+          with open('/tmp/x/lib/arm64-v8a/libapp.so','rb') as f:
+              elf=ELFFile(f); sec=elf.get_section_by_name('.text'); base=int(sec['sh_addr']); data=sec.data()
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.skipdata=True
+          print('\n=== RAW DISASM WINDOWS WITH PP ANNOTATIONS ===')
+          for target,label in targets.items():
+              start=max(base,target-0x280); end=min(base+len(data),target+0x500)
+              print(f'\n--- {label} 0x{target:x}, raw=0x{start:x}-0x{end:x} ---')
+              pending={}
+              for ins in md.disasm(data[start-base:end-base],start):
+                  pending={r:(v,n-1) for r,(v,n) in pending.items() if n>1}
+                  op=ins.op_str.lower(); ann=[]
+                  m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
+                  if ins.mnemonic=='add' and m:
+                      pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),48)
+                  if ins.mnemonic in ('ldr','ldur','ldrsw'):
+                      m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
+                      if m:
+                          br=m.group(2); d=int(m.group(3),0) if m.group(3) else 0
+                          off=d if br=='x27' else (pending[br][0]+d if br in pending else None)
+                          if off in ppmap: ann.append('PP='+ppmap[off][:240])
+                  ctrl=ins.mnemonic in ('bl','blr','b','ret','cbz','cbnz','tbz','tbnz') or ins.mnemonic.startswith('b.')
+                  near=abs(ins.address-target)<=0x90
+                  if ann or ctrl or near:
+                      print((f'0x{ins.address:x}: {ins.mnemonic:<7} {ins.op_str:<48}'+((' ; '+' | '.join(ann)) if ann else ''))[:850])
+          PY
