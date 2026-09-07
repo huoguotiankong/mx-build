@@ -1,0 +1,123 @@
+name: Resolve Qingman Cover Path Shape
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-cover-shape.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Resolve cover path and candidate host
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools python3-cryptography >/dev/null
+          python3 - <<'PY'
+          import base64, hashlib, json, os, tempfile, time, urllib.error, urllib.parse, urllib.request, uuid, zipfile
+          from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+          from elftools.elf.elffile import ELFFile
+
+          headers={
+              'Accept':'application/json, text/plain, */*',
+              'User-Agent':'qingman/4.4.5 (Android)',
+              'appVersion':'4.4.5',
+              'platform':'android',
+          }
+          vr=json.load(urllib.request.urlopen(urllib.request.Request('https://bass8ycl.zermh.com/api/radio/api/config/version',headers={'User-Agent':'mx-qingman-probe/1.0'}),timeout=20))['data']['datas']['android']
+          if str(vr.get('version'))!='4.4.5' or str(vr.get('versionCode'))!='445': raise SystemExit('Unexpected Qingman version')
+          with tempfile.TemporaryDirectory() as td:
+              apk=os.path.join(td,'q.apk'); so=os.path.join(td,'libqx_security.so')
+              req=urllib.request.Request(vr['downloadUrl'],headers={'User-Agent':'mx-qingman-probe/1.0'})
+              with urllib.request.urlopen(req,timeout=60) as r, open(apk,'wb') as f:
+                  while True:
+                      b=r.read(1024*1024)
+                      if not b: break
+                      f.write(b)
+              with zipfile.ZipFile(apk) as z, z.open('lib/arm64-v8a/libqx_security.so') as src, open(so,'wb') as dst:
+                  while True:
+                      b=src.read(1024*1024)
+                      if not b: break
+                      dst.write(b)
+              with open(so,'rb') as f:
+                  elf=ELFFile(f)
+                  def rv(va,n):
+                      for seg in elf.iter_segments():
+                          if seg['p_type']!='PT_LOAD': continue
+                          s=int(seg['p_vaddr']); e=s+int(seg['p_filesz'])
+                          if s<=va and va+n<=e:
+                              f.seek(int(seg['p_offset'])+va-s); return f.read(n)
+                      raise RuntimeError('VA not backed')
+                  seed=rv(0x14a40,16)+rv(0x14af0,16); sc=rv(0x17d1f,33); ac=rv(0x17d40,32)
+
+          base=hashlib.sha256(seed).digest()
+          def deob(c,k):
+              stream=b''; i=0
+              while len(stream)<len(c):
+                  stream+=hashlib.sha256(base+bytes([k])+i.to_bytes(4,'big')).digest(); i+=1
+              return bytes(a^b for a,b in zip(c,stream))
+          sign_material=deob(sc,1); aes_key=deob(ac,2)
+          ts=str(int(time.time()*1000)); did=uuid.uuid4().hex; nonce=uuid.uuid4().hex
+          sig=hashlib.sha256(ts.encode()+nonce.encode()+did.encode()+sign_material).hexdigest()
+          bbody=json.dumps({'timestamp':ts,'nonce':nonce,'sign':sig,'deviceId':did},separators=(',',':')).encode()
+          bh=dict(headers); bh['Content-Type']='application/json'; bh['X-Device-Id']=did
+          br=json.load(urllib.request.urlopen(urllib.request.Request('https://mu8xm4cx.zermh.com/bootstrap/domain',data=bbody,headers=bh,method='POST'),timeout=20))
+          enc=br['data']; blob=base64.urlsafe_b64decode(enc+'='*((4-len(enc)%4)%4))
+          cfg=json.loads(AESGCM(aes_key).decrypt(blob[:12],blob[12:],(ts+'|'+nonce).encode()))
+          api=urllib.parse.urlsplit(cfg['apiDomain']); host=api.hostname; access=cfg['appAccessToken']
+          if not host or not access: raise SystemExit('Bootstrap missing fields')
+
+          ah=dict(headers); ah['X-Device-Id']=did; ah['X-QM-App-Access']=access; ah['Content-Type']='application/json'
+          home_url=f'http://{host}/api/comic/comics/v1/homeList?page=1&pageNum=1&pageSize=20'
+          root=json.load(urllib.request.urlopen(urllib.request.Request(home_url,data=b'{}',headers=ah,method='POST'),timeout=25))
+          covers=[]
+          def walk(x):
+              if isinstance(x,dict):
+                  for k in ('verticalCover','horizontalCover','cover'):
+                      v=x.get(k)
+                      if isinstance(v,str) and v.strip(): covers.append((k,v.strip()))
+                  for v in x.values(): walk(v)
+              elif isinstance(x,list):
+                  for v in x: walk(v)
+          walk(root)
+          if not covers: raise SystemExit('No covers')
+          key,raw=covers[0]
+          p=urllib.parse.urlsplit(raw)
+          first=raw.lstrip('/').split('/',1)[0] if raw.lstrip('/') else ''
+          second=raw.lstrip('/').split('/')[1] if len(raw.lstrip('/').split('/'))>1 else ''
+          print('cover_key='+key)
+          print('cover_shape starts_slash='+str(raw.startswith('/')).lower()+' starts_double_slash='+str(raw.startswith('//')).lower()+' has_scheme='+str(bool(p.scheme)).lower()+' first_segment='+first[:100]+' second_segment='+second[:100]+' length='+str(len(raw)))
+
+          rel='/'+raw.lstrip('/')
+          candidates=[]
+          if raw.startswith('//'): candidates.append(('protocol_relative','https:'+raw))
+          elif not p.scheme and '.' in first: candidates.append(('host_relative','https://'+raw.lstrip('/')))
+          candidates += [
+              ('dynamic_http',f'http://{host}{rel}'),
+              ('dynamic_https',f'https://{host}{rel}'),
+              ('official_site','https://www.qingman.app'+rel),
+              ('legacy_image','https://img-qingman.dmzj.com'+rel),
+          ]
+          opener=urllib.request.build_opener(urllib.request.HTTPRedirectHandler())
+          for name,url in candidates:
+              for mode in ('plain','ua','referer'):
+                  h={}
+                  if mode in ('ua','referer'): h['User-Agent']='qingman/4.4.5 (Android)'
+                  if mode=='referer': h['Referer']='https://www.qingman.app/'
+                  req=urllib.request.Request(url,headers=h)
+                  try:
+                      with opener.open(req,timeout=12) as r:
+                          sample=r.read(32); ct=r.headers.get('Content-Type',''); cl=r.headers.get('Content-Length','')
+                          print(f'candidate={name} mode={mode} status={r.status} ctype={ct} content_length={cl} sample_bytes={len(sample)}')
+                  except urllib.error.HTTPError as e:
+                      print(f'candidate={name} mode={mode} status={e.code} ctype={e.headers.get("Content-Type","")} error=http')
+                  except Exception as e:
+                      print(f'candidate={name} mode={mode} status=0 error={type(e).__name__}:{str(e)[:100]}')
+          PY
