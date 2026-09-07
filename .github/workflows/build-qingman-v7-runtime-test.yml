@@ -196,3 +196,5 @@ jobs:
       - name: Cleanup signing material
         if: always()
         run: rm -f upstream/signingkey.jks
+
+# trigger: qingman-v1.6.7-reader-fix
