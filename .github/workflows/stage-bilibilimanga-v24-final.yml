@@ -1,0 +1,288 @@
+name: Stage Bilibili Manga v24 title fix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/stage-bilibilimanga-v24-final.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stage-bilibilimanga-v24-final
+  cancel-in-progress: false
+
+jobs:
+  build-stage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check required secrets
+        shell: bash
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]] || { echo "::error::Missing MX_PRIVATE_READ_TOKEN"; exit 1; }
+          [[ -n "$MANGA_SIGNING_BUNDLE" ]] || { echo "::error::Missing MANGA_SIGNING_BUNDLE"; exit 1; }
+
+      - name: Checkout private source baseline
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout staging branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-build
+          ref: extension-staging
+          path: staging
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Restore validated v23 payload and apply v24 title fix
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          handoff='staging/source-handoff/bilibili-v23-tencent-v25'
+          test -f "$handoff/BASE_SOURCE_SHA.txt"
+          base_sha="$(tr -d '\r\n' < "$handoff/BASE_SOURCE_SHA.txt")"
+          git -C source cat-file -e "$base_sha^{commit}"
+          git -C source diff --quiet "$base_sha" HEAD -- \
+            src/zh/bilibilimanga \
+            docs/sources/bilibilimanga.md || {
+              echo "::error::Bilibili source changed after validated v23 handoff base $base_sha"
+              exit 1
+            }
+          # Preserve module-local MX compile API stubs from private main and overlay only
+          # the already validated v23 source payload.
+          cp -a "$handoff/src/zh/bilibilimanga/." source/src/zh/bilibilimanga/
+          cp "$handoff/docs/sources/bilibilimanga.md" source/docs/sources/bilibilimanga.md
+          test -f source/src/zh/bilibilimanga/src/eu/kanade/tachiyomi/source/mx/Comment.kt
+          grep -F 'versionCode = 23' source/src/zh/bilibilimanga/build.gradle.kts
+
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          kt = Path('source/src/zh/bilibilimanga/src/eu/kanade/tachiyomi/extension/zh/bilibilimanga/BilibiliManga.kt')
+          text = kt.read_text('utf-8')
+          old = '        val title = obj.string("org_title") ?: obj.string("title") ?: return null\n'
+          new = (
+              '        val title = (obj.string("org_title") ?: obj.string("title") ?: return null)\n'
+              '            .replace(Regex("""</?em\\b[^>]*>""", RegexOption.IGNORE_CASE), "")\n'
+              '            .trim()\n'
+          )
+          if old not in text:
+              raise SystemExit('Expected Bilibili title assignment not found in v23 payload')
+          kt.write_text(text.replace(old, new, 1), 'utf-8')
+
+          gradle = Path('source/src/zh/bilibilimanga/build.gradle.kts')
+          g = gradle.read_text('utf-8')
+          if '    versionCode = 23\n' not in g:
+              raise SystemExit('Expected source versionCode 23 not found')
+          gradle.write_text(g.replace('    versionCode = 23\n', '    versionCode = 24\n', 1), 'utf-8')
+
+          docs = Path('source/docs/sources/bilibilimanga.md')
+          d = docs.read_text('utf-8')
+          if '- 当前版本：`versionCode = 23`' not in d:
+              raise SystemExit('Expected docs versionCode 23 not found')
+          d = d.replace('- 当前版本：`versionCode = 23`', '- 当前版本：`versionCode = 24`', 1)
+          note = (
+              '\n\n## 2026-09-07 v24：搜索标题高亮标签清理\n\n'
+              '- 用户实机反馈：搜索结果标题会直接显示 Bilibili 搜索接口返回的 `<em class="keyword">...</em>` 高亮标签。\n'
+              '- 根因：`search.v1.Search/SearchKeyword` 的 `org_title` 会嵌入 HTML 高亮标记，旧实现直接写入 `SManga.title`。\n'
+              '- 修复：在 `mangaFromObject()` 中仅清理 `<em ...>` / `</em>` 搜索高亮标签并执行 `trim()`；漫画 ID、URL、封面、详情、章节、正文及评论逻辑保持不变。\n'
+              '- 版本衔接：v23 已生成过富媒体评论测试 APK，本次使用 v24，禁止复用 v23 覆盖不同代码。\n'
+              '- 验证状态：CI 构建、签名和测试商店验证通过后标记为构建已验证；标题显示仍需用户实机确认。\n'
+          )
+          if 'v24：搜索标题高亮标签清理' not in d:
+              d += note
+          docs.write_text(d, 'utf-8')
+
+          sample = '<em class="keyword">小智怪</em>谈'
+          cleaned = re.sub(r'</?em\b[^>]*>', '', sample, flags=re.I).strip()
+          if cleaned != '小智怪谈':
+              raise SystemExit(f'Sanitizer fixture failed: {cleaned!r}')
+
+          with Path(os.environ['GITHUB_OUTPUT']).open('a', encoding='utf-8') as f:
+              f.write('version_name=1.6.24\nandroid_code=106024\n')
+          PY
+          python3 source/scripts/validate_sources.py
+          git -C source diff --check
+          grep -F 'versionCode = 24' source/src/zh/bilibilimanga/build.gradle.kts
+          grep -F '.replace(Regex("""</?em\b[^>]*>""", RegexOption.IGNORE_CASE), "")' \
+            source/src/zh/bilibilimanga/src/eu/kanade/tachiyomi/extension/zh/bilibilimanga/BilibiliManga.kt
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Checkout current Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          ref: main
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Overlay complete module and format
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf upstream/src/zh/bilibilimanga
+          cp -a source/src/zh/bilibilimanga upstream/src/zh/bilibilimanga
+          test -f upstream/src/zh/bilibilimanga/src/eu/kanade/tachiyomi/source/mx/Comment.kt
+          cd upstream
+          ./gradlew :src:zh:bilibilimanga:spotlessApply
+          ./gradlew :src:zh:bilibilimanga:spotlessCheck
+          cd ..
+          rm -rf source/src/zh/bilibilimanga
+          cp -a upstream/src/zh/bilibilimanga source/src/zh/bilibilimanga
+          python3 source/scripts/validate_sources.py
+          git -C source diff --check
+
+      - name: Prepare stable signing key
+        shell: bash
+        env:
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, json, os
+          from pathlib import Path
+          b = json.loads(os.environ['MANGA_SIGNING_BUNDLE'])
+          required = ('signingKey', 'alias', 'storePassword', 'keyPassword')
+          missing = [k for k in required if not b.get(k)]
+          if missing:
+              raise SystemExit('Signing bundle missing: ' + ', '.join(missing))
+          Path('upstream/signingkey.jks').write_bytes(base64.b64decode(b['signingKey']))
+          with Path(os.environ['GITHUB_ENV']).open('a', encoding='utf-8') as f:
+              for env_name, key in (('ALIAS','alias'), ('KEY_STORE_PASSWORD','storePassword'), ('KEY_PASSWORD','keyPassword')):
+                  value = str(b[key])
+                  print(f'::add-mask::{value}')
+                  f.write(f'{env_name}<<EOF_SIGN\n{value}\nEOF_SIGN\n')
+          PY
+
+      - name: Build debug, signed release and lint
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew \
+            :src:zh:bilibilimanga:assembleDebug \
+            :src:zh:bilibilimanga:assembleRelease \
+            :src:zh:bilibilimanga:lintRelease
+
+      - name: Verify version and signing identity
+        id: signing
+        shell: bash
+        env:
+          EXPECTED_VERSION: ${{ steps.version.outputs.version_name }}
+          EXPECTED_ANDROID_CODE: ${{ steps.version.outputs.android_code }}
+        run: |
+          set -euo pipefail
+          expected='1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620'
+          actual="$(keytool -exportcert -alias "$ALIAS" -keystore upstream/signingkey.jks -storepass "$KEY_STORE_PASSWORD" | sha256sum | awk '{print $1}' | tr '[:upper:]' '[:lower:]')"
+          [[ "$actual" == "$expected" ]] || { echo '::error::Extension signing certificate mismatch'; exit 1; }
+          apk="$(find upstream/src/zh/bilibilimanga -path '*/build/outputs/apk/release/*.apk' -type f | sort | head -n1)"
+          test -f "$apk"
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n1)"
+          aapt="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n1)"
+          "$apksigner" verify "$apk"
+          badging="$("$aapt" dump badging "$apk")"
+          android_code="$(printf '%s\n' "$badging" | sed -n "s/.*versionCode='\([0-9][0-9]*\)'.*/\1/p" | head -n1)"
+          version_name="$(printf '%s\n' "$badging" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p" | head -n1)"
+          [[ "$android_code" == "$EXPECTED_ANDROID_CODE" ]] || { echo "::error::Unexpected Android versionCode $android_code"; exit 1; }
+          [[ "$version_name" == "$EXPECTED_VERSION" ]] || { echo "::error::Unexpected versionName $version_name"; exit 1; }
+          echo "fingerprint=$actual" >> "$GITHUB_OUTPUT"
+          echo "Bilibili v24 APK verified: versionName=$version_name androidVersionCode=$android_code"
+
+      - name: Save validated v24 handoff
+        shell: bash
+        run: |
+          set -euo pipefail
+          handoff='staging/source-handoff/bilibilimanga-v24-search-title'
+          rm -rf "$handoff"
+          mkdir -p "$handoff/src/zh/bilibilimanga" "$handoff/docs/sources"
+          cp -a source/src/zh/bilibilimanga/. "$handoff/src/zh/bilibilimanga/"
+          cp source/docs/sources/bilibilimanga.md "$handoff/docs/sources/bilibilimanga.md"
+          git -C source rev-parse HEAD > "$handoff/BASE_SOURCE_SHA.txt"
+          cat > "$handoff/VALIDATION.txt" <<'EOF'
+          Bilibili Manga v24 search-title sanitizer
+          Build: assembleDebug + assembleRelease + lintRelease
+          Formatting: spotlessApply + spotlessCheck
+          Version: 1.6.24 / Android versionCode 106024
+          Signature fingerprint: 1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620
+          Device verification: pending user real-device search test
+          EOF
+
+      - name: Generate isolated v24 test store
+        shell: bash
+        env:
+          SIGNING_FINGERPRINT: ${{ steps.signing.outputs.fingerprint }}
+        run: |
+          set -euo pipefail
+          printf 'zh/bilibilimanga\n' > "$RUNNER_TEMP/bilibili-v24-target.txt"
+          python3 source/scripts/publish_test_repo.py \
+            --targets "$RUNNER_TEMP/bilibili-v24-target.txt" \
+            --upstream-root upstream \
+            --source-root source \
+            --repo-dir staging/test \
+            --owner huoguotiankong \
+            --repository mx-repo \
+            --signing-key "$SIGNING_FINGERPRINT"
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          pkg = 'eu.kanade.tachiyomi.extension.zh.bilibilimanga'
+          data = json.loads(Path('staging/test/index.json').read_text('utf-8'))
+          items = [x for x in data['extensionList']['extensions'] if x.get('packageName') == pkg]
+          if len(items) != 1:
+              raise SystemExit(f'Expected one Bilibili entry, got {len(items)}')
+          actual = (items[0].get('versionName'), items[0].get('versionCode'))
+          expected = ('1.6.24', 106024)
+          if actual != expected:
+              raise SystemExit(f'Expected {expected}, got {actual}')
+          print('Staged Bilibili verified:', actual)
+          PY
+          test -f staging/test/apk/tachiyomi-zh.bilibilimanga-v1.6.24.apk
+
+      - name: Commit v24 handoff and isolated test store
+        working-directory: staging
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add source-handoff/bilibilimanga-v24-search-title test
+          git diff --cached --check
+          git diff --cached --quiet && { echo '::error::No v24 staging changes'; exit 1; }
+          git commit -m 'Stage Bilibili Manga v1.6.24 title fix'
+          git pull --rebase origin extension-staging
+          git push origin HEAD:extension-staging
+
+      - name: Upload signed APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: bilibilimanga-v24-search-title-signed-apk
+          path: upstream/src/zh/bilibilimanga/**/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Cleanup signing material
+        if: always()
+        run: rm -f upstream/signingkey.jks
