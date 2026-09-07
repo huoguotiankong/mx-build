@@ -1,0 +1,105 @@
+name: Trace Qingman Task Getter Callers
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-task-getter-callers.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools python3-capstone cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+      - uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+      - name: Trace route getter callers
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/apk_url
+          import json,urllib.request
+          print(json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))['data']['datas']['android']['downloadUrl'])
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          mkdir -p /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/apk-extract
+          cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter
+          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
+          python3 - <<'PY'
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
+          import bisect,re
+          sensitive=re.compile(r'(?i)(password|passwd|pwd|token|cookie|authorization|bearer|private|clientp12|certificate|proof|signature|p12|seed)')
+          funcs=[]
+          for p in Path('/tmp/blutter-out/asm').rglob('*.dart'):
+              lines=p.read_text('utf-8',errors='replace').splitlines()
+              for i,s in enumerate(lines):
+                  m=re.search(r'\*\* addr: 0x([0-9a-fA-F]+), size: 0x([0-9a-fA-F]+)',s)
+                  if not m: continue
+                  st=int(m.group(1),16); en=st+int(m.group(2),16); decl=''
+                  for j in range(i-1,max(-1,i-10),-1):
+                      z=lines[j].strip()
+                      if z and not z.startswith('//'):
+                          decl=z; break
+                  funcs.append((st,en,p.name,decl,lines,i))
+          funcs.sort(); starts=[f[0] for f in funcs]
+          def owner(addr):
+              k=bisect.bisect_right(starts,addr)-1
+              return funcs[k] if k>=0 and funcs[k][0]<=addr<funcs[k][1] else None
+          getters={
+              0x7e3184:'reward_claim',
+              0x7e3190:'daily_list',
+              0x7e319c:'retroactive',
+              0x7e31a8:'signin_list',
+              0x7e31b4:'signin',
+              0x7e31cc:'member_list',
+              0x7e31d8:'annual_claim',
+              0x7e31e4:'annual_rewards',
+          }
+          with open('/tmp/app-lib/libapp.so','rb') as f:
+              elf=ELFFile(f); sec=elf.get_section_by_name('.text'); base=int(sec['sh_addr']); data=sec.data()
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.skipdata=True
+          hits=[]
+          for ins in md.disasm(data,base):
+              if ins.mnemonic != 'bl': continue
+              try: target=int(ins.op_str.lstrip('#'),16)
+              except: continue
+              if target in getters: hits.append((ins.address,target,getters[target]))
+          print('=== DIRECT CALLERS ===')
+          seen=set()
+          for addr,target,label in hits:
+              f=owner(addr); key=(f[0] if f else addr,label)
+              if key in seen: continue
+              seen.add(key)
+              print(f'{label}: call=0x{addr:x} getter=0x{target:x}')
+              if not f:
+                  print('  OWNER=<unmapped>'); continue
+              st,en,pn,decl,lines,mark=f
+              print(f'  OWNER=0x{st:x}-0x{en:x} file={pn} decl={decl[:700]}')
+              emitted=0
+              for z in lines[max(0,mark-20):min(len(lines),mark+300)]:
+                  if sensitive.search(z): continue
+                  if any(k in z for k in ('LoadField','StoreField','call 0x','Await','String:','Map','query','body','task','reward','sign','claim','year','month','date','id')):
+                      print('    '+z[:850]); emitted += 1
+                      if emitted>=180: break
+          PY
