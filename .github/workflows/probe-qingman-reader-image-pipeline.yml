@@ -133,3 +133,5 @@ jobs:
               if printed>=3600: break
           print('FUNCTION_DUMP_LINES='+str(printed))
           PY
+
+# rerun: 2026-09-07 v11 HTTP400 follow-up
