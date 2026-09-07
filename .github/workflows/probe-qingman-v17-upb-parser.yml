@@ -1,0 +1,102 @@
+name: Probe Qingman v17 Upb Parser
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-v17-upb-parser.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Prepare analyzer
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools python3-capstone cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+      - uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+      - name: Disassemble Upb reader/pageUrls model
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/apk_url
+          import json,urllib.request
+          print(json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))['data']['datas']['android']['downloadUrl'])
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/out /tmp/x
+          mkdir -p /tmp/app-lib /tmp/out /tmp/x
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/x
+          cp /tmp/x/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/x/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter
+          python3 blutter.py /tmp/app-lib /tmp/out >/tmp/blutter.log 2>&1
+          cd "$GITHUB_WORKSPACE"
+          python3 - <<'PY' > reports/qingman-v17-upb-parser.txt
+          from pathlib import Path
+          import re
+          from elftools.elf.elffile import ELFFile
+          from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM
+
+          pp={}
+          rx=re.compile(r'^\[pp\+0x([0-9a-fA-F]+)\]\s+(.*)$')
+          for line in Path('/tmp/out/pp.txt').read_text('utf-8',errors='replace').splitlines():
+              m=rx.match(line)
+              if m: pp[int(m.group(1),16)]=m.group(2)
+
+          with open('/tmp/app-lib/libapp.so','rb') as f:
+              elf=ELFFile(f)
+              sec=elf.get_section_by_name('.text')
+              base=int(sec['sh_addr']); data=sec.data()
+
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.skipdata=True
+          def dump(a,b,title):
+              print(f'===== {title} 0x{a:x}-0x{b:x} =====')
+              chunk=data[a-base:b-base]
+              for ins in md.disasm(chunk,a):
+                  extra=''
+                  if ins.mnemonic.startswith('ldr') and '[x27' in ins.op_str:
+                      m=re.search(r'\[x27,\s*#0x([0-9a-fA-F]+)\]',ins.op_str)
+                      if m:
+                          off=int(m.group(1),16)
+                          if off in pp: extra=' ; PP+0x%x=%s'%(off,pp[off][:700])
+                  print(f'0x{ins.address:x}: {ins.mnemonic:<8} {ins.op_str:<65}{extra}')
+              print()
+
+          print('Qingman 4.4.5 Upb parser probe')
+          print('Upb.YDc wrapper=0xac93f8 -> 0x45f260')
+          print('Upb.iff constructor=0x46001c')
+          print('Upb closure=0x461008')
+          dump(0x45f200,0x45faa0,'Upb serializer / pageUrls xref A')
+          dump(0x45ff80,0x461180,'Upb.iff parser / pageUrls xref B / closure')
+
+          print('===== KEY PP VALUES =====')
+          for off in range(0x225f0,0x22770,8):
+              if off in pp: print(f'PP+0x{off:x}: {pp[off][:1000]}')
+          PY
+      - name: Persist report
+        run: |
+          set -euo pipefail
+          test -s reports/qingman-v17-upb-parser.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add reports/qingman-v17-upb-parser.txt
+          git commit -m 'probe(qingman): record v17 Upb pageUrls parser' || exit 0
+          git push origin HEAD:main
