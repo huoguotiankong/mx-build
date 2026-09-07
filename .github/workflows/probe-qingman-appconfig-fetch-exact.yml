@@ -1,4 +1,4 @@
-name: Dump Exact Qingman AppConfig Fetch Body
+name: Resolve Qingman AppConfig Network Adapter
 
 on:
   push:
@@ -30,18 +30,17 @@ jobs:
             /tmp/blutter/dartsdk
             /tmp/blutter/packages
           key: qingman-blutter-dart-3.12.2-arm64-v1
-      - name: Dump exact fetch body with safe PP annotations
+      - name: Trace adapter, singleton, and request classes
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY' > /tmp/apk_url
-          import json,urllib.request,sys
-          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
-          a=o['data']['datas']['android']
+          python3 - <<'PY' >/tmp/apk_url
+          import json,urllib.request
+          a=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))['data']['datas']['android']
+          if str(a.get('version'))!='4.4.5' or str(a.get('versionCode'))!='445': raise SystemExit('Unexpected Qingman version')
           print(a['downloadUrl'])
-          print('OFFICIAL_VERSION='+str(a.get('version','')),file=sys.stderr)
           PY
-          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(head -1 /tmp/apk_url)" -o /tmp/qingman.apk
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qingman.apk
           rm -rf /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
           mkdir -p /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
           unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/apk-extract
@@ -52,61 +51,68 @@ jobs:
 
           python3 - <<'PY'
           from pathlib import Path
-          import re
           from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
           from elftools.elf.elffile import ELFFile
-
-          sensitive=re.compile(r'(?i)(token|secret|password|cookie|authorization|bearer|private|clientp12|certificate|proof|signature|sign/key|k1a|k1b|k2a|k2b|k3a|k3b|seed)')
+          import re
+          deny=re.compile(r'(?i)(password|token|authorization|bearer|cookie|secret|private|clientp12|certificate|keystore|proof|signature|sign/key|seed|k1a|k1b|k2a|k2b|k3a|k3b)')
           pp={}
           for line in Path('/tmp/blutter-out/pp.txt').read_text('utf-8',errors='replace').splitlines():
               m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s+(.*)$',line)
               if m: pp[int(m.group(1),16)]=m.group(2)
-
           with open('/tmp/app-lib/libapp.so','rb') as f:
               elf=ELFFile(f); sec=elf.get_section_by_name('.text'); base=int(sec['sh_addr']); data=sec.data()
           md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.skipdata=True
-
-          def safe(v):
-              if not v: return ''
-              return '<redacted>' if sensitive.search(v) else v[:300]
-
-          def dump(start,end):
-              pending={}
-              for ins in md.disasm(data[start-base:end-base],start):
-                  pending={r:(b,t-1) for r,(b,t) in pending.items() if t>1}
-                  op=ins.op_str.lower(); ann=''
+          ins=list(md.disasm(data,base)); idx={x.address:i for i,x in enumerate(ins)}
+          def is_prologue(x): return x.mnemonic=='stp' and x.op_str.replace(' ','').startswith('x29,x30,[x15,#-0x10]!')
+          def bounds(addr):
+              if addr not in idx:return None
+              k=idx[addr];s=k
+              while s>0 and not is_prologue(ins[s]):s-=1
+              e=k+1
+              while e<len(ins) and not is_prologue(ins[e]):e+=1
+              return ins[s].address,ins[e].address if e<len(ins) else ins[-1].address+4
+          def dump(addr,label,maxins=2400):
+              be=bounds(addr)
+              if not be: print('NO_BOUNDS',label,hex(addr)); return
+              st,en=be;print(f'\n=== {label} 0x{st:x}-0x{en:x} size=0x{en-st:x} ===')
+              pending={};n=0
+              for x in md.disasm(data[st-base:en-base],st):
+                  n+=1
+                  if n>maxins:break
+                  pending={r:(b,c-1) for r,(b,c) in pending.items() if c>1};op=x.op_str.lower();ann=''
                   m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
-                  if ins.mnemonic=='add' and m:
-                      pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),16)
-                  elif ins.mnemonic in ('ldr','ldur','ldrsw'):
+                  if x.mnemonic=='add' and m:pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),64)
+                  elif x.mnemonic in ('ldr','ldur','ldrsw'):
                       m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
                       if m:
-                          br=m.group(2); disp=int(m.group(3),0) if m.group(3) else 0
-                          off=disp if br=='x27' else (pending[br][0]+disp if br in pending else None)
-                          if off is not None and off in pp:
-                              ann=f' ; PP+0x{off:x}={safe(pp[off])}'
-                  print(f'{ins.address:#x} {ins.mnemonic:<7} {ins.op_str}{ann}')
-
-          print('=== APP CONFIG FETCH 0xb028dc-0xb02b3c ===')
-          dump(0xb028dc,0xb02b3c)
-          print('=== PRECEDING 0xb02664-0xb028dc ===')
-          dump(0xb02664,0xb028dc)
-          print('=== FOLLOWING 0xb02b3c-0xb02c80 ===')
-          dump(0xb02b3c,0xb02c80)
-
-          print('=== PP VALUES DIRECTLY REFERENCED IN FULL REGION ===')
-          refs=set(); pending={}
-          for ins in md.disasm(data[0xb02664-base:0xb02c80-base],0xb02664):
-              pending={r:(b,t-1) for r,(b,t) in pending.items() if t>1}
-              op=ins.op_str.lower()
-              m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
-              if ins.mnemonic=='add' and m:
-                  pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),16); continue
-              if ins.mnemonic in ('ldr','ldur','ldrsw'):
-                  m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
-                  if m:
-                      br=m.group(2); disp=int(m.group(3),0) if m.group(3) else 0
-                      off=disp if br=='x27' else (pending[br][0]+disp if br in pending else None)
-                      if off is not None and off in pp: refs.add(off)
-          for off in sorted(refs): print(f'PP+0x{off:x} {safe(pp[off])}')
+                          br=m.group(2);disp=int(m.group(3),0) if m.group(3) else 0;off=disp if br=='x27' else (pending[br][0]+disp if br in pending else None)
+                          if off is not None and off in pp and not deny.search(pp[off]):ann=f' ; PP+0x{off:x}={pp[off][:300]}'
+                  if ann or x.mnemonic in ('bl','blr','ret','b','b.eq','b.ne','b.lt','b.gt','b.le','b.ge','cbz','cbnz','tbz','tbnz'):print(f'0x{x.address:x} {x.mnemonic:<7} {x.op_str}{ann}')
+          for a,l in ((0xaa0250,'GENERIC NETWORK ADAPTER'),(0xb02b90,'APPCONFIG ALLOC STUB'),(0xb028d0,'CHAPING ALLOC STUB'),(0x3b6174,'UEB CLOSURE A'),(0x540ef8,'UEB CLOSURE B')):dump(a,l)
+          print('\n=== SOURCE OWNING aa0250 ===')
+          for p in Path('/tmp/blutter-out/asm').glob('*.dart'):
+              lines=p.read_text('utf-8',errors='replace').splitlines()
+              for i,line in enumerate(lines):
+                  if '0xaa0250' in line.lower():
+                      print('FILE',p.name,'LINE',i+1)
+                      for z in lines[max(0,i-40):min(len(lines),i+180)]:
+                          if not deny.search(z):print(z[:360])
+                      break
+          print('\n=== PIm uEb SOURCE ===')
+          p=Path('/tmp/blutter-out/asm/PIm.dart')
+          if p.exists():
+              for z in p.read_text('utf-8',errors='replace').splitlines()[:1800]:
+                  if not deny.search(z):print(z[:360])
+          print('\n=== REQUEST CLASS METADATA ===')
+          for needle in ('0x3e021c','0x45a21c','class id: 495','TypeArguments: <uxb?>','TypeArguments: <Bsb?>'):
+              print('NEEDLE',needle)
+              for p in [Path('/tmp/blutter-out/objs.txt'),Path('/tmp/blutter-out/pp.txt')]+list(Path('/tmp/blutter-out/asm').glob('*.dart')):
+                  try: lines=p.read_text('utf-8',errors='replace').splitlines()
+                  except Exception: continue
+                  for i,line in enumerate(lines):
+                      if needle.lower() in line.lower():
+                          print('FILE',p.name,'LINE',i+1)
+                          for z in lines[max(0,i-6):min(len(lines),i+16)]:
+                              if not deny.search(z):print(z[:360])
+                          break
           PY
