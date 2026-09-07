@@ -34,8 +34,7 @@ jobs:
           python3 - <<'PY'
           from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
           from elftools.elf.elffile import ELFFile
-          import re,subprocess
-          # Generate pool text via strings-like scan is not enough. Use known PP offsets from prior validated Blutter output.
+          import re
           pp={
             0x6298:'Referer',0x18c78:'imageUrl',0x1eba0:'baseImgUrl',0x1eba8:'freeUrl',0x20a30:'imageUrls',
             0x21130:'decryptImage',0x22648:'pageUrls',0x226c0:'referer',0x25000:'picList',0x25088:' referer=',
@@ -44,7 +43,9 @@ jobs:
           }
           windows=[
             ('page_model',0x45f180,0x460760),
+            ('appconfig_model',0x4cfe40,0x4d0520),
             ('reader_line',0x489c80,0x490700),
+            ('reader_line_secondary',0x642300,0x642650),
             ('image_claim',0x763680,0x763b20),
             ('image_urls',0x7b8380,0x7b8660),
             ('reader_download',0xaccf00,0xacd3f0),
@@ -82,3 +83,5 @@ jobs:
                       if emitted>=900: print('WINDOW_TRUNCATED'); break
               print('EMITTED='+str(emitted))
           PY
+
+# rerun: 2026-09-07 v13 cache level-gate follow-up
