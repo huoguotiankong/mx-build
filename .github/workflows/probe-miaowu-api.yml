@@ -1,0 +1,83 @@
+name: Probe Miaowu API
+
+on:
+  push:
+    branches:
+      - ops/probe-miaowu-api-20260907
+    paths:
+      - .github/workflows/probe-miaowu-api.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Probe public config and API routes
+        shell: bash
+        run: |
+          set -u
+          python3 - <<'PY'
+          import json, subprocess
+
+          def curl(url, method='GET', body=None, headers=None):
+              cmd=['curl','-k','-sS','-L','--connect-timeout','8','--max-time','15','-w','\n__HTTP__=%{http_code}\n__TYPE__=%{content_type}\n', '-X', method]
+              for k,v in (headers or {}).items():
+                  cmd += ['-H', f'{k}: {v}']
+              if body is not None:
+                  cmd += ['--data', body]
+              cmd += [url]
+              try:
+                  out=subprocess.run(cmd, text=True, capture_output=True, timeout=20)
+                  text=(out.stdout or '')
+                  if out.stderr:
+                      text += '\n__ERR__=' + out.stderr.strip()
+                  return text[:5000]
+              except Exception as e:
+                  return f'EXCEPTION {type(e).__name__}: {e}'
+
+          print('## DNS')
+          subprocess.run(['getent','hosts','maowu.iqtao.cn'])
+
+          config_urls=[
+              'http://121.11.204.141:8124/mw.json',
+              'https://121.11.204.141:8124/mw.json',
+              'https://maowu.iqtao.cn',
+          ]
+          for u in config_urls:
+              print('\n###',u)
+              print(curl(u))
+
+          bases=[
+              'https://maowu.iqtao.cn',
+              'https://maowu.iqtao.cn/index.php',
+          ]
+          routes=[
+              '/appv1/bootstrap/start',
+              '/appv1/comic/index',
+              '/appv1/comic/type',
+              '/appv1/comic/hot_comics',
+              '/appv1/comic/newrank',
+              '/appv1/comic/daily_recommend',
+              '/appv1/comic/search',
+              '/appv1/comic/info',
+              '/appv1/comic/chapter',
+              '/appv1/comic/read',
+          ]
+          common={'User-Agent':'com.maofan.comic/1.0 Android','Accept':'application/json, text/plain, */*'}
+          for b in bases:
+              for r in routes:
+                  u=b+r
+                  print('\n### GET',u)
+                  print(curl(u, headers=common))
+                  if r in ['/appv1/bootstrap/start','/appv1/comic/search','/appv1/comic/info','/appv1/comic/chapter','/appv1/comic/read']:
+                      print('\n### POST form',u)
+                      h={**common,'Content-Type':'application/x-www-form-urlencoded'}
+                      print(curl(u,'POST','page=1&limit=20&keyword=%E6%96%97%E7%BD%97&comic_id=1&chapter_id=1',h))
+                      print('\n### POST json',u)
+                      h={**common,'Content-Type':'application/json'}
+                      body=json.dumps({'page':1,'limit':20,'keyword':'斗罗','comic_id':1,'chapter_id':1},ensure_ascii=False)
+                      print(curl(u,'POST',body,h))
+          PY
