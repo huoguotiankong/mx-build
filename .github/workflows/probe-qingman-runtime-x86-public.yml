@@ -97,7 +97,6 @@ jobs:
                         if deny.search(u): continue
                         s=u.decode('utf-8','ignore').rstrip('\x00')
                         if s and s not in found: found.append(s)
-                    # Some Hive values are stored as host only instead of a full URL.
                     for h in host_re.findall(chunk):
                         if deny.search(h): continue
                         s=h.decode('ascii','ignore').lower()
@@ -105,8 +104,9 @@ jobs:
                             found.append(s)
             print('safe_baseimg_candidates='+str(len(found)))
             for i,s in enumerate(found[:30],1):
-                # Only public URL/hostname candidates near literal baseImgUrl are emitted.
                 print(f'baseimg_candidate_{i}={s[:240]}')
             if not found:
                 print('baseimg_candidate_found=false')
             PY
+
+            # Rerun marker: 2026-09-07 x86_64 KVM path
