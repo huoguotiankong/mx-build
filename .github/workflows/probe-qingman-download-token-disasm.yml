@@ -1,0 +1,98 @@
+name: Disasm Qingman Download Token Refresh
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-download-token-disasm.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  disasm:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev python3-pyelftools python3-capstone >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+      - uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+      - name: Disassemble focused ranges
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/apk_url
+          import json,urllib.request
+          a=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=30))['data']['datas']['android']
+          if (str(a.get('version','')),str(a.get('versionCode',''))) != ('4.4.5','445'): raise SystemExit('official version changed')
+          print(a['downloadUrl'])
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/out /tmp/x
+          mkdir -p /tmp/app-lib /tmp/out /tmp/x
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/x
+          cp /tmp/x/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/x/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter && python3 blutter.py /tmp/app-lib /tmp/out >/tmp/blutter.log 2>&1
+          python3 - <<'PY'
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
+          import re
+
+          deny=re.compile(r'(?i)(password|passwd|pwd|authorization|bearer|cookie|clientp12|privatekey|certificate|keystore|storepassword|keypassword|bootstrapproof|bootstrapdecrypt|appaccesstoken)')
+          pp={}
+          for line in Path('/tmp/out/pp.txt').read_text('utf-8',errors='replace').splitlines():
+              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s+(.*)$',line)
+              if m: pp[int(m.group(1),16)]=m.group(2)
+          syms={}
+          for line in Path('/tmp/out/ida_script/addNames.py').read_text('utf-8',errors='replace').splitlines():
+              m=re.search(r'set_name\((0x[0-9a-fA-F]+|\d+),\s*[ru]?([\'\"])(.*?)\2',line)
+              if m:
+                  try: syms[int(m.group(1),0)]=m.group(3)
+                  except: pass
+          with open('/tmp/app-lib/libapp.so','rb') as f:
+              elf=ELFFile(f); sec=elf.get_section_by_name('.text'); base=int(sec['sh_addr']); blob=sec.data()
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.skipdata=True
+          ranges=[
+              (0xacbcec,0xacbf80,'download helper entry'),
+              (0xacc180,0xacc500,'token refresh and cache/detail branch'),
+              (0xaccef0,0xacd400,'cache/detail response/URL replacement branch'),
+          ]
+          for start,end,label in ranges:
+              print(f'===== {label} 0x{start:x}-0x{end:x} =====')
+              pending={}
+              for ins in md.disasm(blob[start-base:end-base],start):
+                  pending={r:(o,n-1) for r,(o,n) in pending.items() if n>1}
+                  op=ins.op_str.lower(); ann=[]
+                  m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
+                  if ins.mnemonic=='add' and m:
+                      pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),32)
+                  if ins.mnemonic in ('ldr','ldur','ldrsw'):
+                      m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
+                      if m:
+                          br=m.group(2); disp=int(m.group(3),0) if m.group(3) else 0
+                          off=disp if br=='x27' else (pending[br][0]+disp if br in pending else None)
+                          if off in pp:
+                              val=pp[off]
+                              ann.append('PP='+('<redacted>' if deny.search(val) else val[:220]))
+                  if ins.mnemonic=='bl' and ins.op_str.startswith('#'):
+                      try: t=int(ins.op_str[1:],0)
+                      except: t=None
+                      if t is not None: ann.append('CALL='+syms.get(t,f'0x{t:x}'))
+                  text=f'0x{ins.address:x}: {ins.mnemonic:<7} {ins.op_str:<48}'
+                  if ann: text+=' ; '+' | '.join(ann)
+                  print(text[:820])
+          PY
