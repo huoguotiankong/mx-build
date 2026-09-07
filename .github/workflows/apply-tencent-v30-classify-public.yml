@@ -1,0 +1,145 @@
+name: Apply Tencent v30 classify fix (public runner)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/apply-tencent-v30-classify-public.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apply-tencent-v30-classify-public
+  cancel-in-progress: false
+
+jobs:
+  apply-validate-and-commit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check private source token
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]] || {
+            echo "::error::Missing MX_PRIVATE_READ_TOKEN"
+            exit 1
+          }
+
+      - name: Checkout private MX source branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: fix/tencentcomics-filter-v30
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: dev
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply guarded Tencent v30 patch
+        working-directory: dev
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/patch_tencent_v30_classify.py
+          git diff --check
+          python3 scripts/validate_sources.py
+          grep -F 'versionCode = 30' src/zh/tencentcomics/build.gradle.kts
+          grep -F 'TencentClassifyApi(client, headers).fetch(page, filters)' src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+          grep -F 'Classify/comicClassifyList' src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentClassifyApi.kt
+          grep -F 'Classify/comicClassifyDetail' src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentClassifyApi.kt
+          grep -F 'encodedBody + url.host' src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentClassifyApi.kt
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Checkout current Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Overlay Tencent extension
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf upstream/src/zh/tencentcomics
+          cp -a dev/src/zh/tencentcomics upstream/src/zh/tencentcomics
+
+      - name: Apply and verify Spotless
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:tencentcomics:spotlessApply
+          ./gradlew :src:zh:tencentcomics:spotlessCheck
+
+      - name: Build Tencent debug and release
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:tencentcomics:assembleDebug :src:zh:tencentcomics:assembleRelease
+
+      - name: Lint Tencent release
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:tencentcomics:lintRelease
+
+      - name: Sync formatted module back to private checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dev/src/zh/tencentcomics
+          cp -a upstream/src/zh/tencentcomics dev/src/zh/tencentcomics
+          rm -rf dev/src/zh/tencentcomics/build
+          cd dev
+          python3 scripts/validate_sources.py
+          git diff --check
+          grep -F 'versionCode = 30' src/zh/tencentcomics/build.gradle.kts
+          grep -F 'TencentClassifyApi(client, headers).fetch(page, filters)' src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+          grep -F 'Classify/comicClassifyDetail' src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentClassifyApi.kt
+          grep -F '## v30：修复筛选分类全部为空' docs/sources/tencentcomics.md
+
+      - name: Mark build validation in source notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('dev/docs/sources/tencentcomics.md')
+          text = p.read_text(encoding='utf-8')
+          text = text.replace(
+              '- Debug / Release 编译与 lint：**待本次工作流确认**。',
+              '- Debug / Release 编译与 lint：**GitHub Actions 公共构建器已通过**。',
+              1,
+          )
+          p.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Commit validated Tencent v30 to private branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C dev config user.name "github-actions[bot]"
+          git -C dev config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C dev add src/zh/tencentcomics docs/sources/tencentcomics.md
+          git -C dev diff --cached --check
+          if git -C dev diff --cached --quiet; then
+            echo "Tencent v30 source already current"
+          else
+            git -C dev commit -m "fix(tencentcomics): repair category filters via official app API"
+            git -C dev pull --rebase origin fix/tencentcomics-filter-v30
+            git -C dev push origin HEAD:fix/tencentcomics-filter-v30
+          fi
