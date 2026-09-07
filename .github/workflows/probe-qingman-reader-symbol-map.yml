@@ -1,0 +1,60 @@
+name: Map Qingman Reader Symbols
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-reader-symbol-map.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  map:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev python3-pyelftools python3-capstone >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+      - uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+      - name: Build map
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/apk_url
+          import json,urllib.request
+          a=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=30))['data']['datas']['android']
+          if (str(a.get('version','')),str(a.get('versionCode',''))) != ('4.4.5','445'): raise SystemExit('official version changed')
+          print(a['downloadUrl'])
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/out /tmp/x
+          mkdir -p /tmp/app-lib /tmp/out /tmp/x
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/x
+          cp /tmp/x/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/x/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter && python3 blutter.py /tmp/app-lib /tmp/out >/tmp/blutter.log 2>&1
+          echo '=== OUTPUT FILES ==='
+          find /tmp/out -maxdepth 3 -type f | sort | head -160
+          echo '=== ADDRESS HITS ==='
+          for a in 45f368 45f398 460080 46068c 461be0 462044 46ee8c 470e58 489d3c 48f000 490594 4cfec8 4cfee0 4d0434 4d0484 acc318 accfbc acd2ac acd328 b072b0; do
+            echo "--- $a ---"
+            grep -R -n -i --exclude='pp.txt' --exclude='objs.txt' "$a" /tmp/out 2>/dev/null | head -20 || true
+          done
+          echo '=== SEMANTIC HITS ==='
+          for q in 'baseImgUrl' 'freeUrl' 'pageUrls' 'referer' 'picList' 'decryptImage' 'cache/detail' 'ComicReadSelectedImageLine' 'freeLine'; do
+            echo "--- $q ---"
+            grep -R -n -F --exclude='pp.txt' --exclude='objs.txt' "$q" /tmp/out 2>/dev/null | head -40 || true
+          done
