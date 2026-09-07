@@ -1,0 +1,121 @@
+name: Inspect Qingman Detail Image Routing
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-detail-routing.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Inspect live detail routing fields
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools python3-cryptography >/dev/null
+          python3 - <<'PY'
+          import base64,hashlib,json,os,tempfile,time,urllib.error,urllib.parse,urllib.request,uuid,zipfile
+          from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+          from elftools.elf.elffile import ELFFile
+          UA='qingman/4.4.5 (Android)'
+          vr=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))['data']['datas']['android']
+          if str(vr.get('version'))!='4.4.5' or str(vr.get('versionCode'))!='445': raise SystemExit('Unexpected version')
+          with tempfile.TemporaryDirectory() as td:
+              apk=os.path.join(td,'q.apk'); so=os.path.join(td,'s.so')
+              with urllib.request.urlopen(urllib.request.Request(vr['downloadUrl'],headers={'User-Agent':'mx-qingman-probe/1.0'}),timeout=60) as r, open(apk,'wb') as f:
+                  while True:
+                      b=r.read(1<<20)
+                      if not b: break
+                      f.write(b)
+              with zipfile.ZipFile(apk) as z, z.open('lib/arm64-v8a/libqx_security.so') as src, open(so,'wb') as dst: dst.write(src.read())
+              with open(so,'rb') as f:
+                  elf=ELFFile(f)
+                  def rv(va,n):
+                      for seg in elf.iter_segments():
+                          if seg['p_type']!='PT_LOAD': continue
+                          s=int(seg['p_vaddr']); e=s+int(seg['p_filesz'])
+                          if s<=va and va+n<=e:
+                              f.seek(int(seg['p_offset'])+va-s); return f.read(n)
+                      raise RuntimeError('va')
+                  seed=rv(0x14a40,16)+rv(0x14af0,16); sc=rv(0x17d1f,33); ac=rv(0x17d40,32)
+          base=hashlib.sha256(seed).digest()
+          def deob(c,k):
+              out=b''; i=0
+              while len(out)<len(c): out+=hashlib.sha256(base+bytes([k])+i.to_bytes(4,'big')).digest(); i+=1
+              return bytes(a^b for a,b in zip(c,out))
+          sm=deob(sc,1); aes=deob(ac,2); ts=str(int(time.time()*1000)); did=uuid.uuid4().hex; nonce=uuid.uuid4().hex
+          sig=hashlib.sha256(ts.encode()+nonce.encode()+did.encode()+sm).hexdigest()
+          b=json.dumps({'timestamp':ts,'nonce':nonce,'sign':sig,'deviceId':did},separators=(',',':')).encode()
+          bh={'Content-Type':'application/json','Accept':'application/json, text/plain, */*','User-Agent':UA,'appVersion':'4.4.5','platform':'android','X-Device-Id':did}
+          br=json.load(urllib.request.urlopen(urllib.request.Request('https://mu8xm4cx.zermh.com/bootstrap/domain',data=b,headers=bh,method='POST'),timeout=20))
+          enc=br['data']; blob=base64.urlsafe_b64decode(enc+'='*((4-len(enc)%4)%4)); cfg=json.loads(AESGCM(aes).decrypt(blob[:12],blob[12:],(ts+'|'+nonce).encode()))
+          host=urllib.parse.urlsplit(cfg['apiDomain']).hostname; access=cfg['appAccessToken']
+          h={'Accept':'application/json, text/plain, */*','User-Agent':UA,'appVersion':'4.4.5','platform':'android','X-Device-Id':did,'X-QM-App-Access':access,'Content-Type':'application/json'}
+          def req(method,path):
+              r=urllib.request.Request('http://'+host+'/'+path,headers=h,method=method,data=(b'{}' if method=='POST' else None))
+              with urllib.request.urlopen(r,timeout=25) as x: return json.load(x)
+          home=req('POST','api/comic/comics/v1/homeList?page=1&pageNum=1&pageSize=20')
+          comic=None
+          def findcomic(x):
+              nonlocal_dummy=None
+              if isinstance(x,dict):
+                  if x.get('comicId') and (x.get('comicTitle') or x.get('title')): return str(x['comicId'])
+                  for v in x.values():
+                      z=findcomic(v)
+                      if z:return z
+              elif isinstance(x,list):
+                  for v in x:
+                      z=findcomic(v)
+                      if z:return z
+              return None
+          comic=findcomic(home)
+          if not comic: raise SystemExit('No comic id')
+          detail=req('POST','api/comic/comics/ie84hfh8/detail?comicId='+urllib.parse.quote(comic))
+          chapters=req('GET','api/comic/chapter/ie84hfh8/homelist/'+urllib.parse.quote(comic)+'?comicId='+urllib.parse.quote(comic))
+          needles=('line','domain','host','url','cdn','server','oss','image','img','pic','cover','free')
+          def summarize(v):
+              if isinstance(v,str):
+                  s=v.strip(); p=urllib.parse.urlsplit(s if '://' in s else ('https:'+s if s.startswith('//') else s))
+                  if p.scheme in ('http','https') and p.hostname: return 'url scheme='+p.scheme+' host='+p.hostname+' path_prefix='+'/'.join(p.path.split('/')[:3])
+                  if s.startswith('/'): return 'relative prefix='+'/'.join(s.split('/')[:4])+' ext='+os.path.splitext(urllib.parse.urlsplit(s).path)[1]
+                  return 'string len='+str(len(s))+' sample='+s[:80]
+              if isinstance(v,list): return 'list len='+str(len(v))
+              if isinstance(v,dict): return 'object keys='+','.join(list(v.keys())[:30])
+              return type(v).__name__+'='+str(v)[:80]
+          def walk(x,path):
+              if isinstance(x,dict):
+                  for k,v in x.items():
+                      kp=path+'.'+k
+                      if any(n in k.lower() for n in needles): print('field='+kp+' '+summarize(v))
+                      walk(v,kp)
+              elif isinstance(x,list):
+                  for v in x[:10]: walk(v,path+'[]')
+          print('detail_code='+str(detail.get('code'))); walk(detail,'detail')
+          print('chapters_code='+str(chapters.get('code'))); walk(chapters,'chapters')
+          # Select first chapter and record only the unauthenticated reader contract status.
+          chapter=None
+          def findchapter(x):
+              if isinstance(x,dict):
+                  if x.get('chapterId'): return str(x['chapterId'])
+                  for v in x.values():
+                      z=findchapter(v)
+                      if z:return z
+              elif isinstance(x,list):
+                  for v in x:
+                      z=findchapter(v)
+                      if z:return z
+              return None
+          chapter=findchapter(chapters)
+          if chapter:
+              try:
+                  rr=req('POST','api/comic/chapter/ie84hfh8/detail?comicId='+urllib.parse.quote(comic)+'&chapterId='+urllib.parse.quote(chapter)+'&type=2')
+                  print('reader_code='+str(rr.get('code'))+' message='+str(rr.get('msg') or rr.get('message') or '')[:80]); walk(rr,'reader')
+              except urllib.error.HTTPError as e: print('reader_http='+str(e.code))
+          PY
