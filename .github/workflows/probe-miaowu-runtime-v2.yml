@@ -1,0 +1,63 @@
+name: Probe Miaowu runtime v2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-miaowu-runtime-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Probe public endpoints
+        shell: bash
+        run: |
+          set -uo pipefail
+          python3 - <<'PY'
+          import urllib.request, urllib.parse, urllib.error, json, time, socket
+
+          targets = [
+              ('GET', 'http://121.11.204.141:8124/mw.json', None),
+              ('GET', 'http://121.11.204.141:1133/', None),
+              ('GET', 'http://121.11.204.141:1133/appv1/comic/hot_comics?page=1&limit=20&size=20', None),
+              ('GET', 'https://maowu.iqtao.cn/', None),
+              ('GET', 'https://maowu.iqtao.cn/appv1/comic/hot_comics?page=1&limit=20&size=20', None),
+              ('POST', 'https://maowu.iqtao.cn/appv1/bootstrap/start', {'package_name':'com.maofan.comic','app_version':'1.0.0','platform':'android','os':'android'}),
+          ]
+          headers={
+              'Accept':'application/json, text/plain, */*',
+              'User-Agent':'com.maofan.comic/1.0.0 (Android)',
+          }
+          try:
+              print('DNS maowu.iqtao.cn=', socket.gethostbyname_ex('maowu.iqtao.cn'))
+          except Exception as e:
+              print('DNS failed:', repr(e))
+
+          for method,url,data in targets:
+              print('\n===',method,url,'===')
+              payload=None
+              h=dict(headers)
+              if data is not None:
+                  payload=urllib.parse.urlencode(data).encode()
+                  h['Content-Type']='application/x-www-form-urlencoded'
+              req=urllib.request.Request(url, data=payload, headers=h, method=method)
+              try:
+                  with urllib.request.urlopen(req, timeout=12) as r:
+                      body=r.read(2048)
+                      print('STATUS',r.status)
+                      print('HEADERS',dict(r.headers))
+                      print('BODY',body.decode('utf-8','replace'))
+              except urllib.error.HTTPError as e:
+                  body=e.read(2048)
+                  print('HTTPERROR',e.code)
+                  print('HEADERS',dict(e.headers))
+                  print('BODY',body.decode('utf-8','replace'))
+              except Exception as e:
+                  print('ERROR',type(e).__name__,repr(e))
+          PY
