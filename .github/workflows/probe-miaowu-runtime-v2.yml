@@ -15,78 +15,57 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     steps:
-      - name: Inspect web routes and reader
+      - name: Validate web pagination and image codec
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import urllib.request, urllib.parse, urllib.error, re, html
-
+          import urllib.request, urllib.error, re, hashlib
           UA='Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140.0 Mobile Safari/537.36'
-          H={'User-Agent':UA,'Accept':'text/html,application/xhtml+xml,application/json,text/plain,*/*'}
-
-          def fetch(url, data=None, headers=None):
-              h=dict(H); h.update(headers or {})
-              req=urllib.request.Request(url, data=data, headers=h)
+          H={'User-Agent':UA,'Accept':'text/html,application/xhtml+xml,*/*'}
+          def get(url, limit=500000, referer=None):
+              h=dict(H)
+              if referer: h['Referer']=referer
+              req=urllib.request.Request(url,headers=h)
               try:
-                  with urllib.request.urlopen(req, timeout=20) as r:
-                      b=r.read(500000)
-                      text=b.decode('utf-8','replace')
+                  with urllib.request.urlopen(req,timeout=20) as r:
+                      b=r.read(limit)
                       print('\nURL',url,'STATUS',r.status,'FINAL',r.geturl(),'LEN',len(b))
-                      return text
+                      return b
               except urllib.error.HTTPError as e:
-                  b=e.read(20000); print('\nURL',url,'HTTP',e.code,'BODY',b.decode('utf-8','replace')[:2000]); return ''
+                  b=e.read(4000); print('\nURL',url,'HTTP',e.code,'BODY',b.decode('utf-8','replace')[:800]); return b''
               except Exception as e:
-                  print('\nURL',url,'ERROR',repr(e)); return ''
+                  print('\nURL',url,'ERR',repr(e)); return b''
+          def text(url): return get(url).decode('utf-8','replace')
+          def summary(label,t):
+              print('\n--',label,'--')
+              print('TITLE',re.findall(r'<title>(.*?)</title>',t,re.I|re.S)[:1])
+              print('ITEMS',[(u,re.sub('<.*?>','',n).strip()) for u,n in re.findall(r'<a[^>]+href=["\'](/\d+\.html)["\'][^>]*>.*?(?:class=["\']comic-name["\'][^>]*>(.*?)</|alt=["\']([^"\']+))',t,re.I|re.S)[:8]])
+              print('PAGINATION',re.findall(r'href=["\']([^"\']+)["\'][^>]*>(?:\s*<[^>]+>)*\s*(\d+|下一页|下页|&gt;)',t,re.I)[:30])
+              print('ALL PAGE LINKS', [x for x in re.findall(r'href=["\']([^"\']+)["\']',t,re.I) if 'rank/' in x or 'category/' in x or 'search' in x][-40:])
 
-          search=fetch('https://mh.iqtao.cn/custom/search')
-          print('SEARCH FORMS')
-          for m in re.finditer(r'<form\b[^>]*>(.*?)</form>', search, re.I|re.S):
-              block=m.group(0)
-              print(block[:6000])
-          print('SEARCH INPUTS/ACTIONS')
-          for pat in [r'<form[^>]+action=["\']?([^"\' >]+)', r'<input[^>]+name=["\']?([^"\' >]+)', r'<script[^>]+src=["\']([^"\']+)']:
-              print(pat, re.findall(pat, search, re.I)[:30])
-
-          # Try plausible MCCMS search routes observed from form/JS conventions.
-          for u in [
-              'https://mh.iqtao.cn/search?key=19%E5%A4%A9',
-              'https://mh.iqtao.cn/search/19%E5%A4%A9',
-              'https://mh.iqtao.cn/custom/search?key=19%E5%A4%A9',
-              'https://mh.iqtao.cn/custom/search?name=19%E5%A4%A9',
-              'https://mh.iqtao.cn/search/index?key=19%E5%A4%A9',
+          for label,url in [
+              ('rank1p1','https://mh.iqtao.cn/rank/1-1.html'),
+              ('rank1p2','https://mh.iqtao.cn/rank/1-2.html'),
+              ('rank5p1','https://mh.iqtao.cn/rank/5-1.html'),
+              ('category','https://mh.iqtao.cn/category/tags/642'),
+              ('search19','https://mh.iqtao.cn/search?key=19%E5%A4%A9'),
+              ('searchdouluo','https://mh.iqtao.cn/search?key=%E6%96%97%E7%BD%97'),
           ]:
-              t=fetch(u)
-              if t:
-                  print('SEARCH RESULT MARKERS',u, re.findall(r'href=["\']([^"\']+)["\'][^>]*>[^<]*19\s*天|alt=["\']([^"\']*19\s*天[^"\']*)',t,re.I)[:10])
-                  print('TITLE', re.findall(r'<title>(.*?)</title>',t,re.I|re.S)[:2])
+              summary(label,text(url))
 
-          detail=fetch('https://mh.iqtao.cn/128.html')
-          chapters=re.findall(r'<li\s+class=["\'][^"\']*chapter-item[^"\']*["\'][^>]*>\s*<a\s+href=["\']([^"\']+)["\'][^>]*>(.*?)</a>',detail,re.I|re.S)
-          print('CHAPTER COUNT',len(chapters),'FIRST',[(u,re.sub('<.*?>','',n).strip()) for u,n in chapters[:5]],'LAST',[(u,re.sub('<.*?>','',n).strip()) for u,n in chapters[-5:]])
-
-          reader=fetch('https://mh.iqtao.cn/128/221583.html')
-          print('READER TITLE',re.findall(r'<title>(.*?)</title>',reader,re.I|re.S)[:2])
-          keys=['chapter','image','pic','mccms','comic','read','pages','data','content']
-          print('READER SCRIPTS',re.findall(r'<script[^>]+src=["\']([^"\']+)',reader,re.I)[:50])
-          print('READER IMAGE URLS',re.findall(r'(?:https?:)?//[^"\'<> ]+\.(?:jpg|jpeg|png|webp|avif)(?:\?[^"\'<> ]*)?',reader,re.I)[:30])
-          print('READER INLINE SCRIPT CANDIDATES')
-          for m in re.finditer(r'<script\b[^>]*>(.*?)</script>',reader,re.I|re.S):
-              s=m.group(1)
-              if any(k in s.lower() for k in keys):
-                  print(s[:12000])
-
-          # Fetch site JS likely containing reader/search AJAX route logic.
-          for jsu in [
-              'https://npm.elemecdn.com/banwl/maocdn/packs/mccms/base_wap.js',
-              'https://npm.elemecdn.com/banwl/maocdn/template/wap/default/js/h5.base.js',
-              'https://npm.elemecdn.com/banwl/maocdn/template/wap/default/js/core.js',
-          ]:
-              j=fetch(jsu)
-              if j:
-                  print('JS MATCHES',jsu)
-                  for ln in j.splitlines():
-                      low=ln.lower()
-                      if any(x in low for x in ['search','chapter','comic/read','mccms','ajax','pic','image','read/']):
-                          print(ln[:3000])
+          reader=text('https://mh.iqtao.cn/128/221583.html')
+          imgs=[]
+          for u in re.findall(r'(?:data-src|src)=["\']((?:https?:)?//[^"\']+\.(?:jpg|jpeg|png|webp|avif)(?:\?[^"\']*)?)["\']',reader,re.I):
+              if '/scomic/' in u and u not in imgs: imgs.append(u)
+          print('\nREADER ENCRYPTED IMAGES',len(imgs),imgs[:12])
+          if imgs:
+              u='https:'+imgs[0] if imgs[0].startswith('//') else imgs[0]
+              for ref in [None,'https://mh.iqtao.cn/128/221583.html']:
+                  b=get(u,200000,ref)
+                  print('IMAGE REF',ref,'PREFIX',b[:16].hex(),'SHA',hashlib.sha256(b).hexdigest() if b else '')
+                  if b:
+                      dec=bytes((((x-47)&255)^0xAB) for x in b)
+                      print('DECRYPT PREFIX',dec[:16].hex(),'ASCII',repr(dec[:12]))
+                      print('MAGIC', dec[:3]==b'\xff\xd8\xff', dec[:4]==b'\x89PNG', dec[:4]==b'RIFF' and dec[8:12]==b'WEBP')
           PY
