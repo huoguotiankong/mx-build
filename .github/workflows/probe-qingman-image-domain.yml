@@ -147,4 +147,4 @@ jobs:
                   print(f'dns_provider={provider} error={type(e).__name__}:{str(e)[:100]}')
           PY
 
-# rerun: 2026-09-07 v13 cache endpoint is level-gated; resolve normal-reader image base
+# rerun: 2026-09-07 v14 device trace confirmed type=2 pageUrls are relative; resolve live image base
