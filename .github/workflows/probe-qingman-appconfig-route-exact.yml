@@ -20,7 +20,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq python3-capstone cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          sudo apt-get install -y -qq python3-pyelftools python3-capstone cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
           git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
 
       - name: Restore analyzer cache
@@ -49,7 +49,11 @@ jobs:
           cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
           cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
           cd /tmp/blutter
-          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
+          if ! python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1; then
+            echo 'blutter_failed=true'
+            tail -120 /tmp/blutter.log | grep -Eiv 'token|secret|password|cookie|authorization|bearer|private|clientp12|certificate|proof|signature|sign/key|seed' || true
+            exit 1
+          fi
 
           python3 - <<'PY'
           from pathlib import Path
@@ -57,45 +61,46 @@ jobs:
 
           deny=re.compile(r'(?i)(password|token|authorization|bearer|cookie|secret|private|clientp12|certificate|keystore|proof|signature|sign/key|seed|k1a|k1b|k2a|k2b|k3a|k3b)')
           asm=Path('/tmp/blutter-out/asm')
-          pp_lines=Path('/tmp/blutter-out/pp.txt').read_text('utf-8',errors='replace').splitlines()
+          pp=Path('/tmp/blutter-out/pp.txt').read_text('utf-8',errors='replace').splitlines()
 
           print('=== EXACT PP MARKERS ===')
-          markers=('baseImgUrl','freeUrl','customerUrl','officialUrl','promotionUrl','Get app config failed')
-          for i,line in enumerate(pp_lines):
-              if any(m in line for m in markers) and not deny.search(line):
+          for line in pp:
+              if any(m in line for m in ('baseImgUrl','freeUrl','customerUrl','officialUrl','promotionUrl','Get app config failed')) and not deny.search(line):
                   print(line[:500])
 
-          print('=== APPCONFIG MODEL / REQUEST XREFS ===')
-          needles=('0x4cfcfc','0xb02b60','0xb02b78','0x1eba0','0x1ec38','baseImgUrl','Get app config failed','TypeArguments: <uxb?>')
-          seen=set()
+          # Find the exact request-builder function reached by the AppConfig allocation stub.
+          needles=('0x4cfcfc','0xb02b60','0xb02b78')
+          print('=== REQUEST BUILDER XREFS ===')
           for p in asm.glob('*.dart'):
               lines=p.read_text('utf-8',errors='replace').splitlines()
-              hits=[i for i,l in enumerate(lines) if any(n.lower() in l.lower() for n in needles)]
-              if not hits: continue
-              for h in hits[:30]:
-                  key=(p.name,h)
-                  if key in seen: continue
-                  seen.add(key)
+              hits=[i for i,l in enumerate(lines) if any(n in l.lower() for n in needles)]
+              for h in hits:
                   print(f'--- FILE {p.name} HIT {h+1} ---')
-                  for z in lines[max(0,h-70):min(len(lines),h+130)]:
+                  for z in lines[max(0,h-180):min(len(lines),h+260)]:
                       if deny.search(z): continue
-                      # Keep control-flow, PP strings, request/model field accesses and function headers.
-                      if ('String:' in z or '[pp+' in z or 'class ' in z or '[closure]' in z or
-                          ' addr:' in z or ' bl ' in z or ': bl' in z or ': b.' in z or ': b ' in z or
-                          'LoadField:' in z or 'StoreField:' in z or 'Allocate' in z or 'TypeArguments:' in z or
-                          '0x4cfcfc' in z.lower() or '0xb02b' in z.lower() or '0x1eba0' in z.lower() or '0x1ec38' in z.lower()):
-                          print(z[:520])
+                      # Keep all AOT pseudo-source/disassembly around this very small set of hits.
+                      print(z[:600])
 
-          print('=== SAFE ROUTE-LIKE LITERALS NEAR APPCONFIG PP AREA ===')
-          # Show only route/domain-like non-sensitive strings in a bounded PP neighborhood.
-          parsed=[]
-          for i,line in enumerate(pp_lines):
-              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s+String:\s+"(.*)"$',line)
-              if not m: continue
-              off=int(m.group(1),16); s=m.group(2)
-              if 0x1e700 <= off <= 0x1ef80 and not deny.search(s):
-                  if ('/' in s or 'config' in s.lower() or 'app' in s.lower() or 'url' in s.lower() or 'base' in s.lower()):
-                      parsed.append((off,s))
-          for off,s in parsed:
-              print(f'pp=0x{off:x} literal={s[:300]}')
+          print('=== APPCONFIG TYPE XREFS ===')
+          for p in asm.glob('*.dart'):
+              lines=p.read_text('utf-8',errors='replace').splitlines()
+              hits=[i for i,l in enumerate(lines) if 'uxb' in l.lower()]
+              if not hits: continue
+              for h in hits[:12]:
+                  block='\n'.join(lines[max(0,h-30):min(len(lines),h+80)])
+                  if 'app config' not in block.lower() and '1ec38' not in block.lower() and '1eba0' not in block.lower():
+                      continue
+                  print(f'--- TYPE FILE {p.name} HIT {h+1} ---')
+                  for z in block.splitlines():
+                      if not deny.search(z): print(z[:600])
+
+          print('=== ALL NON-SENSITIVE CONFIG ROUTE LITERALS ===')
+          seen=[]
+          route_re=re.compile(r'api/[A-Za-z0-9_./{}-]+')
+          for line in pp:
+              if deny.search(line): continue
+              for s in route_re.findall(line):
+                  if 'config' in s.lower() and s not in seen:
+                      seen.append(s)
+          for s in seen: print('route='+s)
           PY
