@@ -1,0 +1,62 @@
+name: Validate Miaowu v2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/validate-miaowu-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout Keiyoushi baseline
+        uses: actions/checkout@v4
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+
+      - name: Checkout MX source branch
+        uses: actions/checkout@v4
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: source/miaowumanhua-v1
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: mxdev
+          sparse-checkout: |
+            src/zh/miaowumanhua
+          sparse-checkout-cone-mode: false
+
+      - name: Overlay source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf upstream/src/zh/miaowumanhua
+          cp -a mxdev/src/zh/miaowumanhua upstream/src/zh/miaowumanhua
+          find upstream/src/zh/miaowumanhua -maxdepth 5 -type f -print
+
+      - name: Validate layout
+        shell: bash
+        working-directory: upstream
+        run: python3 scripts/validate_sources.py src/zh/miaowumanhua
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Spotless
+        shell: bash
+        working-directory: upstream
+        run: ./gradlew spotlessCheck --no-daemon
+
+      - name: Assemble debug
+        shell: bash
+        working-directory: upstream
+        run: ./gradlew :src:zh:miaowumanhua:assembleDebug --no-daemon
