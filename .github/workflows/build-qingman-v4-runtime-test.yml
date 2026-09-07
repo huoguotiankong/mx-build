@@ -227,4 +227,4 @@ jobs:
         if: always()
         run: rm -f upstream/signingkey.jks
 
-# trigger: v1.6.9 official reader referer propagation 584bfcb6
+# trigger: v1.6.10 device-bound reader detail dd76d8d9
