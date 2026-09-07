@@ -1,0 +1,112 @@
+name: Qingman Cache Contract Source Context
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-cache-contract-v3.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+      - uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+      - name: Extract exact source contexts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/apk_url
+          import json,urllib.request
+          a=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=30))['data']['datas']['android']
+          if (str(a.get('version','')),str(a.get('versionCode',''))) != ('4.4.5','445'):
+              raise SystemExit('official version changed')
+          print(a['downloadUrl'])
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/out /tmp/x
+          mkdir -p /tmp/app-lib /tmp/out /tmp/x
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/x
+          cp /tmp/x/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/x/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter && python3 blutter.py /tmp/app-lib /tmp/out >/tmp/blutter.log 2>&1
+          cd "$GITHUB_WORKSPACE"
+          python3 - <<'PY' > .github/qingman-cache-contract-v3.txt
+          from pathlib import Path
+          import re
+
+          def clean(s):
+              s=re.sub(r'(?i)(bearer\s+)[A-Za-z0-9._~+/=-]{8,}',r'\1<redacted>',s)
+              s=re.sub(r'(?i)((?:password|cookie|appaccesstoken)\s*[:=]\s*)[^,}\s]+',r'\1<redacted>',s)
+              if re.search(r'(?i)(clientp12|privatekey|keystore|storepassword|keypassword|bootstrapproof|bootstrapdecrypt)',s):
+                  return '<redacted-sensitive-structure>'
+              return s[:1200]
+
+          files=list(Path('/tmp/out/asm').rglob('*.dart'))
+          targets=['0xacc05c','0xacc358','0xacc58c','0xacc934','0xaccb5c','0x461f94','0x4619ec','0x3b3984','0x45b890','0x464410','0x4643b4','0xac8ff8']
+          print('Qingman 4.4.5 exact cache/detail source contexts')
+          for target in targets:
+              print(f'\n===== TARGET {target} =====')
+              hits=0
+              for p in files:
+                  ls=p.read_text('utf-8',errors='replace').splitlines()
+                  for i,line in enumerate(ls):
+                      if target not in line.lower(): continue
+                      print(f'--- {p.name}:{i+1} ---')
+                      # More preceding lines are useful because functions with size -0x1 still retain a declaration.
+                      for s in ls[max(0,i-35):min(len(ls),i+90)]: print(clean(s))
+                      hits+=1
+                      if hits>=8: break
+                  if hits>=8: break
+              if not hits: print('<no source hit>')
+
+          print('\n===== CLASS/FIELD LINES IN iCm.dart =====')
+          for p in files:
+              if p.name!='iCm.dart': continue
+              ls=p.read_text('utf-8',errors='replace').splitlines()
+              for i,line in enumerate(ls):
+                  if re.search(r'class\s+oub\b',line):
+                      for s in ls[max(0,i-20):min(len(ls),i+220)]: print(clean(s))
+
+          print('\n===== PP CACHE REFRESH CLUSTER =====')
+          pp=Path('/tmp/out/pp.txt').read_text('utf-8',errors='replace').splitlines()
+          wanted=('cache/detail','comicId','chapterId','picList','preChapterId','nextChapterId','下载token刷新','更新下载地址','图片资源未就绪','数量=')
+          for i,line in enumerate(pp):
+              if any(w.lower() in line.lower() for w in wanted):
+                  for s in pp[max(0,i-4):min(len(pp),i+5)]: print(clean(s))
+                  print('---')
+          PY
+      - name: Persist
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .github/qingman-cache-contract-v3.txt
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'chore(qingman): record cache refresh source contexts'
+          for attempt in 1 2 3 4 5; do
+            git fetch origin main
+            if git rebase origin/main && git push origin HEAD:main; then exit 0; fi
+            git rebase --abort 2>/dev/null || true
+            sleep $((attempt*2))
+          done
+          exit 1
