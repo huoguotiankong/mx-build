@@ -1,0 +1,118 @@
+name: Trace Qingman AppConfig Request Base
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-request-base.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trace:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools python3-capstone cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+      - name: Restore analyzer cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+      - name: Trace fPa hierarchy and descriptor initialization
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/apk_url
+          import json,urllib.request
+          a=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))['data']['datas']['android']
+          if str(a.get('version'))!='4.4.5' or str(a.get('versionCode'))!='445': raise SystemExit('Unexpected Qingman version')
+          print(a['downloadUrl'])
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          mkdir -p /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/apk-extract
+          cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter
+          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          deny=re.compile(r'(?i)(password|token|authorization|bearer|cookie|secret|private|clientp12|certificate|keystore|proof|signature|sign/key|seed|k1a|k1b|k2a|k2b|k3a|k3b)')
+          asm=Path('/tmp/blutter-out/asm')
+          pp=Path('/tmp/blutter-out/pp.txt').read_text('utf-8',errors='replace').splitlines()
+
+          print('=== FPA CLASS DEFINITION ===')
+          for p in asm.glob('*.dart'):
+              lines=p.read_text('utf-8',errors='replace').splitlines()
+              for i,line in enumerate(lines):
+                  if re.match(r'class\s+fPa\b',line.strip()):
+                      print(f'FILE={p.name} LINE={i+1}')
+                      for z in lines[max(0,i-20):min(len(lines),i+360)]:
+                          if not deny.search(z): print(z[:760])
+
+          print('=== ALL DIRECT FPA SUBCLASSES (NAMES/CIDS) ===')
+          subclasses=[]
+          for p in asm.glob('*.dart'):
+              lines=p.read_text('utf-8',errors='replace').splitlines()
+              for i,line in enumerate(lines):
+                  m=re.match(r'class\s+([A-Za-z0-9_$]+)\s+extends\s+fPa\b',line.strip())
+                  if not m: continue
+                  cid='?'
+                  for b in range(max(0,i-4),i):
+                      cm=re.search(r'// class id: (\d+)',lines[b])
+                      if cm: cid=cm.group(1)
+                  subclasses.append((m.group(1),cid,p.name,i+1))
+          for row in subclasses: print('subclass='+' cid='.join([row[0],row[1]])+f' file={row[2]} line={row[3]}')
+
+          print('=== COMMON CONSTRUCTOR 0x3ea090 ===')
+          for p in asm.glob('*.dart'):
+              lines=p.read_text('utf-8',errors='replace').splitlines()
+              hits=[i for i,z in enumerate(lines) if '0x3ea090' in z.lower()]
+              for h in hits[:30]:
+                  print(f'FILE={p.name} HIT={h+1}')
+                  for z in lines[max(0,h-120):min(len(lines),h+240)]:
+                      if not deny.search(z): print(z[:760])
+
+          print('=== TXB / ASB REFERENCES ===')
+          for target in ('txb','Asb'):
+              print('TARGET='+target)
+              for p in asm.glob('*.dart'):
+                  lines=p.read_text('utf-8',errors='replace').splitlines()
+                  hits=[i for i,z in enumerate(lines) if re.search(r'\b'+re.escape(target)+r'\b',z)]
+                  for h in hits[:20]:
+                      print(f'FILE={p.name} HIT={h+1}')
+                      for z in lines[max(0,h-80):min(len(lines),h+160)]:
+                          if not deny.search(z): print(z[:760])
+
+          # Compare descriptors tied to known public route strings by finding route PP xrefs and nearby Allocate*Stub names.
+          print('=== KNOWN ROUTE XREF COMPARISON ===')
+          route_terms=('api/comic/comics/v1/homeList','api/radio/api/config/getAdConfig','api/radio/api/config/homepage/interstitial','api/radio/api/config/version')
+          offsets={}
+          for line in pp:
+              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\].*String: "([^"]+)"',line)
+              if m and m.group(2) in route_terms: offsets[m.group(2)]=int(m.group(1),16)
+          for route,off in offsets.items():
+              print(f'ROUTE={route} PP=0x{off:x}')
+              needle=f'pp+0x{off:x}'
+              for p in asm.glob('*.dart'):
+                  lines=p.read_text('utf-8',errors='replace').splitlines()
+                  hits=[i for i,z in enumerate(lines) if needle in z.lower()]
+                  for h in hits[:8]:
+                      print(f'FILE={p.name} HIT={h+1}')
+                      for z in lines[max(0,h-100):min(len(lines),h+180)]:
+                          if not deny.search(z): print(z[:760])
+          PY
