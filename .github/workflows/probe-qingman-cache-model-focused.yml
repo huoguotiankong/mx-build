@@ -1,0 +1,199 @@
+name: Qingman Focused Cache Model Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-cache-model-focused.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev python3-pyelftools python3-capstone >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+      - uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+      - name: Extract focused cache model evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/apk_url
+          import json,urllib.request
+          a=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=30))['data']['datas']['android']
+          if (str(a.get('version','')),str(a.get('versionCode',''))) != ('4.4.5','445'):
+              raise SystemExit('official version changed')
+          print(a['downloadUrl'])
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/out /tmp/x
+          mkdir -p /tmp/app-lib /tmp/out /tmp/x
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/x
+          cp /tmp/x/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/x/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter && python3 blutter.py /tmp/app-lib /tmp/out >/tmp/blutter.log 2>&1
+          cd "$GITHUB_WORKSPACE"
+          python3 - <<'PY' > .github/qingman-cache-model-focused.txt
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
+          import re,bisect
+
+          def redact(s):
+              s=re.sub(r'(?i)(bearer\s+)[A-Za-z0-9._~+/=-]{8,}',r'\1<redacted>',s)
+              s=re.sub(r'(?i)((?:password|cookie|appaccesstoken)\s*[:=]\s*)[^,}\s]+',r'\1<redacted>',s)
+              if re.search(r'(?i)(clientp12|privatekey|keystore|storepassword|keypassword|bootstrapproof|bootstrapdecrypt)',s):
+                  return '<redacted-sensitive-structure>'
+              return s
+
+          pp={}
+          for line in Path('/tmp/out/pp.txt').read_text('utf-8',errors='replace').splitlines():
+              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s+(.*)$',line)
+              if m: pp[int(m.group(1),16)]=m.group(2)
+          pp_offsets=sorted(pp)
+
+          syms={}
+          names=Path('/tmp/out/ida_script/addNames.py').read_text('utf-8',errors='replace').splitlines()
+          for line in names:
+              m=re.search(r'set_name\((0x[0-9a-fA-F]+|\d+),\s*[ru]?([\'\"])(.*?)\2',line)
+              if m:
+                  try: syms[int(m.group(1),0)]=m.group(3)
+                  except: pass
+
+          asm_files=list(Path('/tmp/out/asm').rglob('*.dart'))
+          funcs=[]
+          for p in asm_files:
+              ls=p.read_text('utf-8',errors='replace').splitlines()
+              for i,line in enumerate(ls):
+                  m=re.search(r'\*\* addr: 0x([0-9a-fA-F]+), size: (?:0x([0-9a-fA-F]+)|-0x1)',line)
+                  if not m or not m.group(2): continue
+                  st=int(m.group(1),16); sz=int(m.group(2),16); decl=''
+                  for j in range(i-1,max(-1,i-10),-1):
+                      t=ls[j].strip()
+                      if t and not t.startswith('//'):
+                          decl=t; break
+                  funcs.append((st,st+sz,p,decl))
+          funcs.sort(key=lambda x:x[0]); starts=[x[0] for x in funcs]
+          def owner(a):
+              i=bisect.bisect_right(starts,a)-1
+              return funcs[i] if i>=0 and funcs[i][0]<=a<funcs[i][1] else None
+
+          with open('/tmp/app-lib/libapp.so','rb') as f:
+              elf=ELFFile(f); sec=elf.get_section_by_name('.text'); base=int(sec['sh_addr']); blob=sec.data()
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.skipdata=True
+
+          def dump(start,end,label):
+              print(f'\n===== {label} 0x{start:x}-0x{end:x} =====')
+              pending={}
+              for ins in md.disasm(blob[start-base:end-base],start):
+                  pending={k:(v,n-1) for k,(v,n) in pending.items() if n>1}
+                  anns=[]; op=ins.op_str.lower()
+                  m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
+                  if ins.mnemonic=='add' and m:
+                      pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),32)
+                  if ins.mnemonic in ('ldr','ldur','ldrsw'):
+                      m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
+                      if m:
+                          br=m.group(2); d=int(m.group(3),0) if m.group(3) else 0
+                          off=d if br=='x27' else (pending[br][0]+d if br in pending else None)
+                          if off in pp: anns.append('PP='+redact(pp[off])[:300])
+                  if ins.mnemonic=='bl' and ins.op_str.startswith('#'):
+                      try: target=int(ins.op_str[1:],0)
+                      except: target=None
+                      if target is not None: anns.append('CALL='+redact(syms.get(target,f'0x{target:x}'))[:220])
+                  text=f'0x{ins.address:x}: {ins.mnemonic:<7} {ins.op_str:<48}'
+                  if anns: text+=' ; '+' | '.join(anns)
+                  print(redact(text)[:900])
+
+          def print_text_context(pattern,label,max_hits=20,before=8,after=24):
+              print(f'\n===== {label} =====')
+              rx=re.compile(pattern,re.I); hits=0
+              for p in asm_files:
+                  ls=p.read_text('utf-8',errors='replace').splitlines()
+                  for i,line in enumerate(ls):
+                      if not rx.search(line): continue
+                      print(f'--- {p.name}:{i+1} ---')
+                      for s in ls[max(0,i-before):min(len(ls),i+after)]: print(redact(s)[:850])
+                      hits+=1
+                      if hits>=max_hits: return
+              if hits==0: print('<no hits>')
+
+          print('Qingman 4.4.5 focused cache/detail model probe')
+
+          print('\n===== SELECTED FUNCTION OWNERS =====')
+          for a in [0xacc358,0xacc934,0xaccb5c,0x461f94,0x4619ec,0x3b3984,0xaa1538,0xaa0250]:
+              f=owner(a)
+              print(f'0x{a:x}: symbol={redact(syms.get(a,"<unnamed>"))} owner=' + (redact(f'{f[2].name} :: {f[3]}') if f else '<unmapped>'))
+
+          print_text_context(r'class\s+oub\b','oub class source context',max_hits=4,before=6,after=80)
+          print_text_context(r'0x461f94','0x461f94 asm/source references',max_hits=12,before=18,after=28)
+          print_text_context(r'0x4619ec','0x4619ec asm/source references',max_hits=12,before=18,after=28)
+          print_text_context(r'0x3b3984','0x3b3984 asm/source references',max_hits=12,before=18,after=28)
+
+          print('\n===== PP NEIGHBORHOODS FOR CACHE CONTRACT KEYS =====')
+          wanted=['cache/detail','nextChapterId','preChapterId','picList','pageUrls','comicId','chapterId','imageUrl','signature_url','referer']
+          emitted=set()
+          for idx,off in enumerate(pp_offsets):
+              val=pp[off]
+              if not any(w.lower() in val.lower() for w in wanted): continue
+              # Print a compact neighborhood once per center offset.
+              lo=max(0,idx-6); hi=min(len(pp_offsets),idx+7)
+              print(f'--- center PP+0x{off:x}: {redact(val)[:500]} ---')
+              for o in pp_offsets[lo:hi]:
+                  key=(off,o)
+                  if key in emitted: continue
+                  emitted.add(key)
+                  print(f'PP+0x{o:x}: {redact(pp[o])[:600]}')
+
+          dump(0xacc358,0xacc3e0,'cache/detail wrapper')
+          dump(0xacc934,0xaccb38,'cache/detail request helper')
+          dump(0xaccb5c,0xaccba4,'oub YDc serializer wrapper')
+          dump(max(base,0x461f94-0x100),0x461f94+0x220,'raw around 0x461f94')
+          dump(max(base,0x4619ec-0x100),0x4619ec+0x220,'raw around 0x4619ec')
+          dump(max(base,0x3b3984-0x100),0x3b3984+0x220,'raw around 0x3b3984')
+
+          print('\n===== DIRECT CALLERS OF cache/detail wrapper 0xacc358 =====')
+          callers=[]
+          for ins in md.disasm(blob,base):
+              if ins.mnemonic!='bl' or not ins.op_str.startswith('#'): continue
+              try: target=int(ins.op_str[1:],0)
+              except: continue
+              if target==0xacc358: callers.append(ins.address)
+          for c in callers:
+              f=owner(c)
+              print(f'caller 0x{c:x}: '+(redact(f'{f[2].name} :: {f[3]}') if f else '<unmapped>'))
+              dump(max(base,c-0x140),c+0x80,f'caller context 0x{c:x}')
+          if not callers: print('<none>')
+          PY
+      - name: Persist focused result
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .github/qingman-cache-model-focused.txt
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'chore(qingman): record focused cache model evidence'
+          for attempt in 1 2 3 4 5; do
+            git fetch origin main
+            if git rebase origin/main && git push origin HEAD:main; then exit 0; fi
+            git rebase --abort 2>/dev/null || true
+            sleep $((attempt * 2))
+          done
+          exit 1
