@@ -1,6 +1,14 @@
-Qingman 4.4.5 cache/detail concise probe
+Qingman 4.4.5 cache/detail helper ABI probe
+[target symbols]
+0xacc934 <unnamed>
+0xaa1538 <unnamed>
+0x45b890 <unnamed>
+0x464410 <unnamed>
+0x4643b4 <unnamed>
+0xaa0250 <unnamed>
+0xacc3e0 <unnamed>
 
-[exact string literals]
+[exact strings]
 PP+0x6298 String: "Referer"
 PP+0x9048 String: "api/comic/chapter/ie84hfh8/cache/detail"
 PP+0x96d8 String: "deviceId"
@@ -38,7 +46,6 @@ PP+0x2a2a8 String: ", chapterId="
 PP+0x2a2b8 String: "阅读页走网络章节详情: comicId="
 PP+0x2a2e0 String: "阅读页网络失败，回退本地缓存: comicId="
 PP+0x2a440 String: "超清(type=2)章节详情返回 code=0，兜底降级为标清(type=1)重试一次: comicId="
-PP+0x2a458 String: "freeLine"
 PP+0x2fe00 String: "[广播剧token替换] chapterId="
 PP+0x2fe10 String: "后台已用新 token 恢复播放: chapterId="
 PP+0x30cc8 String: "取消收藏成功: comicId="
@@ -48,145 +55,67 @@ PP+0x31e50 String: "删除观看记录成功: comicId="
 PP+0x38f00 String: "claimedImageUrl"
 PP+0x40078 String: "取消收藏成功: comicIds="
 
-[token refresh caller 0xacc180-0xacc500]
-0xacc19c: bl #0xacc358 ; CALL=0xacc358
-0xacc1a8: bl #0xa93b3c ; CALL=AwaitStub_a93b3c
-0xacc1e8: bl #0xbb5f20 ; CALL=AllocateArrayStub_bb5f20
-0xacc1f0: ldr x16, [x16, #0xf58] ; PP=String: "刷新下载地址失败：接口未返回有效地址 chapterId="
-0xacc204: bl #0x31a628 ; CALL=dart_core__StringBase::_interpolate_31a628
-0xacc20c: bl #0x3b484c ; CALL=0x3b484c
-0xacc244: bl #0xbb460c ; CALL=WriteBarrierWrappersStub_bb460c
-0xacc254: bl #0xac8ff8 ; CALL=0xac8ff8
-0xacc260: bl #0xa93b3c ; CALL=AwaitStub_a93b3c
-0xacc26c: bl #0xbb5f20 ; CALL=AllocateArrayStub_bb5f20
-0xacc27c: ldr x16, [x16, #0xf60] ; PP=String: "[下载token刷新] 已更新下载地址 chapterId="
-0xacc290: ldr x16, [x16, #0xf68] ; PP=String: ", 数量="
-0xacc2dc: bl #0xbb4148 ; CALL=ArrayWriteBarrierStub_bb4148
-0xacc2e8: bl #0x31a628 ; CALL=dart_core__StringBase::_interpolate_31a628
-0xacc2f0: bl #0x45adc8 ; CALL=0x45adc8
-0xacc310: bl #0xbb5f20 ; CALL=AllocateArrayStub_bb5f20
-0xacc318: ldr x16, [x16, #0xf70] ; PP=String: "[下载token刷新] 重拉 cache/detail 失败 chapterId="
-0xacc328: ldr x16, [x27, #0xc10] ; PP=String: ", "
-0xacc33c: bl #0x31a628 ; CALL=dart_core__StringBase::_interpolate_31a628
-0xacc344: bl #0x3b484c ; CALL=0x3b484c
-0xacc350: bl #0xbb602c ; CALL=StackOverflowSharedWithoutFPURegsStub_bb602c
-0xacc388: ldr x0, [x0, #0xf78] ; PP=TypeArguments: <List<String>?>
-0xacc38c: bl #0xa93d80 ; CALL=InitAsyncStub_a93d80
-0xacc3a0: bl #0xacc934 ; CALL=0xacc934
-0xacc3ac: bl #0xa93b3c ; CALL=AwaitStub_a93b3c
-0xacc3d0: bl #0xacc3e0 ; CALL=0xacc3e0
-0xacc3d8: bl #0xbb602c ; CALL=StackOverflowSharedWithoutFPURegsStub_bb602c
-0xacc414: ldr x0, [x0, #0xf78] ; PP=TypeArguments: <List<String>?>
-0xacc418: bl #0xa93d80 ; CALL=InitAsyncStub_a93d80
-0xacc430: bl #0x461990 ; CALL=0x461990
-0xacc43c: bl #0xa93b3c ; CALL=AwaitStub_a93b3c
-0xacc454: ldr x1, [x27, #0x19c0] ; PP=Obj!Af@575fd1 : {
-0xacc458: ldr x4, [x27, #0x278] ; PP=List(5) [0, 0x2, 0, 0x2, Null]
-0xacc45c: bl #0x92c540 ; CALL=0x92c540
-0xacc4d8: ldr x3, [x3, #0xf80] ; PP=SubtypeTestCache
-0xacc4dc: ldr x30, [x27, #0x4e0] ; PP=Stub: Subtype1TestCache (0x312fcc)
-0xacc4fc: ldr x8, [x8, #0xf88] ; PP=Type: List
-
-[cache/detail request helper 0xacc934-0xaccb38]
-0xacc974: ldr x0, [x0, #0xa70] ; PP=TypeArguments: <oub?>
-0xacc978: bl #0xa93d80 ; CALL=InitAsyncStub_a93d80
-0xacc980: ldr x0, [x0, #0x2710] ; PP=List<(dynamic this, NTa) => void?>(7) [Closure: (NTa) => void from Function 'Vrh': static. (0x7fceaec419e4), Closure: (NTa) => void from Function '_Crh@1133011378': static. (0x7fceaec416d8), Closure: (NTa) => void from F
-0xacc994: ldr x2, [x2, #0xdf0] ; PP=Field <xEb.ORc>: static late final (offset: 0x1388)
-0xacc998: bl #0xbb3fe4 ; CALL=InitLateFinalStaticFieldStub_bb3fe4
-0xacc9a0: bl #0xaa1538 ; CALL=0xaa1538
-0xacc9ac: bl #0xa93b3c ; CALL=AwaitStub_a93b3c
-0xacc9b0: bl #0xaccca8 ; CALL=AllocatestbStub_accca8
-0xacc9bc: bl #0x3ea090 ; CALL=0x3ea090
-0xacc9c8: bl #0x45b890 ; CALL=0x45b890
-0xacc9d4: bl #0x464410 ; CALL=0x464410
-0xacc9e0: bl #0x4643b4 ; CALL=0x4643b4
-0xacc9ec: ldr x0, [x0, #0x25c0] ; PP=Closure: (int, Uint32List, int) => int from Function '_Lvh@1140369473': static. (0x7fceaec35788)
-0xacc9fc: ldr x2, [x27, #0x7018] ; PP=Field <uEb._nGd@1482465995>: static late final (offset: 0x12e0)
-0xacca00: bl #0xbb3fe4 ; CALL=InitLateFinalStaticFieldStub_bb3fe4
-0xacca0c: bl #0xaa0250 ; CALL=0xaa0250
-0xacca18: bl #0xa93b3c ; CALL=AwaitStub_a93b3c
-0xacca3c: ldr x3, [x3, #0xfd0] ; PP=SubtypeTestCache
-0xacca40: ldr x30, [x27, #0x30] ; PP=Stub: Subtype2TestCache (0x312e44)
-0xacca60: ldr x8, [x8, #0xfd8] ; PP=Type: Map<String, dynamic>
-0xacca68: ldr x3, [x3, #0xfe0] ; PP=SubtypeTestCache
-0xacca6c: ldr x30, [x27, #0x488] ; PP=Stub: InstanceOf (0x3012f4)
-0xacca94: bl #0x4619ec ; CALL=0x4619ec
-0xaccaac: bl #0x3b3984 ; CALL=0x3b3984
-0xaccac4: bl #0x4619ec ; CALL=0x4619ec
-0xaccaf8: bl #0xbb5f20 ; CALL=AllocateArrayStub_bb5f20
-0xaccb00: ldr x16, [x16, #0xfe8] ; PP=String: "Get chapter cache detail failed: "
-0xaccb14: bl #0x31a628 ; CALL=dart_core__StringBase::_interpolate_31a628
-0xaccb1c: bl #0x3b2fc4 ; CALL=0x3b2fc4
-0xaccb28: bl #0xbb40f8 ; CALL=ReThrowStub_bb40f8
-0xaccb30: bl #0xbb602c ; CALL=StackOverflowSharedWithoutFPURegsStub_bb602c
-
-[refreshed URL replacement 0xaccef0-0xacd400]
-0xaccf04: ldr x4, [x4, #0x710] ; PP=List(7) [0, 0x2, 0x1, 0x1, "ltc", 0x1, Null]
-0xaccf08: bl #0x44e3b4 ; CALL=0x44e3b4
-0xaccf18: bl #0xa93b3c ; CALL=AwaitStub_a93b3c
-0xaccf24: ldr x16, [x27, #0x1b90] ; PP=TypeArguments: <String, dynamic>
-0xaccf30: bl #0x326df8 ; CALL=dart_core_Map::factory_ctor__fromLiteral_326df8
-0xaccf5c: bl #0x331990 ; CALL=0x331990
-0xaccf94: bl #0x331990 ; CALL=0x331990
-0xaccf9c: bl #0x3a6718 ; CALL=0x3a6718
-0xaccfbc: ldr x2, [x27, #0x6298] ; PP=String: "Referer"
-0xaccfc0: bl #0x99e40c ; CALL=0x99e40c
-0xaccff8: bl #0xbb5f20 ; CALL=AllocateArrayStub_bb5f20
-0xacd000: ldr x16, [x16, #0x58] ; PP=String: "bytes="
-0xacd014: ldr x16, [x27, #0x2ac8] ; PP=String: "-"
-0xacd020: bl #0x31a628 ; CALL=dart_core__StringBase::_interpolate_31a628
-0xacd030: ldr x2, [x27, #0x6280] ; PP=String: "Range"
-0xacd034: bl #0x99e40c ; CALL=0x99e40c
-0xacd04c: bl #0xacd594 ; CALL=0xacd594
-0xacd05c: bl #0xa93b3c ; CALL=AwaitStub_a93b3c
-0xacd068: bl #0xaacea0 ; CALL=AllocateEMStub_aacea0
-0xacd080: ldr x0, [x27, #0x7bc8] ; PP=Obj!BM@581121 : {
-0xacd0b0: ldr x1, [x1, #0x60] ; PP=AnonymousClosure: (0x464984), of [jAm] cqb
-0xacd0b4: bl #0xbb5204 ; CALL=AllocateClosureStub_bb5204
-0xacd0c0: ldr x16, [x27, #0x3ad0] ; PP=TypeArguments: <List<int>>
-0xacd0e8: ldr x4, [x4, #0x68] ; PP=List(11) [0x1, 0x5, 0x5, 0x2, "YMc", 0x3, "ZMc", 0x4, "options", 0x2, Null]
-0xacd0ec: bl #0x3e0bcc ; CALL=0x3e0bcc
-0xacd0f8: bl #0xa93b3c ; CALL=AwaitStub_a93b3c
-0xacd12c: ldr x2, [x2, #0x5f8] ; PP=Obj!Yp@575ee1 : {
-0xacd130: bl #0x464790 ; CALL=0x464790
-0xacd14c: ldr x1, [x27, #0xde8] ; PP=TypeArguments: <int>
-0xacd154: bl #0x317884 ; CALL=0x317884
-0xacd170: ldr x4, [x27, #0x278] ; PP=List(5) [0, 0x2, 0, 0x2, Null]
-0xacd174: bl #0x4645d0 ; CALL=0x4645d0
-0xacd180: bl #0x46445c ; CALL=0x46445c
-0xacd194: bl #0x9971f8 ; CALL=0x9971f8
-0xacd1a0: bl #0xa93b3c ; CALL=AwaitStub_a93b3c
-0xacd1bc: ldr x2, [x27, #0x2e98] ; PP=Field <IEb.ORc>: static late final (offset: 0x1398)
-0xacd1c0: bl #0xbb3fe4 ; CALL=InitLateFinalStaticFieldStub_bb3fe4
-0xacd1cc: bl #0xacd3b0 ; CALL=0xacd3b0
-0xacd1dc: bl #0xa93b3c ; CALL=AwaitStub_a93b3c
-0xacd200: ldr x4, [x4, #0x70] ; PP=List(7) [0, 0x3, 0x1, 0x2, "dPb", 0x2, Null]
-0xacd204: bl #0x9834c8 ; CALL=0x9834c8
-0xacd214: bl #0xa93b3c ; CALL=AwaitStub_a93b3c
-0xacd220: ldr x4, [x27, #0x420] ; PP=List(5) [0, 0x1, 0, 0x1, Null]
-0xacd224: bl #0x92f3d0 ; CALL=0x92f3d0
-0xacd234: bl #0xa93b3c ; CALL=AwaitStub_a93b3c
-0xacd248: bl #0x3e44e8 ; CALL=0x3e44e8
-0xacd254: bl #0xa93b3c ; CALL=AwaitStub_a93b3c
-0xacd278: bl #0xbb5f20 ; CALL=AllocateArrayStub_bb5f20
-0xacd280: ldr x16, [x16, #0x78] ; PP=String: "Download failed with status "
-0xacd298: ldr x16, [x16, #0x80] ; PP=String: ": url="
-0xacd2ac: ldr x16, [x16, #0x88] ; PP=String: " referer="
-0xacd2c4: bl #0x31a628 ; CALL=dart_core__StringBase::_interpolate_31a628
-0xacd2cc: bl #0x3b484c ; CALL=0x3b484c
-0xacd2f8: bl #0xbb5f20 ; CALL=AllocateArrayStub_bb5f20
-0xacd300: ldr x16, [x16, #0x90] ; PP=String: "Download request failed: url="
-0xacd314: ldr x16, [x16, #0x98] ; PP=String: " filePath="
-0xacd328: ldr x16, [x16, #0x88] ; PP=String: " referer="
-0xacd340: ldr x16, [x16, #0x5e8] ; PP=String: " error="
-0xacd354: bl #0x31a628 ; CALL=dart_core__StringBase::_interpolate_31a628
-0xacd35c: bl #0x3b2fc4 ; CALL=0x3b2fc4
-0xacd390: bl #0x46445c ; CALL=0x46445c
-0xacd39c: bl #0xbb40f8 ; CALL=ReThrowStub_bb40f8
-0xacd3a4: bl #0xbb602c ; CALL=StackOverflowSharedWithoutFPURegsStub_bb602c
-0xacd3ac: bl #0xbb66bc ; CALL=NullCastErrorSharedWithoutFPURegsStub_bb66bc
-0xacd3d4: ldr x0, [x27, #0x3a28] ; PP=TypeArguments: <Uint8List>
-0xacd3d8: bl #0xa93d80 ; CALL=InitAsyncStub_a93d80
-0xacd3e4: bl #0xbb5f20 ; CALL=AllocateArrayStub_bb5f20
-0xacd3e8: ldr x16, [x27, #0x1100] ; PP=String: "data"
-0xacd3fc: ldr x16, [x16, #0x128] ; PP=TypeArguments: <String, Uint8List>
+[full cache/detail request helper 0xacc934-0xacca30]
+0xacc934: stp     x29, x30, [x15, #-0x10]!
+0xacc938: mov     x29, x15
+0xacc93c: sub     x15, x15, #0xb8
+0xacc940: stur    x22, [x29, #-8]
+0xacc944: mov     x4, x1
+0xacc948: stur    x1, [x29, #-0x90]
+0xacc94c: mov     x1, x3
+0xacc950: stur    x3, [x29, #-0xa0]
+0xacc954: mov     x3, x2
+0xacc958: stur    x2, [x29, #-0x98]
+0xacc95c: mov     x2, x5
+0xacc960: stur    x5, [x29, #-0xa8]
+0xacc964: ldr     x16, [x26, #0x48]
+0xacc968: cmp     x15, x16
+0xacc96c: b.ls    #0xaccb30
+0xacc970: add     x0, x27, #0x24, lsl #12
+0xacc974: ldr     x0, [x0, #0xa70] ; PP=TypeArguments: <oub?>
+0xacc978: bl      #0xa93d80 ; CALL=InitAsyncStub_a93d80
+0xacc97c: ldr     x0, [x26, #0x78]
+0xacc980: ldr     x0, [x0, #0x2710] ; PP=List<(dynamic this, NTa) => void?>(7) [Closure: (NTa) => void from Function 'Vrh': static. (0x7fb2d46419e4), Closure: (NTa) => void from Function '_Crh@1133011378': static. (0x7fb2
+0xacc984: ldr     x16, [x26, #0x90]
+0xacc988: cmp     w0, w16
+0xacc98c: b.ne    #0xacc99c
+0xacc990: add     x2, x27, #8, lsl #12
+0xacc994: ldr     x2, [x2, #0xdf0] ; PP=Field <xEb.ORc>: static late final (offset: 0x1388)
+0xacc998: bl      #0xbb3fe4 ; CALL=InitLateFinalStaticFieldStub_bb3fe4
+0xacc99c: mov     x1, x0
+0xacc9a0: bl      #0xaa1538 ; CALL=0xaa1538
+0xacc9a4: mov     x1, x0
+0xacc9a8: stur    x1, [x29, #-0x90]
+0xacc9ac: bl      #0xa93b3c ; CALL=AwaitStub_a93b3c
+0xacc9b0: bl      #0xaccca8 ; CALL=AllocatestbStub_accca8
+0xacc9b4: mov     x1, x0
+0xacc9b8: stur    x0, [x29, #-0x90]
+0xacc9bc: bl      #0x3ea090 ; CALL=0x3ea090
+0xacc9c0: ldur    x1, [x29, #-0x90]
+0xacc9c4: ldur    x2, [x29, #-0xa0]
+0xacc9c8: bl      #0x45b890 ; CALL=0x45b890
+0xacc9cc: mov     x1, x0
+0xacc9d0: ldur    x2, [x29, #-0x98]
+0xacc9d4: bl      #0x464410 ; CALL=0x464410
+0xacc9d8: mov     x1, x0
+0xacc9dc: ldur    x2, [x29, #-0xa8]
+0xacc9e0: bl      #0x4643b4 ; CALL=0x4643b4
+0xacc9e4: stur    x0, [x29, #-0x90]
+0xacc9e8: ldr     x0, [x26, #0x78]
+0xacc9ec: ldr     x0, [x0, #0x25c0] ; PP=Closure: (int, Uint32List, int) => int from Function '_Lvh@1140369473': static. (0x7fb2d4635788)
+0xacc9f0: ldr     x16, [x26, #0x90]
+0xacc9f4: cmp     w0, w16
+0xacc9f8: b.ne    #0xacca04
+0xacc9fc: ldr     x2, [x27, #0x7018] ; PP=Field <uEb._nGd@1482465995>: static late final (offset: 0x12e0)
+0xacca00: bl      #0xbb3fe4 ; CALL=InitLateFinalStaticFieldStub_bb3fe4
+0xacca04: mov     x1, x0
+0xacca08: ldur    x2, [x29, #-0x90]
+0xacca0c: bl      #0xaa0250 ; CALL=0xaa0250
+0xacca10: mov     x1, x0
+0xacca14: stur    x1, [x29, #-0xb0]
+0xacca18: bl      #0xa93b3c ; CALL=AwaitStub_a93b3c
+0xacca1c: mov     x3, x0
+0xacca20: mov     x2, x22
+0xacca24: mov     x1, x22
+0xacca28: stur    x3, [x29, #-0xb0]
+0xacca2c: cmp     w0, w22
