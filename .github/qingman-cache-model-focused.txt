@@ -1,0 +1,1676 @@
+Qingman 4.4.5 focused cache/detail model probe
+
+===== SELECTED FUNCTION OWNERS =====
+0xacc358: symbol=<unnamed> owner=<unmapped>
+0xacc934: symbol=<unnamed> owner=<unmapped>
+0xaccb5c: symbol=iCm_oub::YDc_accb5c owner=iCm.dart :: Map<String, dynamic> YDc(oub) {
+0x461f94: symbol=<unnamed> owner=<unmapped>
+0x4619ec: symbol=<unnamed> owner=<unmapped>
+0x3b3984: symbol=<unnamed> owner=<unmapped>
+0xaa1538: symbol=<unnamed> owner=<unmapped>
+0xaa0250: symbol=<unnamed> owner=<unmapped>
+
+===== oub class source context =====
+--- iCm.dart:60 ---
+    //     0xae19a0: bl              #0xbb602c  ; StackOverflowSharedWithoutFPURegsStub
+    // 0xae19a4: b               #0xae198c
+  }
+}
+
+// class id: 872, size: 0x44, field offset: 0x8
+class oub extends Object {
+
+  Map<String, dynamic> YDc(oub) {
+    // ** addr: 0xaccb5c, size: 0x48
+    // 0xaccb5c: EnterFrame
+    //     0xaccb5c: stp             fp, lr, [SP, #-0x10]!
+    //     0xaccb60: mov             fp, SP
+    // 0xaccb64: CheckStackOverflow
+    //     0xaccb64: ldr             x16, [THR, #0x48]  ; THR::stack_limit
+    //     0xaccb68: cmp             SP, x16
+    //     0xaccb6c: b.ls            #0xaccb84
+    // 0xaccb70: ldr             x1, [fp, #0x10]
+    // 0xaccb74: r0 = call 0x461f94
+    //     0xaccb74: bl              #0x461f94
+    // 0xaccb78: LeaveFrame
+    //     0xaccb78: mov             SP, fp
+    //     0xaccb7c: ldp             fp, lr, [SP], #0x10
+    // 0xaccb80: ret
+    //     0xaccb80: ret             
+    // 0xaccb84: r0 = StackOverflowSharedWithoutFPURegs()
+    //     0xaccb84: bl              #0xbb602c  ; StackOverflowSharedWithoutFPURegsStub
+    // 0xaccb88: b               #0xaccb70
+  }
+}
+
+// class id: 1073, size: 0x18, field offset: 0x18
+class nub extends fPa {
+}
+--- tCm.dart:34 ---
+    //     0xae94ac: bl              #0xbb602c  ; StackOverflowSharedWithoutFPURegsStub
+    // 0xae94b0: b               #0xae9498
+  }
+}
+
+// class id: 1062, size: 0x18, field offset: 0x18
+class Oub extends fPa {
+}
+
+===== 0x461f94 asm/source references =====
+--- iCm.dart:72 ---
+    //     0xae19a0: bl              #0xbb602c  ; StackOverflowSharedWithoutFPURegsStub
+    // 0xae19a4: b               #0xae198c
+  }
+}
+
+// class id: 872, size: 0x44, field offset: 0x8
+class oub extends Object {
+
+  Map<String, dynamic> YDc(oub) {
+    // ** addr: 0xaccb5c, size: 0x48
+    // 0xaccb5c: EnterFrame
+    //     0xaccb5c: stp             fp, lr, [SP, #-0x10]!
+    //     0xaccb60: mov             fp, SP
+    // 0xaccb64: CheckStackOverflow
+    //     0xaccb64: ldr             x16, [THR, #0x48]  ; THR::stack_limit
+    //     0xaccb68: cmp             SP, x16
+    //     0xaccb6c: b.ls            #0xaccb84
+    // 0xaccb70: ldr             x1, [fp, #0x10]
+    // 0xaccb74: r0 = call 0x461f94
+    //     0xaccb74: bl              #0x461f94
+    // 0xaccb78: LeaveFrame
+    //     0xaccb78: mov             SP, fp
+    //     0xaccb7c: ldp             fp, lr, [SP], #0x10
+    // 0xaccb80: ret
+    //     0xaccb80: ret             
+    // 0xaccb84: r0 = StackOverflowSharedWithoutFPURegs()
+    //     0xaccb84: bl              #0xbb602c  ; StackOverflowSharedWithoutFPURegsStub
+    // 0xaccb88: b               #0xaccb70
+  }
+}
+
+// class id: 1073, size: 0x18, field offset: 0x18
+class nub extends fPa {
+}
+--- iCm.dart:73 ---
+    // 0xae19a4: b               #0xae198c
+  }
+}
+
+// class id: 872, size: 0x44, field offset: 0x8
+class oub extends Object {
+
+  Map<String, dynamic> YDc(oub) {
+    // ** addr: 0xaccb5c, size: 0x48
+    // 0xaccb5c: EnterFrame
+    //     0xaccb5c: stp             fp, lr, [SP, #-0x10]!
+    //     0xaccb60: mov             fp, SP
+    // 0xaccb64: CheckStackOverflow
+    //     0xaccb64: ldr             x16, [THR, #0x48]  ; THR::stack_limit
+    //     0xaccb68: cmp             SP, x16
+    //     0xaccb6c: b.ls            #0xaccb84
+    // 0xaccb70: ldr             x1, [fp, #0x10]
+    // 0xaccb74: r0 = call 0x461f94
+    //     0xaccb74: bl              #0x461f94
+    // 0xaccb78: LeaveFrame
+    //     0xaccb78: mov             SP, fp
+    //     0xaccb7c: ldp             fp, lr, [SP], #0x10
+    // 0xaccb80: ret
+    //     0xaccb80: ret             
+    // 0xaccb84: r0 = StackOverflowSharedWithoutFPURegs()
+    //     0xaccb84: bl              #0xbb602c  ; StackOverflowSharedWithoutFPURegsStub
+    // 0xaccb88: b               #0xaccb70
+  }
+}
+
+// class id: 1073, size: 0x18, field offset: 0x18
+class nub extends fPa {
+}
+
+===== 0x4619ec asm/source references =====
+<no hits>
+
+===== 0x3b3984 asm/source references =====
+<no hits>
+
+===== PP NEIGHBORHOODS FOR CACHE CONTRACT KEYS =====
+--- center PP+0x6298: String: "Referer" ---
+PP+0x6268: String: "function result"
+PP+0x6270: String: ".mpd"
+PP+0x6278: String: ".m3u8"
+PP+0x6280: String: "Range"
+PP+0x6288: String: "bytes=0-1"
+PP+0x6290: Obj!la@583c11 : {
+PP+0x6298: String: "Referer"
+PP+0x62a0: String: "play_progress_"
+PP+0x62a8: Null
+PP+0x62b0: String: " in type cast"
+PP+0x62b8: TypeArguments: <RHb>
+PP+0x62c0: TypeArguments: <Map<String, Object>>
+PP+0x62c8: Field <VHb._nGd@703045225>: static late (offset: 0xbbc)
+--- center PP+0x8de0: Set<String>(4) { "api/comic/chapter/ie84hfh8/detail", "api/comic/comics/ie84hfh8/detail", "api/comic/chapter/ie84hfh8/homelist/", "api/comic/chapter/ie84hfh8/cache/detail" } ---
+PP+0x8db0: Null
+PP+0x8db8: String: " in type cast"
+PP+0x8dc0: String: "未知错误"
+PP+0x8dc8: String: "hi_net["
+PP+0x8dd0: String: "]: request failed"
+PP+0x8dd8: String: "REQ#"
+PP+0x8de0: Set<String>(4) { "api/comic/chapter/ie84hfh8/detail", "api/comic/comics/ie84hfh8/detail", "api/comic/chapter/ie84hfh8/homelist/", "api/comic/chapter/ie84hfh8/cache/detail" }
+PP+0x8de8: AnonymousClosure: static (0x3b613c), of [XIm] 
+PP+0x8df0: Field <xEb.ORc>: static late final (offset: 0x1388)
+PP+0x8df8: Obj!_TL@576031 : {
+PP+0x8e00: String: "X-Api-Guard"
+PP+0x8e08: String: "校验未通过，请稍后重试"
+PP+0x8e10: Set<String>(5) { "X-Timestamp", "X-Signature", "X-QM-Proof-Version", "X-QM-Request-Id", "X-QM-Proof" }
+--- center PP+0x9048: String: "api/comic/chapter/ie84hfh8/cache/detail" ---
+PP+0x9018: String: "detailPath"
+PP+0x9020: String: "api/comic/comics/ie84hfh8/detail"
+PP+0x9028: String: "chapterListPath"
+PP+0x9030: String: "api/comic/chapter/ie84hfh8/homelist/"
+PP+0x9038: String: "readPath"
+PP+0x9040: String: "cachePath"
+PP+0x9048: String: "api/comic/chapter/ie84hfh8/cache/detail"
+PP+0x9050: String: "initializeSignKeys"
+PP+0x9058: Null
+PP+0x9060: String: " in type cast"
+PP+0x9068: Null
+PP+0x9070: String: " in type cast"
+PP+0x9078: Null
+--- center PP+0xfb98: String: "chapterId" ---
+PP+0xfb68: String: "rai"
+PP+0xfb70: String: "sai"
+PP+0xfb78: String: "tai"
+PP+0xfb80: List(13) [0, 0x8, 0x4, 0x4, "dwf", 0x4, "rai", 0x6, "sai", 0x7, "tai", 0x5, Null]
+PP+0xfb88: String: "广播剧ID不能为空"
+PP+0xfb90: String: "dramaId"
+PP+0xfb98: String: "chapterId"
+PP+0xfba0: String: "chapterTitle"
+PP+0xfba8: String: "audioUrl"
+PP+0xfbb0: String: "获取广播剧用户信息失败"
+PP+0xfbb8: String: "/drama/see_ad"
+PP+0xfbc0: List(11) [0, 0x4, 0x3, 0x1, "BZh", 0x2, "Eic", 0x1, "WPh", 0x3, Null]
+PP+0xfbc8: true
+--- center PP+0x18840: String: "lastChapterId" ---
+PP+0x18810: String: "alias"
+PP+0x18818: String: "content"
+PP+0x18820: String: "author"
+PP+0x18828: String: "userPhone"
+PP+0x18830: AnonymousClosure: static (0x44d7a0), of [gCm] kub
+PP+0x18838: String: "lastChapterTime"
+PP+0x18840: String: "lastChapterId"
+PP+0x18848: String: "chapterCount"
+PP+0x18850: String: "updateTitle"
+PP+0x18858: String: "lastChapterTitle"
+PP+0x18860: String: "readIndex"
+PP+0x18868: String: "popularity"
+PP+0x18870: String: "totalHits"
+--- center PP+0x18c70: String: "comicId" ---
+PP+0x18c40: String: "weekList"
+PP+0x18c48: AnonymousClosure: static (0x44ae40), of [rCm] Lub
+PP+0x18c50: TypeArguments: <Ksb>
+PP+0x18c58: AnonymousClosure: (0x4a1a64), of [Crm] wgb
+PP+0x18c60: TypeArguments: <Map<String, Object?>>
+PP+0x18c68: String: "加载轮播图数据失败: "
+PP+0x18c70: String: "comicId"
+PP+0x18c78: String: "imageUrl"
+PP+0x18c80: SubtypeTestCache
+PP+0x18c88: Type: Map
+PP+0x18c90: SubtypeTestCache
+PP+0x18c98: TypeArguments: <Jsb?>
+PP+0x18ca0: SubtypeTestCache
+--- center PP+0x18c78: String: "imageUrl" ---
+PP+0x18c48: AnonymousClosure: static (0x44ae40), of [rCm] Lub
+PP+0x18c50: TypeArguments: <Ksb>
+PP+0x18c58: AnonymousClosure: (0x4a1a64), of [Crm] wgb
+PP+0x18c60: TypeArguments: <Map<String, Object?>>
+PP+0x18c68: String: "加载轮播图数据失败: "
+PP+0x18c70: String: "comicId"
+PP+0x18c78: String: "imageUrl"
+PP+0x18c80: SubtypeTestCache
+PP+0x18c88: Type: Map
+PP+0x18c90: SubtypeTestCache
+PP+0x18c98: TypeArguments: <Jsb?>
+PP+0x18ca0: SubtypeTestCache
+PP+0x18ca8: Type: Map<String, dynamic>
+--- center PP+0x19eb0: String: "comicIds" ---
+PP+0x19e80: SubtypeTestCache
+PP+0x19e88: Type: Map<String, dynamic>
+PP+0x19e90: SubtypeTestCache
+PP+0x19e98: String: "Create shudan failed: "
+PP+0x19ea0: String: "booklistName"
+PP+0x19ea8: String: "categoriesIds"
+PP+0x19eb0: String: "comicIds"
+PP+0x19eb8: String: "上传文件失败"
+PP+0x19ec0: false
+PP+0x19ec8: String: "开始获取上传 token: type="
+PP+0x19ed0: String: "获取上传 token 成功: token="
+PP+0x19ed8: String: ", ts="
+PP+0x19ee0: String: ", limit="
+--- center PP+0x1fe30: String: "topicList" ---
+PP+0x1fe00: AnonymousClosure: static (0x46231c), of [YBm] Vtb
+PP+0x1fe08: TypeArguments: <Dvb?>
+PP+0x1fe10: String: "recommendList"
+PP+0x1fe18: String: "list"
+PP+0x1fe20: String: "imageList"
+PP+0x1fe28: String: "userList"
+PP+0x1fe30: String: "topicList"
+PP+0x1fe38: String: "bookList"
+PP+0x1fe40: String: "likeNum"
+PP+0x1fe48: String: "like"
+PP+0x1fe50: String: "isLike"
+PP+0x1fe58: String: "isLiked"
+PP+0x1fe60: String: "liked"
+--- center PP+0x20a30: String: "imageUrls" ---
+PP+0x20a00: Type: Map<String, dynamic>
+PP+0x20a08: SubtypeTestCache
+PP+0x20a10: String: "Submit post failed: "
+PP+0x20a18: String: "bookId"
+PP+0x20a20: AnonymousClosure: (0x38c79c), of [NCm] Dvb
+PP+0x20a28: AnonymousClosure: (0x38c608), of [WBm] Rtb
+PP+0x20a30: String: "imageUrls"
+PP+0x20a38: String: "Fetch upload config failed: "
+PP+0x20a40: String: "[#%&<>]"
+PP+0x20a48: Null
+PP+0x20a50: String: "value"
+PP+0x20a58: String: "创建话题“"
+PP+0x20a60: String: "”失败"
+--- center PP+0x225c8: String: "解析本地广播剧缓存失败: chapterId=" ---
+PP+0x22598: String: "failed to connect"
+PP+0x225a0: String: "499"
+PP+0x225a8: List(7) [0, 0x4, 0x1, 0x3, "fQi", 0x3, Null]
+PP+0x225b0: TypeArguments: <eqb>
+PP+0x225b8: String: "completed"
+PP+0x225c0: String: "radio"
+PP+0x225c8: String: "解析本地广播剧缓存失败: chapterId="
+PP+0x225d0: Obj!_RL@576041 : {
+PP+0x225d8: String: "解密缓存广播剧音频失败: comicId="
+PP+0x225e0: String: " chapterId="
+PP+0x225e8: String: " error="
+PP+0x225f0: String: "srcPath"
+PP+0x225f8: String: "dstPath"
+--- center PP+0x225d8: String: "解密缓存广播剧音频失败: comicId=" ---
+PP+0x225a8: List(7) [0, 0x4, 0x1, 0x3, "fQi", 0x3, Null]
+PP+0x225b0: TypeArguments: <eqb>
+PP+0x225b8: String: "completed"
+PP+0x225c0: String: "radio"
+PP+0x225c8: String: "解析本地广播剧缓存失败: chapterId="
+PP+0x225d0: Obj!_RL@576041 : {
+PP+0x225d8: String: "解密缓存广播剧音频失败: comicId="
+PP+0x225e0: String: " chapterId="
+PP+0x225e8: String: " error="
+PP+0x225f0: String: "srcPath"
+PP+0x225f8: String: "dstPath"
+PP+0x22600: String: "decryptCacheFileToPath"
+PP+0x22608: String: "radio_play_cache"
+--- center PP+0x225e0: String: " chapterId=" ---
+PP+0x225b0: TypeArguments: <eqb>
+PP+0x225b8: String: "completed"
+PP+0x225c0: String: "radio"
+PP+0x225c8: String: "解析本地广播剧缓存失败: chapterId="
+PP+0x225d0: Obj!_RL@576041 : {
+PP+0x225d8: String: "解密缓存广播剧音频失败: comicId="
+PP+0x225e0: String: " chapterId="
+PP+0x225e8: String: " error="
+PP+0x225f0: String: "srcPath"
+PP+0x225f8: String: "dstPath"
+PP+0x22600: String: "decryptCacheFileToPath"
+PP+0x22608: String: "radio_play_cache"
+PP+0x22610: String: "^\\.+"
+--- center PP+0x22648: String: "pageUrls" ---
+PP+0x22618: Field <eqb._Gii@1566372493>: late final (offset: 0x30)
+PP+0x22620: String: "qx-offline-name-v1-3f9a2c"
+PP+0x22628: String: ".bin"
+PP+0x22630: Field <eqb._Bii@1566372493>: late final (offset: 0x18)
+PP+0x22638: TypeArguments: <Upb?>
+PP+0x22640: String: "comic_cache_tasks"
+PP+0x22648: String: "pageUrls"
+PP+0x22650: Null
+PP+0x22658: String: " in type cast"
+PP+0x22660: AnonymousClosure: static (0x461008), of [Yzm] Upb
+PP+0x22668: AnonymousClosure: (0x3be634), of [Lem] IMa
+PP+0x22670: Null
+PP+0x22678: String: " in type cast"
+--- center PP+0x226c0: String: "referer" ---
+PP+0x22690: String: "chapterCoverUrl"
+PP+0x22698: String: "chapterIndex"
+PP+0x226a0: Null
+PP+0x226a8: String: " in type cast"
+PP+0x226b0: String: "isLastReadChapter"
+PP+0x226b8: String: "localDir"
+PP+0x226c0: String: "referer"
+PP+0x226c8: String: "pending"
+PP+0x226d0: String: "progressPercent"
+PP+0x226d8: Null
+PP+0x226e0: String: " in type cast"
+PP+0x226e8: String: "totalPages"
+PP+0x226f0: Null
+--- center PP+0x227d0: String: "广播剧章节缺少播放地址（cover 字段为空）: chapterId=" ---
+PP+0x227a0: TypeArguments: <JGb>
+PP+0x227a8: Null
+PP+0x227b0: String: " in type cast"
+PP+0x227b8: String: "_chapter_"
+PP+0x227c0: String: "广播剧章节列表存在空播放地址: missing="
+PP+0x227c8: String: ", total="
+PP+0x227d0: String: "广播剧章节缺少播放地址（cover 字段为空）: chapterId="
+PP+0x227d8: String: "上传广播剧播放进度失败: "
+PP+0x227e0: TypeArguments: <vyb?>
+PP+0x227e8: SubtypeTestCache
+PP+0x227f0: Type: Map<String, dynamic>
+PP+0x227f8: SubtypeTestCache
+PP+0x22800: String: "Update radio progress failed: "
+--- center PP+0x23d00: String: "horizontalImageUrl" ---
+PP+0x23cd0: Type: Map<String, dynamic>
+PP+0x23cd8: SubtypeTestCache
+PP+0x23ce0: String: "Get radio banner list failed: "
+PP+0x23ce8: AnonymousClosure: static (0x4c9abc), of [vBm] Msb
+PP+0x23cf0: TypeArguments: <Nsb?>
+PP+0x23cf8: TypeArguments: <Nsb>
+PP+0x23d00: String: "horizontalImageUrl"
+PP+0x23d08: String: "verticalImageUrl"
+PP+0x23d10: AnonymousClosure: (0x4ca258), in [ltm] iib::<anonymous closure> (0x4ca1e4)
+PP+0x23d18: String: "我是有底线的"
+PP+0x23d20: AnonymousClosure: (0x4caf20), of [ltm] iib
+PP+0x23d28: AnonymousClosure: (0x4cb2d8), in [ltm] iib::<anonymous closure> (0x4caf20)
+PP+0x23d30: AnonymousClosure: (0x4cb0bc), in [ltm] iib::<anonymous closure> (0x4caf20)
+--- center PP+0x23d08: String: "verticalImageUrl" ---
+PP+0x23cd8: SubtypeTestCache
+PP+0x23ce0: String: "Get radio banner list failed: "
+PP+0x23ce8: AnonymousClosure: static (0x4c9abc), of [vBm] Msb
+PP+0x23cf0: TypeArguments: <Nsb?>
+PP+0x23cf8: TypeArguments: <Nsb>
+PP+0x23d00: String: "horizontalImageUrl"
+PP+0x23d08: String: "verticalImageUrl"
+PP+0x23d10: AnonymousClosure: (0x4ca258), in [ltm] iib::<anonymous closure> (0x4ca1e4)
+PP+0x23d18: String: "我是有底线的"
+PP+0x23d20: AnonymousClosure: (0x4caf20), of [ltm] iib
+PP+0x23d28: AnonymousClosure: (0x4cb2d8), in [ltm] iib::<anonymous closure> (0x4caf20)
+PP+0x23d30: AnonymousClosure: (0x4cb0bc), in [ltm] iib::<anonymous closure> (0x4caf20)
+PP+0x23d38: AnonymousClosure: (0x4cb000), in [ltm] iib::<anonymous closure> (0x4caf20)
+--- center PP+0x24260: String: "Read progress loaded: comicId=" ---
+PP+0x24230: Null
+PP+0x24238: String: " in type cast"
+PP+0x24240: String: "读取本地阅读进度失败: "
+PP+0x24248: AnonymousClosure: (0x495524), of [srm] ggb
+PP+0x24250: String: "Cannot get read progress: identity unavailable"
+PP+0x24258: String: "imageIndex"
+PP+0x24260: String: "Read progress loaded: comicId="
+PP+0x24268: String: ", chapterIndex="
+PP+0x24270: String: ", imageIndex="
+PP+0x24278: String: "Failed to get read progress: "
+PP+0x24280: String: "comic_read_progress"
+PP+0x24288: SubtypeTestCache
+PP+0x24290: Type: Map
+--- center PP+0x24f18: String: " 张图片下载失败被跳过 chapterId=" ---
+PP+0x24ee8: AnonymousClosure: (0x465078), of [hAm] aqb
+PP+0x24ef0: AnonymousClosure: (0xacb36c), of [hAm] aqb
+PP+0x24ef8: Type: Future<void?>
+PP+0x24f00: Null
+PP+0x24f08: String: "value"
+PP+0x24f10: String: "[漫画缓存] 章节完成但有 "
+PP+0x24f18: String: " 张图片下载失败被跳过 chapterId="
+PP+0x24f20: List(13) [0, 0x8, 0x4, 0x4, "Dli", 0x4, "Fli", 0x5, "Hli", 0x6, "Zii", 0x7, Null]
+PP+0x24f28: AnonymousClosure: (0x464d44), in [hAm] aqb::rxk (0xacb36c)
+PP+0x24f30: List(15) [0, 0x9, 0x5, 0x4, "Dli", 0x4, "Fli", 0x5, "Hli", 0x7, "Tli", 0x6, "Zii", 0x8, Null]
+PP+0x24f38: String: "[漫画缓存] 图片下载失败已跳过 chapterId="
+PP+0x24f40: String: ", page="
+PP+0x24f48: List(13) [0, 0x8, 0x4, 0x4, "Fli", 0x4, "Hli", 0x6, "Tli", 0x5, "Zii", 0x7, Null]
+--- center PP+0x24f38: String: "[漫画缓存] 图片下载失败已跳过 chapterId=" ---
+PP+0x24f08: String: "value"
+PP+0x24f10: String: "[漫画缓存] 章节完成但有 "
+PP+0x24f18: String: " 张图片下载失败被跳过 chapterId="
+PP+0x24f20: List(13) [0, 0x8, 0x4, 0x4, "Dli", 0x4, "Fli", 0x5, "Hli", 0x6, "Zii", 0x7, Null]
+PP+0x24f28: AnonymousClosure: (0x464d44), in [hAm] aqb::rxk (0xacb36c)
+PP+0x24f30: List(15) [0, 0x9, 0x5, 0x4, "Dli", 0x4, "Fli", 0x5, "Hli", 0x7, "Tli", 0x6, "Zii", 0x8, Null]
+PP+0x24f38: String: "[漫画缓存] 图片下载失败已跳过 chapterId="
+PP+0x24f40: String: ", page="
+PP+0x24f48: List(13) [0, 0x8, 0x4, 0x4, "Fli", 0x4, "Hli", 0x6, "Tli", 0x5, "Zii", 0x7, Null]
+PP+0x24f50: TypeArguments: <fpb>
+PP+0x24f58: String: "刷新下载地址失败：接口未返回有效地址 chapterId="
+PP+0x24f60: String: "[下载token刷新] 已更新下载地址 chapterId="
+PP+0x24f68: String: ", 数量="
+--- center PP+0x24f58: String: "刷新下载地址失败：接口未返回有效地址 chapterId=" ---
+PP+0x24f28: AnonymousClosure: (0x464d44), in [hAm] aqb::rxk (0xacb36c)
+PP+0x24f30: List(15) [0, 0x9, 0x5, 0x4, "Dli", 0x4, "Fli", 0x5, "Hli", 0x7, "Tli", 0x6, "Zii", 0x8, Null]
+PP+0x24f38: String: "[漫画缓存] 图片下载失败已跳过 chapterId="
+PP+0x24f40: String: ", page="
+PP+0x24f48: List(13) [0, 0x8, 0x4, 0x4, "Fli", 0x4, "Hli", 0x6, "Tli", 0x5, "Zii", 0x7, Null]
+PP+0x24f50: TypeArguments: <fpb>
+PP+0x24f58: String: "刷新下载地址失败：接口未返回有效地址 chapterId="
+PP+0x24f60: String: "[下载token刷新] 已更新下载地址 chapterId="
+PP+0x24f68: String: ", 数量="
+PP+0x24f70: String: "[下载token刷新] 重拉 cache/detail 失败 chapterId="
+PP+0x24f78: TypeArguments: <List<String>?>
+PP+0x24f80: SubtypeTestCache
+PP+0x24f88: Type: List
+--- center PP+0x24f60: String: "[下载token刷新] 已更新下载地址 chapterId=" ---
+PP+0x24f30: List(15) [0, 0x9, 0x5, 0x4, "Dli", 0x4, "Fli", 0x5, "Hli", 0x7, "Tli", 0x6, "Zii", 0x8, Null]
+PP+0x24f38: String: "[漫画缓存] 图片下载失败已跳过 chapterId="
+PP+0x24f40: String: ", page="
+PP+0x24f48: List(13) [0, 0x8, 0x4, 0x4, "Fli", 0x4, "Hli", 0x6, "Tli", 0x5, "Zii", 0x7, Null]
+PP+0x24f50: TypeArguments: <fpb>
+PP+0x24f58: String: "刷新下载地址失败：接口未返回有效地址 chapterId="
+PP+0x24f60: String: "[下载token刷新] 已更新下载地址 chapterId="
+PP+0x24f68: String: ", 数量="
+PP+0x24f70: String: "[下载token刷新] 重拉 cache/detail 失败 chapterId="
+PP+0x24f78: TypeArguments: <List<String>?>
+PP+0x24f80: SubtypeTestCache
+PP+0x24f88: Type: List
+PP+0x24f90: SubtypeTestCache
+--- center PP+0x24f70: String: "[下载token刷新] 重拉 cache/detail 失败 chapterId=" ---
+PP+0x24f40: String: ", page="
+PP+0x24f48: List(13) [0, 0x8, 0x4, 0x4, "Fli", 0x4, "Hli", 0x6, "Tli", 0x5, "Zii", 0x7, Null]
+PP+0x24f50: TypeArguments: <fpb>
+PP+0x24f58: String: "刷新下载地址失败：接口未返回有效地址 chapterId="
+PP+0x24f60: String: "[下载token刷新] 已更新下载地址 chapterId="
+PP+0x24f68: String: ", 数量="
+PP+0x24f70: String: "[下载token刷新] 重拉 cache/detail 失败 chapterId="
+PP+0x24f78: TypeArguments: <List<String>?>
+PP+0x24f80: SubtypeTestCache
+PP+0x24f88: Type: List
+PP+0x24f90: SubtypeTestCache
+PP+0x24f98: SubtypeTestCache
+PP+0x24fa0: Type: Map<String, dynamic>
+--- center PP+0x24ff0: String: "nextChapterId" ---
+PP+0x24fc0: SubtypeTestCache
+PP+0x24fc8: String: "pic"
+PP+0x24fd0: SubtypeTestCache
+PP+0x24fd8: Type: Map<String, dynamic>
+PP+0x24fe0: SubtypeTestCache
+PP+0x24fe8: String: "Get chapter cache detail failed: "
+PP+0x24ff0: String: "nextChapterId"
+PP+0x24ff8: String: "preChapterId"
+PP+0x25000: String: "picList"
+PP+0x25008: AnonymousClosure: static (0x46231c), of [YBm] Vtb
+PP+0x25010: String: "totalComment"
+PP+0x25018: String: "appMaintenanceEnabled"
+PP+0x25020: String: "appMaintenanceEnabledTime"
+--- center PP+0x24ff8: String: "preChapterId" ---
+PP+0x24fc8: String: "pic"
+PP+0x24fd0: SubtypeTestCache
+PP+0x24fd8: Type: Map<String, dynamic>
+PP+0x24fe0: SubtypeTestCache
+PP+0x24fe8: String: "Get chapter cache detail failed: "
+PP+0x24ff0: String: "nextChapterId"
+PP+0x24ff8: String: "preChapterId"
+PP+0x25000: String: "picList"
+PP+0x25008: AnonymousClosure: static (0x46231c), of [YBm] Vtb
+PP+0x25010: String: "totalComment"
+PP+0x25018: String: "appMaintenanceEnabled"
+PP+0x25020: String: "appMaintenanceEnabledTime"
+PP+0x25028: String: "readMinutes"
+--- center PP+0x25000: String: "picList" ---
+PP+0x24fd0: SubtypeTestCache
+PP+0x24fd8: Type: Map<String, dynamic>
+PP+0x24fe0: SubtypeTestCache
+PP+0x24fe8: String: "Get chapter cache detail failed: "
+PP+0x24ff0: String: "nextChapterId"
+PP+0x24ff8: String: "preChapterId"
+PP+0x25000: String: "picList"
+PP+0x25008: AnonymousClosure: static (0x46231c), of [YBm] Vtb
+PP+0x25010: String: "totalComment"
+PP+0x25018: String: "appMaintenanceEnabled"
+PP+0x25020: String: "appMaintenanceEnabledTime"
+PP+0x25028: String: "readMinutes"
+PP+0x25030: String: "todayMinutes"
+--- center PP+0x25088: String: " referer=" ---
+PP+0x25058: String: "bytes="
+PP+0x25060: AnonymousClosure: (0x464984), of [jAm] cqb
+PP+0x25068: List(11) [0x1, 0x5, 0x5, 0x2, "YMc", 0x3, "ZMc", 0x4, "options", 0x2, Null]
+PP+0x25070: List(7) [0, 0x3, 0x1, 0x2, "dPb", 0x2, Null]
+PP+0x25078: String: "Download failed with status "
+PP+0x25080: String: ": url="
+PP+0x25088: String: " referer="
+PP+0x25090: String: "Download request failed: url="
+PP+0x25098: String: " filePath="
+PP+0x250a0: String: "encryptCacheImage"
+PP+0x250a8: Obj!FormatException@576471 : {
+PP+0x250b0: NativeFn: [no name] at 0x55f99d3e1b20
+PP+0x250b8: Stub: CallBootstrapNative (0x313fec)
+--- center PP+0x25800: String: "comicIdsStr" ---
+PP+0x257d0: String: "添加失败："
+PP+0x257d8: TypeArguments: <Psb?>
+PP+0x257e0: SubtypeTestCache
+PP+0x257e8: Type: Map<String, dynamic>
+PP+0x257f0: SubtypeTestCache
+PP+0x257f8: String: "Add shudan item failed: "
+PP+0x25800: String: "comicIdsStr"
+PP+0x25808: SubtypeTestCache
+PP+0x25810: Type: Iterable
+PP+0x25818: SubtypeTestCache
+PP+0x25820: Function: [dart:core] ::_objectToString (0x3b4730)
+PP+0x25828: String: "******"
+PP+0x25830: AnonymousClosure: (0x38882c), of [Fpm] Idb
+--- center PP+0x29eb8: String: "Read progress saved: comicId=" ---
+PP+0x29e88: SubtypeTestCache
+PP+0x29e90: Type: Map
+PP+0x29e98: SubtypeTestCache
+PP+0x29ea0: Null
+PP+0x29ea8: String: " in type cast"
+PP+0x29eb0: String: "Cannot save read progress: identity unavailable"
+PP+0x29eb8: String: "Read progress saved: comicId="
+PP+0x29ec0: String: "[更新写入] comicId="
+PP+0x29ec8: String: " 传入comicUpdateTime=\""
+PP+0x29ed0: String: "\" 实际写入本地库updateTime=\""
+PP+0x29ed8: String: "Failed to save read progress: "
+PP+0x29ee0: String: "ivi"
+PP+0x29ee8: String: "jvi"
+--- center PP+0x29ec0: String: "[更新写入] comicId=" ---
+PP+0x29e90: Type: Map
+PP+0x29e98: SubtypeTestCache
+PP+0x29ea0: Null
+PP+0x29ea8: String: " in type cast"
+PP+0x29eb0: String: "Cannot save read progress: identity unavailable"
+PP+0x29eb8: String: "Read progress saved: comicId="
+PP+0x29ec0: String: "[更新写入] comicId="
+PP+0x29ec8: String: " 传入comicUpdateTime=\""
+PP+0x29ed0: String: "\" 实际写入本地库updateTime=\""
+PP+0x29ed8: String: "Failed to save read progress: "
+PP+0x29ee0: String: "ivi"
+PP+0x29ee8: String: "jvi"
+PP+0x29ef0: Obj!ifb@577d51 : {
+--- center PP+0x29f08: String: "加载本章精彩评论失败: chapterId=" ---
+PP+0x29ed8: String: "Failed to save read progress: "
+PP+0x29ee0: String: "ivi"
+PP+0x29ee8: String: "jvi"
+PP+0x29ef0: Obj!ifb@577d51 : {
+PP+0x29ef8: Field <cfb.sti>: late final (offset: 0x44)
+PP+0x29f00: AnonymousClosure: (0x481330), of [VRl] cfb
+PP+0x29f08: String: "加载本章精彩评论失败: chapterId="
+PP+0x29f10: TypeArguments: <mub?>
+PP+0x29f18: SubtypeTestCache
+PP+0x29f20: Type: Map<String, dynamic>
+PP+0x29f28: SubtypeTestCache
+PP+0x29f30: String: "Get chapter comment_mixin list failed: "
+PP+0x29f38: SubtypeTestCache
+--- center PP+0x2a2a0: String: "阅读页命中本地缓存: comicId=" ---
+PP+0x2a270: String: "加载章节图片失败: "
+PP+0x2a278: Obj!ifb@577d91 : {
+PP+0x2a280: String: "章节阅读数据为空"
+PP+0x2a288: AnonymousClosure: (0x488848), of [Vqm] mfb
+PP+0x2a290: AnonymousClosure: (0x481330), of [VRl] cfb
+PP+0x2a298: TypeArguments: <mfb?>
+PP+0x2a2a0: String: "阅读页命中本地缓存: comicId="
+PP+0x2a2a8: String: ", chapterId="
+PP+0x2a2b0: String: ", images="
+PP+0x2a2b8: String: "阅读页走网络章节详情: comicId="
+PP+0x2a2c0: String: ", hasCache="
+PP+0x2a2c8: List(7) [0, 0x3, 0x1, 0x2, "Qwi", 0x2, Null]
+PP+0x2a2d0: String: "加载章节 "
+--- center PP+0x2a2a8: String: ", chapterId=" ---
+PP+0x2a278: Obj!ifb@577d91 : {
+PP+0x2a280: String: "章节阅读数据为空"
+PP+0x2a288: AnonymousClosure: (0x488848), of [Vqm] mfb
+PP+0x2a290: AnonymousClosure: (0x481330), of [VRl] cfb
+PP+0x2a298: TypeArguments: <mfb?>
+PP+0x2a2a0: String: "阅读页命中本地缓存: comicId="
+PP+0x2a2a8: String: ", chapterId="
+PP+0x2a2b0: String: ", images="
+PP+0x2a2b8: String: "阅读页走网络章节详情: comicId="
+PP+0x2a2c0: String: ", hasCache="
+PP+0x2a2c8: List(7) [0, 0x3, 0x1, 0x2, "Qwi", 0x2, Null]
+PP+0x2a2d0: String: "加载章节 "
+PP+0x2a2d8: String: " 图片失败: "
+--- center PP+0x2a2b8: String: "阅读页走网络章节详情: comicId=" ---
+PP+0x2a288: AnonymousClosure: (0x488848), of [Vqm] mfb
+PP+0x2a290: AnonymousClosure: (0x481330), of [VRl] cfb
+PP+0x2a298: TypeArguments: <mfb?>
+PP+0x2a2a0: String: "阅读页命中本地缓存: comicId="
+PP+0x2a2a8: String: ", chapterId="
+PP+0x2a2b0: String: ", images="
+PP+0x2a2b8: String: "阅读页走网络章节详情: comicId="
+PP+0x2a2c0: String: ", hasCache="
+PP+0x2a2c8: List(7) [0, 0x3, 0x1, 0x2, "Qwi", 0x2, Null]
+PP+0x2a2d0: String: "加载章节 "
+PP+0x2a2d8: String: " 图片失败: "
+PP+0x2a2e0: String: "阅读页网络失败，回退本地缓存: comicId="
+PP+0x2a2e8: String: "Qwi"
+--- center PP+0x2a2e0: String: "阅读页网络失败，回退本地缓存: comicId=" ---
+PP+0x2a2b0: String: ", images="
+PP+0x2a2b8: String: "阅读页走网络章节详情: comicId="
+PP+0x2a2c0: String: ", hasCache="
+PP+0x2a2c8: List(7) [0, 0x3, 0x1, 0x2, "Qwi", 0x2, Null]
+PP+0x2a2d0: String: "加载章节 "
+PP+0x2a2d8: String: " 图片失败: "
+PP+0x2a2e0: String: "阅读页网络失败，回退本地缓存: comicId="
+PP+0x2a2e8: String: "Qwi"
+PP+0x2a2f0: TypeArguments: <List<lfb>>
+PP+0x2a2f8: List<lfb>(0) []
+PP+0x2a300: AnonymousClosure: (0x488bd8), of [VRl] cfb
+PP+0x2a308: AnonymousClosure: (0x3be634), of [Lem] IMa
+PP+0x2a310: AnonymousClosure: (0xae188c), of [VRl] cfb
+--- center PP+0x2a440: String: "超清(type=2)章节详情返回 code=0，兜底降级为标清(type=1)重试一次: comicId=" ---
+PP+0x2a410: Obj!kI@563f71 : {
+PP+0x2a418: Null
+PP+0x2a420: String: " in type cast"
+PP+0x2a428: Null
+PP+0x2a430: String: " in type cast"
+PP+0x2a438: AnonymousClosure: (0xae2908), of [VRl] cfb
+PP+0x2a440: String: "超清(type=2)章节详情返回 code=0，兜底降级为标清(type=1)重试一次: comicId="
+PP+0x2a448: Null
+PP+0x2a450: String: " in type cast"
+PP+0x2a458: String: "freeLine"
+PP+0x2a460: AnonymousClosure: (0x3be634), of [Lem] IMa
+PP+0x2a468: AnonymousClosure: (0x489e4c), of [VRl] cfb
+PP+0x2a470: AnonymousClosure: (0x3be634), of [Lem] IMa
+--- center PP+0x2fe00: String: "[广播剧token替换] chapterId=" ---
+PP+0x2fdd0: AnonymousClosure: (0x630bc4), of [Xsm] _Ohb
+PP+0x2fdd8: String: "后台广播剧播放错误: "
+PP+0x2fde0: String: "后台恢复播放失败: "
+PP+0x2fde8: List<Nxb>(0) []
+PP+0x2fdf0: Null
+PP+0x2fdf8: String: " in type cast"
+PP+0x2fe00: String: "[广播剧token替换] chapterId="
+PP+0x2fe08: String: "[广播剧token替换] 后台已用新 token 重建播放列表 "
+PP+0x2fe10: String: "后台已用新 token 恢复播放: chapterId="
+PP+0x2fe18: String: ", position="
+PP+0x2fe20: String: "后台上传广播剧播放进度失败: "
+PP+0x2fe28: AnonymousClosure: (0x630adc), of [GKm] PGb
+PP+0x2fe30: AnonymousClosure: (0x630aa4), of [GKm] PGb
+--- center PP+0x2fe10: String: "后台已用新 token 恢复播放: chapterId=" ---
+PP+0x2fde0: String: "后台恢复播放失败: "
+PP+0x2fde8: List<Nxb>(0) []
+PP+0x2fdf0: Null
+PP+0x2fdf8: String: " in type cast"
+PP+0x2fe00: String: "[广播剧token替换] chapterId="
+PP+0x2fe08: String: "[广播剧token替换] 后台已用新 token 重建播放列表 "
+PP+0x2fe10: String: "后台已用新 token 恢复播放: chapterId="
+PP+0x2fe18: String: ", position="
+PP+0x2fe20: String: "后台上传广播剧播放进度失败: "
+PP+0x2fe28: AnonymousClosure: (0x630adc), of [GKm] PGb
+PP+0x2fe30: AnonymousClosure: (0x630aa4), of [GKm] PGb
+PP+0x2fe38: String: "广播剧信息不存在"
+PP+0x2fe40: TypeArguments: <Future<bool>>
+--- center PP+0x30cc8: String: "取消收藏成功: comicId=" ---
+PP+0x30c98: AnonymousClosure: (0x81c728), of [VRl] cfb
+PP+0x30ca0: AnonymousClosure: (0x81c5b4), in [mrm] Kfb::<anonymous closure> (0x81bae0)
+PP+0x30ca8: AnonymousClosure: (0x81c1c0), in [mrm] Kfb::<anonymous closure> (0x81bae0)
+PP+0x30cb0: AnonymousClosure: (0x81c508), in [mrm] Kfb::<anonymous closure> (0x81bae0)
+PP+0x30cb8: String: "无法获取漫画信息"
+PP+0x30cc0: String: "已取消收藏"
+PP+0x30cc8: String: "取消收藏成功: comicId="
+PP+0x30cd0: String: "收藏成功: comicId="
+PP+0x30cd8: AnonymousClosure: (0x878368), of [kKm] jGb
+PP+0x30ce0: AnonymousClosure: (0x8780b4), of [kKm] jGb
+PP+0x30ce8: String: "icon_default_avatar.png"
+PP+0x30cf0: Obj!cqa@575c81 : {
+PP+0x30cf8: List(11) [0, 0x4, 0x3, 0x1, "Brc", 0x1, "CPc", 0x3, "Jye", 0x2, Null]
+--- center PP+0x30cd0: String: "收藏成功: comicId=" ---
+PP+0x30ca0: AnonymousClosure: (0x81c5b4), in [mrm] Kfb::<anonymous closure> (0x81bae0)
+PP+0x30ca8: AnonymousClosure: (0x81c1c0), in [mrm] Kfb::<anonymous closure> (0x81bae0)
+PP+0x30cb0: AnonymousClosure: (0x81c508), in [mrm] Kfb::<anonymous closure> (0x81bae0)
+PP+0x30cb8: String: "无法获取漫画信息"
+PP+0x30cc0: String: "已取消收藏"
+PP+0x30cc8: String: "取消收藏成功: comicId="
+PP+0x30cd0: String: "收藏成功: comicId="
+PP+0x30cd8: AnonymousClosure: (0x878368), of [kKm] jGb
+PP+0x30ce0: AnonymousClosure: (0x8780b4), of [kKm] jGb
+PP+0x30ce8: String: "icon_default_avatar.png"
+PP+0x30cf0: Obj!cqa@575c81 : {
+PP+0x30cf8: List(11) [0, 0x4, 0x3, 0x1, "Brc", 0x1, "CPc", 0x3, "Jye", 0x2, Null]
+PP+0x30d00: String: "已经是最后一话了哦~"
+--- center PP+0x31e28: String: "跳转到阅读页: comicId=" ---
+PP+0x31df8: String: "继续观看"
+PP+0x31e00: AnonymousClosure: (0x4752e4), of [pqm] Deb
+PP+0x31e08: AnonymousClosure: (0x475344), of [pqm] Deb
+PP+0x31e10: AnonymousClosure: (0x4752e4), of [pqm] Deb
+PP+0x31e18: String: "漫画ID为空，无法跳转到阅读页"
+PP+0x31e20: String: "解析 readIndex 失败: "
+PP+0x31e28: String: "跳转到阅读页: comicId="
+PP+0x31e30: String: ", zIndex="
+PP+0x31e38: List(13) [0, 0x5, 0x4, 0x1, "NZh", 0x3, "SOe", 0x2, "TZh", 0x4, "dwf", 0x1, Null]
+PP+0x31e40: String: "删除失败：漫画ID为空"
+PP+0x31e48: String: "确定要删除这条观看记录吗？"
+PP+0x31e50: String: "删除观看记录成功: comicId="
+PP+0x31e58: String: "删除观看记录失败: "
+--- center PP+0x31e50: String: "删除观看记录成功: comicId=" ---
+PP+0x31e20: String: "解析 readIndex 失败: "
+PP+0x31e28: String: "跳转到阅读页: comicId="
+PP+0x31e30: String: ", zIndex="
+PP+0x31e38: List(13) [0, 0x5, 0x4, 0x1, "NZh", 0x3, "SOe", 0x2, "TZh", 0x4, "dwf", 0x1, Null]
+PP+0x31e40: String: "删除失败：漫画ID为空"
+PP+0x31e48: String: "确定要删除这条观看记录吗？"
+PP+0x31e50: String: "删除观看记录成功: comicId="
+PP+0x31e58: String: "删除观看记录失败: "
+PP+0x31e60: TypeArguments: <Dub?>
+PP+0x31e68: AnonymousClosure: static (0x3db3f0), in [dart:_http] _ap::FJj (0x3db07c)
+PP+0x31e70: AnonymousClosure: (0x3be634), of [Lem] IMa
+PP+0x31e78: SubtypeTestCache
+PP+0x31e80: Type: Map<String, dynamic>
+--- center PP+0x38f00: String: "claimedImageUrl" ---
+PP+0x38ed0: String: "currentAnnualDays"
+PP+0x38ed8: AnonymousClosure: static (0x76387c), of [CEm] mzb
+PP+0x38ee0: TypeArguments: <nzb?>
+PP+0x38ee8: String: "configId"
+PP+0x38ef0: String: "requiredDays"
+PP+0x38ef8: String: "rewardVipDays"
+PP+0x38f00: String: "claimedImageUrl"
+PP+0x38f08: String: "currentDays"
+PP+0x38f10: String: "canClaim"
+PP+0x38f18: String: "claimed"
+PP+0x38f20: String: "rewardText"
+PP+0x38f28: TypeArguments: <czb?>
+PP+0x38f30: SubtypeTestCache
+--- center PP+0x40078: String: "取消收藏成功: comicIds=" ---
+PP+0x40048: AnonymousClosure: (0x812cd4), of [eqm] oeb
+PP+0x40050: AnonymousClosure: (0x813378), of [TRl] meb
+PP+0x40058: AnonymousClosure: (0x813298), of [TRl] meb
+PP+0x40060: Function: [dart:ui] Shader::Shader._ (0xa85044)
+PP+0x40068: AnonymousClosure: (0x813340), of [TRl] meb
+PP+0x40070: AnonymousClosure: (0x81331c), of [TRl] meb
+PP+0x40078: String: "取消收藏成功: comicIds="
+PP+0x40080: AnonymousClosure: (0x8132d0), of [Qsm] Fhb
+PP+0x40088: Null
+PP+0x40090: String: " in type cast"
+PP+0x40098: AnonymousClosure: (0x471468), of [TRl] meb
+PP+0x400a0: AnonymousClosure: (0x79a4c8), of [Eqm] _Peb
+PP+0x400a8: AnonymousClosure: (0x77c1c0), of [INm] ZNb
+
+===== cache/detail wrapper 0xacc358-0xacc3e0 =====
+0xacc358: stp     x29, x30, [x15, #-0x10]!                        
+0xacc35c: mov     x29, x15                                        
+0xacc360: sub     x15, x15, #0x28                                 
+0xacc364: stur    x22, [x29, #-8]                                 
+0xacc368: stur    x1, [x29, #-0x10]                               
+0xacc36c: stur    x2, [x29, #-0x18]                               
+0xacc370: stur    x3, [x29, #-0x20]                               
+0xacc374: stur    x5, [x29, #-0x28]                               
+0xacc378: ldr     x16, [x26, #0x48]                               
+0xacc37c: cmp     x15, x16                                        
+0xacc380: b.ls    #0xacc3d8                                       
+0xacc384: add     x0, x27, #0x24, lsl #12                         
+0xacc388: ldr     x0, [x0, #0xf78]                                 ; PP=TypeArguments: <List<String>?>
+0xacc38c: bl      #0xa93d80                                        ; CALL=InitAsyncStub_a93d80
+0xacc390: ldur    x1, [x29, #-0x10]                               
+0xacc394: ldur    x2, [x29, #-0x18]                               
+0xacc398: ldur    x3, [x29, #-0x20]                               
+0xacc39c: ldur    x5, [x29, #-0x28]                               
+0xacc3a0: bl      #0xacc934                                        ; CALL=0xacc934
+0xacc3a4: mov     x1, x0                                          
+0xacc3a8: stur    x1, [x29, #-0x18]                               
+0xacc3ac: bl      #0xa93b3c                                        ; CALL=AwaitStub_a93b3c
+0xacc3b0: cmp     w0, w22                                         
+0xacc3b4: b.ne    #0xacc3c0                                       
+0xacc3b8: mov     x2, x22                                         
+0xacc3bc: b       #0xacc3cc                                       
+0xacc3c0: ldur    w1, [x0, #0x1b]                                 
+0xacc3c4: add     x1, x1, x28, lsl #32                            
+0xacc3c8: mov     x2, x1                                          
+0xacc3cc: ldur    x1, [x29, #-0x10]                               
+0xacc3d0: bl      #0xacc3e0                                        ; CALL=0xacc3e0
+0xacc3d4: b       #0xa9ab6c                                       
+0xacc3d8: bl      #0xbb602c                                        ; CALL=StackOverflowSharedWithoutFPURegsStub_bb602c
+0xacc3dc: b       #0xacc384                                       
+
+===== cache/detail request helper 0xacc934-0xaccb38 =====
+0xacc934: stp     x29, x30, [x15, #-0x10]!                        
+0xacc938: mov     x29, x15                                        
+0xacc93c: sub     x15, x15, #0xb8                                 
+0xacc940: stur    x22, [x29, #-8]                                 
+0xacc944: mov     x4, x1                                          
+0xacc948: stur    x1, [x29, #-0x90]                               
+0xacc94c: mov     x1, x3                                          
+0xacc950: stur    x3, [x29, #-0xa0]                               
+0xacc954: mov     x3, x2                                          
+0xacc958: stur    x2, [x29, #-0x98]                               
+0xacc95c: mov     x2, x5                                          
+0xacc960: stur    x5, [x29, #-0xa8]                               
+0xacc964: ldr     x16, [x26, #0x48]                               
+0xacc968: cmp     x15, x16                                        
+0xacc96c: b.ls    #0xaccb30                                       
+0xacc970: add     x0, x27, #0x24, lsl #12                         
+0xacc974: ldr     x0, [x0, #0xa70]                                 ; PP=TypeArguments: <oub?>
+0xacc978: bl      #0xa93d80                                        ; CALL=InitAsyncStub_a93d80
+0xacc97c: ldr     x0, [x26, #0x78]                                
+0xacc980: ldr     x0, [x0, #0x2710]                                ; PP=List<(dynamic this, NTa) => void?>(7) [Closure: (NTa) => void from Function 'Vrh': static. (0x7f0c7c8419e4), Closure: (NTa) => void from Function '_Crh@1133011378': static. (0x7f0c7c8416d8), Closure: (NTa) => void from Function 'Srh': static. (0x7f0c7c8415e0), Closure: (NTa) => void from Function 'T
+0xacc984: ldr     x16, [x26, #0x90]                               
+0xacc988: cmp     w0, w16                                         
+0xacc98c: b.ne    #0xacc99c                                       
+0xacc990: add     x2, x27, #8, lsl #12                            
+0xacc994: ldr     x2, [x2, #0xdf0]                                 ; PP=Field <xEb.ORc>: static late final (offset: 0x1388)
+0xacc998: bl      #0xbb3fe4                                        ; CALL=InitLateFinalStaticFieldStub_bb3fe4
+0xacc99c: mov     x1, x0                                          
+0xacc9a0: bl      #0xaa1538                                        ; CALL=0xaa1538
+0xacc9a4: mov     x1, x0                                          
+0xacc9a8: stur    x1, [x29, #-0x90]                               
+0xacc9ac: bl      #0xa93b3c                                        ; CALL=AwaitStub_a93b3c
+0xacc9b0: bl      #0xaccca8                                        ; CALL=AllocatestbStub_accca8
+0xacc9b4: mov     x1, x0                                          
+0xacc9b8: stur    x0, [x29, #-0x90]                               
+0xacc9bc: bl      #0x3ea090                                        ; CALL=0x3ea090
+0xacc9c0: ldur    x1, [x29, #-0x90]                               
+0xacc9c4: ldur    x2, [x29, #-0xa0]                               
+0xacc9c8: bl      #0x45b890                                        ; CALL=0x45b890
+0xacc9cc: mov     x1, x0                                          
+0xacc9d0: ldur    x2, [x29, #-0x98]                               
+0xacc9d4: bl      #0x464410                                        ; CALL=0x464410
+0xacc9d8: mov     x1, x0                                          
+0xacc9dc: ldur    x2, [x29, #-0xa8]                               
+0xacc9e0: bl      #0x4643b4                                        ; CALL=0x4643b4
+0xacc9e4: stur    x0, [x29, #-0x90]                               
+0xacc9e8: ldr     x0, [x26, #0x78]                                
+0xacc9ec: ldr     x0, [x0, #0x25c0]                                ; PP=Closure: (int, Uint32List, int) => int from Function '_Lvh@1140369473': static. (0x7f0c7c835788)
+0xacc9f0: ldr     x16, [x26, #0x90]                               
+0xacc9f4: cmp     w0, w16                                         
+0xacc9f8: b.ne    #0xacca04                                       
+0xacc9fc: ldr     x2, [x27, #0x7018]                               ; PP=Field <uEb._nGd@1482465995>: static late final (offset: 0x12e0)
+0xacca00: bl      #0xbb3fe4                                        ; CALL=InitLateFinalStaticFieldStub_bb3fe4
+0xacca04: mov     x1, x0                                          
+0xacca08: ldur    x2, [x29, #-0x90]                               
+0xacca0c: bl      #0xaa0250                                        ; CALL=0xaa0250
+0xacca10: mov     x1, x0                                          
+0xacca14: stur    x1, [x29, #-0xb0]                               
+0xacca18: bl      #0xa93b3c                                        ; CALL=AwaitStub_a93b3c
+0xacca1c: mov     x3, x0                                          
+0xacca20: mov     x2, x22                                         
+0xacca24: mov     x1, x22                                         
+0xacca28: stur    x3, [x29, #-0xb0]                               
+0xacca2c: cmp     w0, w22                                         
+0xacca30: b.eq    #0xacca7c                                       
+0xacca34: tbz     w0, #0, #0xacca7c                               
+0xacca38: add     x3, x27, #0x24, lsl #12                         
+0xacca3c: ldr     x3, [x3, #0xfd0]                                 ; PP=SubtypeTestCache
+0xacca40: ldr     x30, [x27, #0x30]                                ; PP=Stub: Subtype2TestCache (0x312e44)
+0xacca44: ldur    x30, [x30, #7]                                  
+0xacca48: blr     x30                                             
+0xacca4c: cmp     w7, w22                                         
+0xacca50: b.eq    #0xacca5c                                       
+0xacca54: tbnz    w7, #4, #0xacca7c                               
+0xacca58: b       #0xacca84                                       
+0xacca5c: add     x8, x27, #0x24, lsl #12                         
+0xacca60: ldr     x8, [x8, #0xfd8]                                 ; PP=Type: Map<String, dynamic>
+0xacca64: add     x3, x27, #0x24, lsl #12                         
+0xacca68: ldr     x3, [x3, #0xfe0]                                 ; PP=SubtypeTestCache
+0xacca6c: ldr     x30, [x27, #0x488]                               ; PP=Stub: InstanceOf (0x3012f4)
+0xacca70: ldur    x30, [x30, #7]                                  
+0xacca74: blr     x30                                             
+0xacca78: b       #0xacca88                                       
+0xacca7c: add     x0, x22, #0x30                                  
+0xacca80: b       #0xacca88                                       
+0xacca84: add     x0, x22, #0x20                                  
+0xacca88: tbnz    w0, #4, #0xacca9c                               
+0xacca8c: ldur    x2, [x29, #-0xb0]                               
+0xacca90: mov     x1, x22                                         
+0xacca94: bl      #0x4619ec                                        ; CALL=0x4619ec
+0xacca98: b       #0xaccad8                                       
+0xacca9c: ldur    x0, [x29, #-0xb0]                               
+0xaccaa0: cmp     w0, w22                                         
+0xaccaa4: b.eq    #0xaccad4                                       
+0xaccaa8: mov     x1, x0                                          
+0xaccaac: bl      #0x3b3984                                        ; CALL=0x3b3984
+0xaccab0: stur    x0, [x29, #-0x90]                               
+0xaccab4: cmp     w0, w22                                         
+0xaccab8: b.eq    #0xaccacc                                       
+0xaccabc: mov     x2, x0                                          
+0xaccac0: mov     x1, x22                                         
+0xaccac4: bl      #0x4619ec                                        ; CALL=0x4619ec
+0xaccac8: b       #0xaccad8                                       
+0xaccacc: mov     x0, x22                                         
+0xaccad0: b       #0xaccad8                                       
+0xaccad4: mov     x0, x22                                         
+0xaccad8: b       #0xa9192c                                       
+0xaccadc: sub     x15, x29, #0xb8                                 
+0xaccae0: mov     x3, x0                                          
+0xaccae4: stur    x0, [x29, #-0x90]                               
+0xaccae8: mov     x0, x1                                          
+0xaccaec: stur    x1, [x29, #-0x98]                               
+0xaccaf0: mov     x1, x22                                         
+0xaccaf4: movz    x2, #0x4                                        
+0xaccaf8: bl      #0xbb5f20                                        ; CALL=AllocateArrayStub_bb5f20
+0xaccafc: add     x16, x27, #0x24, lsl #12                        
+0xaccb00: ldr     x16, [x16, #0xfe8]                               ; PP=String: "Get chapter cache detail failed: "
+0xaccb04: stur    w16, [x0, #0xf]                                 
+0xaccb08: ldur    x1, [x29, #-0x90]                               
+0xaccb0c: stur    w1, [x0, #0x13]                                 
+0xaccb10: str     x0, [x15]                                       
+0xaccb14: bl      #0x31a628                                        ; CALL=dart_core__StringBase::_interpolate_31a628
+0xaccb18: mov     x1, x0                                          
+0xaccb1c: bl      #0x3b2fc4                                        ; CALL=0x3b2fc4
+0xaccb20: ldur    x0, [x29, #-0x90]                               
+0xaccb24: ldur    x1, [x29, #-0x98]                               
+0xaccb28: bl      #0xbb40f8                                        ; CALL=ReThrowStub_bb40f8
+0xaccb2c: brk     #0                                              
+0xaccb30: bl      #0xbb602c                                        ; CALL=StackOverflowSharedWithoutFPURegsStub_bb602c
+0xaccb34: b       #0xacc970                                       
+
+===== oub YDc serializer wrapper 0xaccb5c-0xaccba4 =====
+0xaccb5c: stp     x29, x30, [x15, #-0x10]!                        
+0xaccb60: mov     x29, x15                                        
+0xaccb64: ldr     x16, [x26, #0x48]                               
+0xaccb68: cmp     x15, x16                                        
+0xaccb6c: b.ls    #0xaccb84                                       
+0xaccb70: ldr     x1, [x29, #0x10]                                
+0xaccb74: bl      #0x461f94                                        ; CALL=0x461f94
+0xaccb78: mov     x15, x29                                        
+0xaccb7c: ldp     x29, x30, [x15], #0x10                          
+0xaccb80: ret                                                     
+0xaccb84: bl      #0xbb602c                                        ; CALL=StackOverflowSharedWithoutFPURegsStub_bb602c
+0xaccb88: b       #0xaccb70                                       
+0xaccb8c: tbz     w0, #0, #0xaccba4                               
+0xaccb90: ldur    x9, [x0, #-1]                                   
+0xaccb94: ubfx    x9, x9, #0xc, #0x14                             
+0xaccb98: cmp     x9, #0x368                                      
+0xaccb9c: b.ne    #0xaccba4                                       
+0xaccba0: ret                                                     
+
+===== raw around 0x461f94 0x461e94-0x4621b4 =====
+0x461e94: sub     x30, x0, #0x103                                 
+0x461e98: ldr     x30, [x21, x30, lsl #3]                         
+0x461e9c: blr     x30                                             
+0x461ea0: cmp     w0, w22                                         
+0x461ea4: b.ne    #0x461eb0                                       
+0x461ea8: mov     x14, x22                                        
+0x461eac: b       #0x461ec8                                       
+0x461eb0: mov     x1, x0                                          
+0x461eb4: bl      #0x3b46c4                                        ; CALL=0x3b46c4
+0x461eb8: ldur    w1, [x0, #7]                                    
+0x461ebc: cbnz    w1, #0x461ec4                                   
+0x461ec0: mov     x0, x22                                         
+0x461ec4: mov     x14, x0                                         
+0x461ec8: ldur    x7, [x29, #-0x10]                               
+0x461ecc: ldur    x6, [x29, #-0x48]                               
+0x461ed0: ldur    x3, [x29, #-0x60]                               
+0x461ed4: ldur    x1, [x29, #-0x70]                               
+0x461ed8: ldur    x5, [x29, #-0x50]                               
+0x461edc: ldur    x4, [x29, #-0x58]                               
+0x461ee0: ldur    x2, [x29, #-0x68]                               
+0x461ee4: ldur    x0, [x29, #-0x78]                               
+0x461ee8: ldur    x13, [x29, #-0x18]                              
+0x461eec: ldur    x12, [x29, #-0x20]                              
+0x461ef0: ldur    x11, [x29, #-0x28]                              
+0x461ef4: ldur    x10, [x29, #-0x30]                              
+0x461ef8: ldur    x9, [x29, #-0x38]                               
+0x461efc: ldur    x8, [x29, #-0x40]                               
+0x461f00: stur    x14, [x29, #-8]                                 
+0x461f04: bl      #0xaccb38                                        ; CALL=AllocateoubStub_accb38
+0x461f08: ldur    x1, [x29, #-0x18]                               
+0x461f0c: stur    w1, [x0, #7]                                    
+0x461f10: ldur    x1, [x29, #-0x20]                               
+0x461f14: stur    w1, [x0, #0xb]                                  
+0x461f18: ldur    x1, [x29, #-0x28]                               
+0x461f1c: stur    w1, [x0, #0xf]                                  
+0x461f20: ldur    x1, [x29, #-0x30]                               
+0x461f24: stur    w1, [x0, #0x13]                                 
+0x461f28: ldur    x1, [x29, #-0x38]                               
+0x461f2c: stur    w1, [x0, #0x17]                                 
+0x461f30: ldur    x1, [x29, #-0x40]                               
+0x461f34: stur    w1, [x0, #0x1b]                                 
+0x461f38: ldur    x1, [x29, #-0x10]                               
+0x461f3c: stur    w1, [x0, #0x1f]                                 
+0x461f40: ldur    x1, [x29, #-0x48]                               
+0x461f44: stur    w1, [x0, #0x23]                                 
+0x461f48: ldur    x1, [x29, #-0x50]                               
+0x461f4c: stur    w1, [x0, #0x27]                                 
+0x461f50: ldur    x1, [x29, #-0x58]                               
+0x461f54: stur    w1, [x0, #0x2b]                                 
+0x461f58: ldur    x1, [x29, #-0x60]                               
+0x461f5c: stur    w1, [x0, #0x2f]                                 
+0x461f60: ldur    x1, [x29, #-0x68]                               
+0x461f64: stur    w1, [x0, #0x33]                                 
+0x461f68: ldur    x1, [x29, #-0x70]                               
+0x461f6c: stur    w1, [x0, #0x37]                                 
+0x461f70: ldur    x1, [x29, #-0x78]                               
+0x461f74: stur    w1, [x0, #0x3b]                                 
+0x461f78: ldur    x1, [x29, #-8]                                  
+0x461f7c: stur    w1, [x0, #0x3f]                                 
+0x461f80: mov     x15, x29                                        
+0x461f84: ldp     x29, x30, [x15], #0x10                          
+0x461f88: ret                                                     
+0x461f8c: bl      #0xbb602c                                        ; CALL=StackOverflowSharedWithoutFPURegsStub_bb602c
+0x461f90: b       #0x461a0c                                       
+0x461f94: stp     x29, x30, [x15, #-0x10]!                        
+0x461f98: mov     x29, x15                                        
+0x461f9c: sub     x15, x15, #0x30                                 
+0x461fa0: mov     x0, x1                                          
+0x461fa4: stur    x1, [x29, #-8]                                  
+0x461fa8: ldr     x16, [x26, #0x48]                               
+0x461fac: cmp     x15, x16                                        
+0x461fb0: b.ls    #0x4622e4                                       
+0x461fb4: mov     x1, x22                                         
+0x461fb8: movz    x2, #0x3c                                       
+0x461fbc: bl      #0xbb5f20                                        ; CALL=AllocateArrayStub_bb5f20
+0x461fc0: stur    x0, [x29, #-0x18]                               
+0x461fc4: add     x16, x27, #0x18, lsl #12                        
+0x461fc8: ldr     x16, [x16, #0xc70]                               ; PP=String: "comicId"
+0x461fcc: stur    w16, [x0, #0xf]                                 
+0x461fd0: ldur    x3, [x29, #-8]                                  
+0x461fd4: ldur    w1, [x3, #7]                                    
+0x461fd8: add     x1, x1, x28, lsl #32                            
+0x461fdc: stur    w1, [x0, #0x13]                                 
+0x461fe0: add     x16, x27, #0xf, lsl #12                         
+0x461fe4: ldr     x16, [x16, #0xb98]                               ; PP=String: "chapterId"
+0x461fe8: stur    w16, [x0, #0x17]                                
+0x461fec: ldur    w1, [x3, #0xb]                                  
+0x461ff0: add     x1, x1, x28, lsl #32                            
+0x461ff4: stur    w1, [x0, #0x1b]                                 
+0x461ff8: add     x16, x27, #0x22, lsl #12                        
+0x461ffc: ldr     x16, [x16, #0x440]                               ; PP=String: "chapterName"
+0x462000: stur    w16, [x0, #0x1f]                                
+0x462004: ldur    w1, [x3, #0xf]                                  
+0x462008: add     x1, x1, x28, lsl #32                            
+0x46200c: stur    w1, [x0, #0x23]                                 
+0x462010: add     x16, x27, #0x24, lsl #12                        
+0x462014: ldr     x16, [x16, #0xff0]                               ; PP=String: "nextChapterId"
+0x462018: stur    w16, [x0, #0x27]                                
+0x46201c: ldur    w1, [x3, #0x13]                                 
+0x462020: add     x1, x1, x28, lsl #32                            
+0x462024: stur    w1, [x0, #0x2b]                                 
+0x462028: add     x16, x27, #0x24, lsl #12                        
+0x46202c: ldr     x16, [x16, #0xff8]                               ; PP=String: "preChapterId"
+0x462030: stur    w16, [x0, #0x2f]                                
+0x462034: ldur    w1, [x3, #0x17]                                 
+0x462038: add     x1, x1, x28, lsl #32                            
+0x46203c: stur    w1, [x0, #0x33]                                 
+0x462040: add     x16, x27, #0x25, lsl #12                        
+0x462044: ldr     x16, [x16]                                       ; PP=String: "picList"
+0x462048: stur    w16, [x0, #0x37]                                
+0x46204c: ldur    w1, [x3, #0x1b]                                 
+0x462050: add     x1, x1, x28, lsl #32                            
+0x462054: stur    w1, [x0, #0x3b]                                 
+0x462058: add     x16, x27, #0x24, lsl #12                        
+0x46205c: ldr     x16, [x16, #0x488]                               ; PP=String: "commentList"
+0x462060: stur    w16, [x0, #0x3f]                                
+0x462064: ldur    w4, [x3, #0x1f]                                 
+0x462068: add     x4, x4, x28, lsl #32                            
+0x46206c: stur    x4, [x29, #-0x10]                               
+0x462070: cmp     w4, w22                                         
+0x462074: b.ne    #0x462084                                       
+0x462078: mov     x2, x0                                          
+0x46207c: mov     x0, x22                                         
+0x462080: b       #0x4620c4                                       
+0x462084: add     x1, x27, #0x31, lsl #12                         
+0x462088: ldr     x1, [x1, #0x7c8]                                 ; PP=AnonymousClosure: (0x4622ec), of [jDm] ywb
+0x46208c: mov     x2, x22                                         
+0x462090: bl      #0xbb5204                                        ; CALL=AllocateClosureStub_bb5204
+0x462094: ldr     x16, [x27, #0x5ba8]                              ; PP=TypeArguments: <Map<String, dynamic>>
+0x462098: ldur    x30, [x29, #-0x10]                              
+0x46209c: stp     x30, x16, [x15, #8]                             
+0x4620a0: str     x0, [x15]                                       
+0x4620a4: ldr     x4, [x27, #0x40]                                 ; PP=List(5) [0x1, 0x2, 0x2, 0x2, Null]
+0x4620a8: bl      #0x629998                                        ; CALL=0x629998
+0x4620ac: ldur    w1, [x0, #7]                                    
+0x4620b0: add     x1, x1, x28, lsl #32                            
+0x4620b4: mov     x2, x0                                          
+0x4620b8: bl      #0x317390                                        ; CALL=0x317390
+0x4620bc: ldur    x3, [x29, #-8]                                  
+0x4620c0: ldur    x2, [x29, #-0x18]                               
+0x4620c4: mov     x1, x2                                          
+0x4620c8: add     x25, x1, #0x43                                  
+0x4620cc: str     w0, [x25]                                       
+0x4620d0: tbz     w0, #0, #0x4620ec                               
+0x4620d4: ldurb   w16, [x1, #-1]                                  
+0x4620d8: ldurb   w17, [x0, #-1]                                  
+0x4620dc: and     x16, x17, x16, lsr #2                           
+0x4620e0: tst     x16, x28, lsr #32                               
+0x4620e4: b.eq    #0x4620ec                                       
+0x4620e8: bl      #0xbb4148                                        ; CALL=ArrayWriteBarrierStub_bb4148
+0x4620ec: add     x16, x27, #0x25, lsl #12                        
+0x4620f0: ldr     x16, [x16, #0x10]                                ; PP=String: "totalComment"
+0x4620f4: stur    w16, [x2, #0x47]                                
+0x4620f8: ldur    w0, [x3, #0x23]                                 
+0x4620fc: add     x0, x0, x28, lsl #32                            
+0x462100: mov     x1, x2                                          
+0x462104: add     x25, x1, #0x4b                                  
+0x462108: str     w0, [x25]                                       
+0x46210c: tbz     w0, #0, #0x462128                               
+0x462110: ldurb   w16, [x1, #-1]                                  
+0x462114: ldurb   w17, [x0, #-1]                                  
+0x462118: and     x16, x17, x16, lsr #2                           
+0x46211c: tst     x16, x28, lsr #32                               
+0x462120: b.eq    #0x462128                                       
+0x462124: bl      #0xbb4148                                        ; CALL=ArrayWriteBarrierStub_bb4148
+0x462128: add     x16, x27, #0x25, lsl #12                        
+0x46212c: ldr     x16, [x16, #0x18]                                ; PP=String: "appMaintenanceEnabled"
+0x462130: stur    w16, [x2, #0x4f]                                
+0x462134: ldur    w0, [x3, #0x27]                                 
+0x462138: add     x0, x0, x28, lsl #32                            
+0x46213c: mov     x1, x2                                          
+0x462140: add     x25, x1, #0x53                                  
+0x462144: str     w0, [x25]                                       
+0x462148: tbz     w0, #0, #0x462164                               
+0x46214c: ldurb   w16, [x1, #-1]                                  
+0x462150: ldurb   w17, [x0, #-1]                                  
+0x462154: and     x16, x17, x16, lsr #2                           
+0x462158: tst     x16, x28, lsr #32                               
+0x46215c: b.eq    #0x462164                                       
+0x462160: bl      #0xbb4148                                        ; CALL=ArrayWriteBarrierStub_bb4148
+0x462164: add     x16, x27, #0x25, lsl #12                        
+0x462168: ldr     x16, [x16, #0x20]                                ; PP=String: "appMaintenanceEnabledTime"
+0x46216c: stur    w16, [x2, #0x57]                                
+0x462170: ldur    w0, [x3, #0x2b]                                 
+0x462174: add     x0, x0, x28, lsl #32                            
+0x462178: mov     x1, x2                                          
+0x46217c: add     x25, x1, #0x5b                                  
+0x462180: str     w0, [x25]                                       
+0x462184: tbz     w0, #0, #0x4621a0                               
+0x462188: ldurb   w16, [x1, #-1]                                  
+0x46218c: ldurb   w17, [x0, #-1]                                  
+0x462190: and     x16, x17, x16, lsr #2                           
+0x462194: tst     x16, x28, lsr #32                               
+0x462198: b.eq    #0x4621a0                                       
+0x46219c: bl      #0xbb4148                                        ; CALL=ArrayWriteBarrierStub_bb4148
+0x4621a0: add     x16, x27, #0x25, lsl #12                        
+0x4621a4: ldr     x16, [x16, #0x28]                                ; PP=String: "readMinutes"
+0x4621a8: stur    w16, [x2, #0x5f]                                
+0x4621ac: ldur    w0, [x3, #0x2f]                                 
+0x4621b0: add     x0, x0, x28, lsl #32                            
+
+===== raw around 0x4619ec 0x4618ec-0x461c0c =====
+0x4618ec: ldr     x16, [x26, #0x48]                               
+0x4618f0: cmp     x15, x16                                        
+0x4618f4: b.ls    #0x461940                                       
+0x4618f8: ldr     x0, [x26, #0x78]                                
+0x4618fc: ldr     x0, [x0, #0x1310]                               
+0x461900: ldr     x16, [x26, #0x90]                               
+0x461904: cmp     w0, w16                                         
+0x461908: b.ne    #0x461914                                       
+0x46190c: ldr     x2, [x27, #0x66e0]                               ; PP=Field <::.Tuc>: static late final (offset: 0x988)
+0x461910: bl      #0xbb3fe4                                        ; CALL=InitLateFinalStaticFieldStub_bb3fe4
+0x461914: ldur    x16, [x29, #-8]                                 
+0x461918: ldur    x30, [x29, #-0x10]                              
+0x46191c: stp     x30, x16, [x15]                                 
+0x461920: mov     x1, x0                                          
+0x461924: ldur    x2, [x29, #-0x18]                               
+0x461928: ldur    x3, [x29, #-0x20]                               
+0x46192c: ldr     x4, [x27, #0x66e8]                               ; PP=List(5) [0, 0x5, 0x2, 0x5, Null]
+0x461930: bl      #0x3bfc00                                        ; CALL=0x3bfc00
+0x461934: mov     x15, x29                                        
+0x461938: ldp     x29, x30, [x15], #0x10                          
+0x46193c: ret                                                     
+0x461940: bl      #0xbb602c                                        ; CALL=StackOverflowSharedWithoutFPURegsStub_bb602c
+0x461944: b       #0x4618f8                                       
+0x461948: stp     x29, x30, [x15, #-0x10]!                        
+0x46194c: mov     x29, x15                                        
+0x461950: sub     x15, x15, #8                                    
+0x461954: ldr     x16, [x26, #0x48]                               
+0x461958: cmp     x15, x16                                        
+0x46195c: b.ls    #0x461988                                       
+0x461960: ldur    w0, [x1, #0x37]                                 
+0x461964: add     x0, x0, x28, lsl #32                            
+0x461968: stur    x0, [x29, #-8]                                  
+0x46196c: bl      #0x45f4e4                                        ; CALL=0x45f4e4
+0x461970: ldur    x1, [x29, #-8]                                  
+0x461974: mov     x2, x0                                          
+0x461978: bl      #0x624ee8                                        ; CALL=0x624ee8
+0x46197c: mov     x15, x29                                        
+0x461980: ldp     x29, x30, [x15], #0x10                          
+0x461984: ret                                                     
+0x461988: bl      #0xbb602c                                        ; CALL=StackOverflowSharedWithoutFPURegsStub_bb602c
+0x46198c: b       #0x461960                                       
+0x461990: stp     x29, x30, [x15, #-0x10]!                        
+0x461994: mov     x29, x15                                        
+0x461998: sub     x15, x15, #8                                    
+0x46199c: mov     x2, x1                                          
+0x4619a0: stur    x1, [x29, #-8]                                  
+0x4619a4: ldr     x16, [x26, #0x48]                               
+0x4619a8: cmp     x15, x16                                        
+0x4619ac: b.ls    #0x4619e4                                       
+0x4619b0: ldr     x0, [x26, #0x78]                                
+0x4619b4: ldr     x0, [x0, #0x2730]                               
+0x4619b8: ldr     x16, [x26, #0x90]                               
+0x4619bc: cmp     w0, w16                                         
+0x4619c0: b.ne    #0x4619cc                                       
+0x4619c4: ldr     x2, [x27, #0x2e98]                               ; PP=Field <IEb.ORc>: static late final (offset: 0x1398)
+0x4619c8: bl      #0xbb3fe4                                        ; CALL=InitLateFinalStaticFieldStub_bb3fe4
+0x4619cc: mov     x1, x0                                          
+0x4619d0: ldur    x2, [x29, #-8]                                  
+0x4619d4: bl      #0xacc888                                        ; CALL=0xacc888
+0x4619d8: mov     x15, x29                                        
+0x4619dc: ldp     x29, x30, [x15], #0x10                          
+0x4619e0: ret                                                     
+0x4619e4: bl      #0xbb602c                                        ; CALL=StackOverflowSharedWithoutFPURegsStub_bb602c
+0x4619e8: b       #0x4619b0                                       
+0x4619ec: stp     x29, x30, [x15, #-0x10]!                        
+0x4619f0: mov     x29, x15                                        
+0x4619f4: sub     x15, x15, #0x90                                 
+0x4619f8: mov     x3, x2                                          
+0x4619fc: stur    x2, [x29, #-8]                                  
+0x461a00: ldr     x16, [x26, #0x48]                               
+0x461a04: cmp     x15, x16                                        
+0x461a08: b.ls    #0x461f8c                                       
+0x461a0c: ldur    x0, [x3, #-1]                                   
+0x461a10: ubfx    x0, x0, #0xc, #0x14                             
+0x461a14: mov     x1, x3                                          
+0x461a18: add     x2, x27, #0x24, lsl #12                         
+0x461a1c: ldr     x2, [x2, #0x488]                                 ; PP=String: "commentList"
+0x461a20: sub     x30, x0, #0x103                                 
+0x461a24: ldr     x30, [x21, x30, lsl #3]                         
+0x461a28: blr     x30                                             
+0x461a2c: mov     x1, x0                                          
+0x461a30: bl      #0x3b3e7c                                        ; CALL=0x3b3e7c
+0x461a34: mov     x4, x0                                          
+0x461a38: ldur    x3, [x29, #-8]                                  
+0x461a3c: stur    x4, [x29, #-0x10]                               
+0x461a40: ldur    x0, [x3, #-1]                                   
+0x461a44: ubfx    x0, x0, #0xc, #0x14                             
+0x461a48: mov     x1, x3                                          
+0x461a4c: add     x2, x27, #0x18, lsl #12                         
+0x461a50: ldr     x2, [x2, #0xc70]                                 ; PP=String: "comicId"
+0x461a54: sub     x30, x0, #0x103                                 
+0x461a58: ldr     x30, [x21, x30, lsl #3]                         
+0x461a5c: blr     x30                                             
+0x461a60: cmp     w0, w22                                         
+0x461a64: b.ne    #0x461a70                                       
+0x461a68: mov     x4, x22                                         
+0x461a6c: b       #0x461a88                                       
+0x461a70: mov     x1, x0                                          
+0x461a74: bl      #0x3b46c4                                        ; CALL=0x3b46c4
+0x461a78: ldur    w1, [x0, #7]                                    
+0x461a7c: cbnz    w1, #0x461a84                                   
+0x461a80: mov     x0, x22                                         
+0x461a84: mov     x4, x0                                          
+0x461a88: ldur    x3, [x29, #-8]                                  
+0x461a8c: stur    x4, [x29, #-0x18]                               
+0x461a90: ldur    x0, [x3, #-1]                                   
+0x461a94: ubfx    x0, x0, #0xc, #0x14                             
+0x461a98: mov     x1, x3                                          
+0x461a9c: add     x2, x27, #0xf, lsl #12                          
+0x461aa0: ldr     x2, [x2, #0xb98]                                 ; PP=String: "chapterId"
+0x461aa4: sub     x30, x0, #0x103                                 
+0x461aa8: ldr     x30, [x21, x30, lsl #3]                         
+0x461aac: blr     x30                                             
+0x461ab0: cmp     w0, w22                                         
+0x461ab4: b.ne    #0x461ac0                                       
+0x461ab8: mov     x4, x22                                         
+0x461abc: b       #0x461ad8                                       
+0x461ac0: mov     x1, x0                                          
+0x461ac4: bl      #0x3b46c4                                        ; CALL=0x3b46c4
+0x461ac8: ldur    w1, [x0, #7]                                    
+0x461acc: cbnz    w1, #0x461ad4                                   
+0x461ad0: mov     x0, x22                                         
+0x461ad4: mov     x4, x0                                          
+0x461ad8: ldur    x3, [x29, #-8]                                  
+0x461adc: stur    x4, [x29, #-0x20]                               
+0x461ae0: ldur    x0, [x3, #-1]                                   
+0x461ae4: ubfx    x0, x0, #0xc, #0x14                             
+0x461ae8: mov     x1, x3                                          
+0x461aec: add     x2, x27, #0x22, lsl #12                         
+0x461af0: ldr     x2, [x2, #0x440]                                 ; PP=String: "chapterName"
+0x461af4: sub     x30, x0, #0x103                                 
+0x461af8: ldr     x30, [x21, x30, lsl #3]                         
+0x461afc: blr     x30                                             
+0x461b00: cmp     w0, w22                                         
+0x461b04: b.ne    #0x461b10                                       
+0x461b08: mov     x4, x22                                         
+0x461b0c: b       #0x461b28                                       
+0x461b10: mov     x1, x0                                          
+0x461b14: bl      #0x3b46c4                                        ; CALL=0x3b46c4
+0x461b18: ldur    w1, [x0, #7]                                    
+0x461b1c: cbnz    w1, #0x461b24                                   
+0x461b20: mov     x0, x22                                         
+0x461b24: mov     x4, x0                                          
+0x461b28: ldur    x3, [x29, #-8]                                  
+0x461b2c: stur    x4, [x29, #-0x28]                               
+0x461b30: ldur    x0, [x3, #-1]                                   
+0x461b34: ubfx    x0, x0, #0xc, #0x14                             
+0x461b38: mov     x1, x3                                          
+0x461b3c: add     x2, x27, #0x24, lsl #12                         
+0x461b40: ldr     x2, [x2, #0xff0]                                 ; PP=String: "nextChapterId"
+0x461b44: sub     x30, x0, #0x103                                 
+0x461b48: ldr     x30, [x21, x30, lsl #3]                         
+0x461b4c: blr     x30                                             
+0x461b50: cmp     w0, w22                                         
+0x461b54: b.ne    #0x461b60                                       
+0x461b58: mov     x4, x22                                         
+0x461b5c: b       #0x461b78                                       
+0x461b60: mov     x1, x0                                          
+0x461b64: bl      #0x3b46c4                                        ; CALL=0x3b46c4
+0x461b68: ldur    w1, [x0, #7]                                    
+0x461b6c: cbnz    w1, #0x461b74                                   
+0x461b70: mov     x0, x22                                         
+0x461b74: mov     x4, x0                                          
+0x461b78: ldur    x3, [x29, #-8]                                  
+0x461b7c: stur    x4, [x29, #-0x30]                               
+0x461b80: ldur    x0, [x3, #-1]                                   
+0x461b84: ubfx    x0, x0, #0xc, #0x14                             
+0x461b88: mov     x1, x3                                          
+0x461b8c: add     x2, x27, #0x24, lsl #12                         
+0x461b90: ldr     x2, [x2, #0xff8]                                 ; PP=String: "preChapterId"
+0x461b94: sub     x30, x0, #0x103                                 
+0x461b98: ldr     x30, [x21, x30, lsl #3]                         
+0x461b9c: blr     x30                                             
+0x461ba0: cmp     w0, w22                                         
+0x461ba4: b.ne    #0x461bb0                                       
+0x461ba8: mov     x4, x22                                         
+0x461bac: b       #0x461bc8                                       
+0x461bb0: mov     x1, x0                                          
+0x461bb4: bl      #0x3b46c4                                        ; CALL=0x3b46c4
+0x461bb8: ldur    w1, [x0, #7]                                    
+0x461bbc: cbnz    w1, #0x461bc4                                   
+0x461bc0: mov     x0, x22                                         
+0x461bc4: mov     x4, x0                                          
+0x461bc8: ldur    x3, [x29, #-8]                                  
+0x461bcc: stur    x4, [x29, #-0x38]                               
+0x461bd0: ldur    x0, [x3, #-1]                                   
+0x461bd4: ubfx    x0, x0, #0xc, #0x14                             
+0x461bd8: mov     x1, x3                                          
+0x461bdc: add     x2, x27, #0x25, lsl #12                         
+0x461be0: ldr     x2, [x2]                                         ; PP=String: "picList"
+0x461be4: sub     x30, x0, #0x103                                 
+0x461be8: ldr     x30, [x21, x30, lsl #3]                         
+0x461bec: blr     x30                                             
+0x461bf0: cmp     w0, w22                                         
+0x461bf4: b.ne    #0x461c00                                       
+0x461bf8: mov     x3, x22                                         
+0x461bfc: b       #0x461c18                                       
+0x461c00: mov     x1, x0                                          
+0x461c04: bl      #0x3b46c4                                        ; CALL=0x3b46c4
+0x461c08: ldur    w1, [x0, #7]                                    
+
+===== raw around 0x3b3984 0x3b3884-0x3b3ba4 =====
+0x3b3884: sbfx    x5, x0, #1, #0x1f                               
+0x3b3888: ldur    x1, [x29, #-0x18]                               
+0x3b388c: ldur    x2, [x29, #-0x20]                               
+0x3b3890: add     x3, x22, #0x20                                  
+0x3b3894: bl      #0x324814                                        ; CALL=0x324814
+0x3b3898: ldur    x2, [x29, #-0x28]                               
+0x3b389c: ldur    x1, [x29, #-8]                                  
+0x3b38a0: b       #0x3b3840                                       
+0x3b38a4: ldur    x2, [x29, #-0x10]                               
+0x3b38a8: ldr     x1, [x27, #0x2c00]                               ; PP=AnonymousClosure: (0x3b38f4), of [kkm] dWa
+0x3b38ac: bl      #0xbb5204                                        ; CALL=AllocateClosureStub_bb5204
+0x3b38b0: mov     x2, x0                                          
+0x3b38b4: ldr     x1, [x27, #0x2bc0]                               ; PP=Map<XVa, bool>(0) {
+0x3b38b8: bl      #0x98caf0                                        ; CALL=0x98caf0
+0x3b38bc: mov     x0, x22                                         
+0x3b38c0: mov     x15, x29                                        
+0x3b38c4: ldp     x29, x30, [x15], #0x10                          
+0x3b38c8: ret                                                     
+0x3b38cc: ldr     x16, [x27, #0x2c08]                              ; PP=String: "_tBh@1197158327"
+0x3b38d0: str     x16, [x15]                                      
+0x3b38d4: bl      #0x3ad9d0                                        ; CALL=dart__internal_LateError::_throwFieldAlreadyInitialized_3ad9d0
+0x3b38d8: brk     #0                                              
+0x3b38dc: bl      #0xbb602c                                        ; CALL=StackOverflowSharedWithoutFPURegsStub_bb602c
+0x3b38e0: b       #0x3b36b4                                       
+0x3b38e4: bl      #0xbb602c                                        ; CALL=StackOverflowSharedWithoutFPURegsStub_bb602c
+0x3b38e8: b       #0x3b3750                                       
+0x3b38ec: bl      #0xbb602c                                        ; CALL=StackOverflowSharedWithoutFPURegsStub_bb602c
+0x3b38f0: b       #0x3b3850                                       
+0x3b38f4: stp     x29, x30, [x15, #-0x10]!                        
+0x3b38f8: mov     x29, x15                                        
+0x3b38fc: sub     x15, x15, #0x18                                 
+0x3b3900: ldr     x0, [x29, #0x20]                                
+0x3b3904: ldur    w1, [x0, #0x17]                                 
+0x3b3908: add     x1, x1, x28, lsl #32                            
+0x3b390c: ldr     x16, [x26, #0x48]                               
+0x3b3910: cmp     x15, x16                                        
+0x3b3914: b.ls    #0x3b3974                                       
+0x3b3918: ldur    w0, [x1, #0xf]                                  
+0x3b391c: add     x0, x0, x28, lsl #32                            
+0x3b3920: ldur    w1, [x0, #0x17]                                 
+0x3b3924: add     x1, x1, x28, lsl #32                            
+0x3b3928: ldr     x16, [x26, #0x90]                               
+0x3b392c: cmp     w1, w16                                         
+0x3b3930: b.eq    #0x3b397c                                       
+0x3b3934: ldr     x0, [x29, #0x10]                                
+0x3b3938: stur    x1, [x29, #-0x10]                               
+0x3b393c: eor     x3, x0, #0x10                                   
+0x3b3940: stur    x3, [x29, #-8]                                  
+0x3b3944: ldr     x16, [x29, #0x18]                               
+0x3b3948: str     x16, [x15]                                      
+0x3b394c: bl      #0xa9cb80                                        ; CALL=dart_core_::_getHash_a9cb80
+0x3b3950: sbfx    x5, x0, #1, #0x1f                               
+0x3b3954: ldur    x1, [x29, #-0x10]                               
+0x3b3958: ldr     x2, [x29, #0x18]                                
+0x3b395c: ldur    x3, [x29, #-8]                                  
+0x3b3960: bl      #0x324814                                        ; CALL=0x324814
+0x3b3964: ldur    x0, [x29, #-8]                                  
+0x3b3968: mov     x15, x29                                        
+0x3b396c: ldp     x29, x30, [x15], #0x10                          
+0x3b3970: ret                                                     
+0x3b3974: bl      #0xbb602c                                        ; CALL=StackOverflowSharedWithoutFPURegsStub_bb602c
+0x3b3978: b       #0x3b3918                                       
+0x3b397c: ldr     x9, [x27, #0x2c10]                               ; PP=Field <dWa._tBh@1197158327>: late final (offset: 0x18)
+0x3b3980: bl      #0xbb6944                                        ; CALL=LateInitializationErrorSharedWithoutFPURegsStub_bb6944
+0x3b3984: stp     x29, x30, [x15, #-0x10]!                        
+0x3b3988: mov     x29, x15                                        
+0x3b398c: sub     x15, x15, #0x18                                 
+0x3b3990: mov     x3, x1                                          
+0x3b3994: stur    x1, [x29, #-8]                                  
+0x3b3998: ldr     x16, [x26, #0x48]                               
+0x3b399c: cmp     x15, x16                                        
+0x3b39a0: b.ls    #0x3b3ab8                                       
+0x3b39a4: cmp     w3, w22                                         
+0x3b39a8: b.ne    #0x3b39bc                                       
+0x3b39ac: mov     x0, x22                                         
+0x3b39b0: mov     x15, x29                                        
+0x3b39b4: ldp     x29, x30, [x15], #0x10                          
+0x3b39b8: ret                                                     
+0x3b39bc: mov     x0, x3                                          
+0x3b39c0: mov     x2, x22                                         
+0x3b39c4: mov     x1, x22                                         
+0x3b39c8: cmp     w0, w22                                         
+0x3b39cc: b.eq    #0x3b3a64                                       
+0x3b39d0: tbz     w0, #0, #0x3b3a64                               
+0x3b39d4: ldur    x3, [x0, #-1]                                   
+0x3b39d8: ubfx    x3, x3, #0xc, #0x14                             
+0x3b39dc: movz    x17, #0x1af4                                    
+0x3b39e0: cmp     x3, x17                                         
+0x3b39e4: b.eq    #0x3b3a6c                                       
+0x3b39e8: ldur    x4, [x0, #-1]                                   
+0x3b39ec: ubfx    x4, x4, #0xc, #0x14                             
+0x3b39f0: ldr     x3, [x26, #0x688]                               
+0x3b39f4: ldr     x3, [x3, #0x18]                                 
+0x3b39f8: ldr     x3, [x3, x4, lsl #3]                            
+0x3b39fc: ldur    w3, [x3, #0x2b]                                 
+0x3b3a00: add     x3, x3, x28, lsl #32                            
+0x3b3a04: cmp     w3, w22                                         
+0x3b3a08: b.eq    #0x3b3a64                                       
+0x3b3a0c: ldur    w3, [x3, #0xf]                                  
+0x3b3a10: lsr     x3, x3, #3                                      
+0x3b3a14: movz    x17, #0x1af4                                    
+0x3b3a18: cmp     x3, x17                                         
+0x3b3a1c: b.eq    #0x3b3a6c                                       
+0x3b3a20: add     x3, x27, #0xf, lsl #12                          
+0x3b3a24: ldr     x3, [x3, #0xc10]                                 ; PP=SubtypeTestCache
+0x3b3a28: ldr     x30, [x27, #0x4e0]                               ; PP=Stub: Subtype1TestCache (0x312fcc)
+0x3b3a2c: ldur    x30, [x30, #7]                                  
+0x3b3a30: blr     x30                                             
+0x3b3a34: cmp     w7, w22                                         
+0x3b3a38: b.eq    #0x3b3a44                                       
+0x3b3a3c: tbnz    w7, #4, #0x3b3a64                               
+0x3b3a40: b       #0x3b3a6c                                       
+0x3b3a44: add     x8, x27, #0xf, lsl #12                          
+0x3b3a48: ldr     x8, [x8, #0xc18]                                 ; PP=Type: Map
+0x3b3a4c: add     x3, x27, #0xf, lsl #12                          
+0x3b3a50: ldr     x3, [x3, #0xc20]                                 ; PP=SubtypeTestCache
+0x3b3a54: ldr     x30, [x27, #0x488]                               ; PP=Stub: InstanceOf (0x3012f4)
+0x3b3a58: ldur    x30, [x30, #7]                                  
+0x3b3a5c: blr     x30                                             
+0x3b3a60: b       #0x3b3a70                                       
+0x3b3a64: add     x0, x22, #0x30                                  
+0x3b3a68: b       #0x3b3a70                                       
+0x3b3a6c: add     x0, x22, #0x20                                  
+0x3b3a70: tbnz    w0, #4, #0x3b3aa8                               
+0x3b3a74: ldur    x0, [x29, #-8]                                  
+0x3b3a78: ldur    x1, [x0, #-1]                                   
+0x3b3a7c: ubfx    x1, x1, #0xc, #0x14                             
+0x3b3a80: ldr     x16, [x27, #0x1b90]                              ; PP=TypeArguments: <String, dynamic>
+0x3b3a84: stp     x0, x16, [x15]                                  
+0x3b3a88: mov     x0, x1                                          
+0x3b3a8c: ldr     x4, [x27, #0x26d8]                               ; PP=List(5) [0x2, 0x1, 0x1, 0x1, Null]
+0x3b3a90: add     x30, x0, #0xbca                                 
+0x3b3a94: ldr     x30, [x21, x30, lsl #3]                         
+0x3b3a98: blr     x30                                             
+0x3b3a9c: mov     x15, x29                                        
+0x3b3aa0: ldp     x29, x30, [x15], #0x10                          
+0x3b3aa4: ret                                                     
+0x3b3aa8: mov     x0, x22                                         
+0x3b3aac: mov     x15, x29                                        
+0x3b3ab0: ldp     x29, x30, [x15], #0x10                          
+0x3b3ab4: ret                                                     
+0x3b3ab8: bl      #0xbb602c                                        ; CALL=StackOverflowSharedWithoutFPURegsStub_bb602c
+0x3b3abc: b       #0x3b39a4                                       
+0x3b3ac0: stp     x29, x30, [x15, #-0x10]!                        
+0x3b3ac4: mov     x29, x15                                        
+0x3b3ac8: sub     x15, x15, #0x20                                 
+0x3b3acc: mov     x0, x1                                          
+0x3b3ad0: mov     x1, x2                                          
+0x3b3ad4: ldr     x16, [x26, #0x48]                               
+0x3b3ad8: cmp     x15, x16                                        
+0x3b3adc: b.ls    #0x3b3ba0                                       
+0x3b3ae0: ldur    x0, [x1, #-1]                                   
+0x3b3ae4: ubfx    x0, x0, #0xc, #0x14                             
+0x3b3ae8: add     x2, x27, #0x18, lsl #12                         
+0x3b3aec: ldr     x2, [x2, #0x108]                                 ; PP=String: "datas"
+0x3b3af0: sub     x30, x0, #0x103                                 
+0x3b3af4: ldr     x30, [x21, x30, lsl #3]                         
+0x3b3af8: blr     x30                                             
+0x3b3afc: mov     x1, x0                                          
+0x3b3b00: bl      #0x3b3e7c                                        ; CALL=0x3b3e7c
+0x3b3b04: stur    x0, [x29, #-8]                                  
+0x3b3b08: cmp     w0, w22                                         
+0x3b3b0c: b.ne    #0x3b3b18                                       
+0x3b3b10: mov     x0, x22                                         
+0x3b3b14: b       #0x3b3b84                                       
+0x3b3b18: add     x1, x27, #0x2f, lsl #12                         
+0x3b3b1c: ldr     x1, [x1, #0x48]                                  ; PP=AnonymousClosure: static (0x3b3fd4), of [BBm] Zsb
+0x3b3b20: mov     x2, x22                                         
+0x3b3b24: bl      #0xbb5204                                        ; CALL=AllocateClosureStub_bb5204
+0x3b3b28: mov     x1, x0                                          
+0x3b3b2c: ldur    x0, [x29, #-8]                                  
+0x3b3b30: ldur    x2, [x0, #-1]                                   
+0x3b3b34: ubfx    x2, x2, #0xc, #0x14                             
+0x3b3b38: add     x16, x27, #0x2f, lsl #12                        
+0x3b3b3c: ldr     x16, [x16, #0x50]                                ; PP=TypeArguments: <gtb?>
+0x3b3b40: stp     x0, x16, [x15, #8]                              
+0x3b3b44: str     x1, [x15]                                       
+0x3b3b48: mov     x0, x2                                          
+0x3b3b4c: ldr     x4, [x27, #0x40]                                 ; PP=List(5) [0x1, 0x2, 0x2, 0x2, Null]
+0x3b3b50: movz    x17, #0xe873                                    
+0x3b3b54: add     x30, x0, x17                                    
+0x3b3b58: ldr     x30, [x21, x30, lsl #3]                         
+0x3b3b5c: blr     x30                                             
+0x3b3b60: add     x16, x27, #0x20, lsl #12                        
+0x3b3b64: ldr     x16, [x16, #0x400]                               ; PP=TypeArguments: <gtb>
+0x3b3b68: stp     x0, x16, [x15]                                  
+0x3b3b6c: ldr     x4, [x27, #0xd08]                                ; PP=List(5) [0x1, 0x1, 0x1, 0x1, Null]
+0x3b3b70: bl      #0x62b0c8                                        ; CALL=0x62b0c8
+0x3b3b74: ldur    w1, [x0, #7]                                    
+0x3b3b78: add     x1, x1, x28, lsl #32                            
+0x3b3b7c: mov     x2, x0                                          
+0x3b3b80: bl      #0x317390                                        ; CALL=0x317390
+0x3b3b84: stur    x0, [x29, #-8]                                  
+0x3b3b88: bl      #0xaa013c                                        ; CALL=AllocateZsbStub_aa013c
+0x3b3b8c: ldur    x1, [x29, #-8]                                  
+0x3b3b90: stur    w1, [x0, #7]                                    
+0x3b3b94: mov     x15, x29                                        
+0x3b3b98: ldp     x29, x30, [x15], #0x10                          
+0x3b3b9c: ret                                                     
+0x3b3ba0: bl      #0xbb602c                                        ; CALL=StackOverflowSharedWithoutFPURegsStub_bb602c
+
+===== DIRECT CALLERS OF cache/detail wrapper 0xacc358 =====
+caller 0xacc19c: <unmapped>
+
+===== caller context 0xacc19c 0xacc05c-0xacc21c =====
+0xacc05c: stur    x1, [x29, #-0xa8]                               
+0xacc060: mov     x1, x2                                          
+0xacc064: stur    x2, [x29, #-0xb0]                               
+0xacc068: mov     x2, x3                                          
+0xacc06c: stur    x3, [x29, #-0xb8]                               
+0xacc070: mov     x3, x5                                          
+0xacc074: stur    x5, [x29, #-0xc0]                               
+0xacc078: ldr     x16, [x26, #0x48]                               
+0xacc07c: cmp     x15, x16                                        
+0xacc080: b.ls    #0xacc350                                       
+0xacc084: ldr     x0, [x27, #0x3778]                               ; PP=TypeArguments: <bool>
+0xacc088: bl      #0xa93d80                                        ; CALL=InitAsyncStub_a93d80
+0xacc08c: ldur    x1, [x29, #-0xa8]                               
+0xacc090: ldur    x2, [x29, #-0xb8]                               
+0xacc094: ldur    x3, [x29, #-0xc0]                               
+0xacc098: bl      #0x45f4e4                                        ; CALL=0x45f4e4
+0xacc09c: mov     x3, x0                                          
+0xacc0a0: ldur    x0, [x29, #-0xa8]                               
+0xacc0a4: stur    x3, [x29, #-0xd0]                               
+0xacc0a8: ldur    w4, [x0, #0x3b]                                 
+0xacc0ac: add     x4, x4, x28, lsl #32                            
+0xacc0b0: mov     x1, x4                                          
+0xacc0b4: mov     x2, x3                                          
+0xacc0b8: stur    x4, [x29, #-0xc8]                               
+0xacc0bc: bl      #0x624ee8                                        ; CALL=0x624ee8
+0xacc0c0: tbnz    w0, #4, #0xacc0cc                               
+0xacc0c4: add     x0, x22, #0x30                                  
+0xacc0c8: b       #0xa9192c                                       
+0xacc0cc: ldur    x1, [x29, #-0xc8]                               
+0xacc0d0: ldur    x2, [x29, #-0xd0]                               
+0xacc0d4: bl      #0xa866a8                                        ; CALL=0xa866a8
+0xacc0d8: ldr     x0, [x26, #0x78]                                
+0xacc0dc: ldr     x0, [x0, #0x1e28]                               
+0xacc0e0: ldr     x16, [x26, #0x90]                               
+0xacc0e4: cmp     w0, w16                                         
+0xacc0e8: b.ne    #0xacc0f4                                       
+0xacc0ec: ldr     x2, [x27, #0x2c40]                               ; PP=Field <::.jTg>: static late final (offset: 0xf14)
+0xacc0f0: bl      #0xbb3fe4                                        ; CALL=InitLateFinalStaticFieldStub_bb3fe4
+0xacc0f4: stur    x0, [x29, #-0xc8]                               
+0xacc0f8: add     x16, x27, #0x24, lsl #12                        
+0xacc0fc: ldr     x16, [x16, #0xf50]                               ; PP=TypeArguments: <fpb>
+0xacc100: str     x16, [x15]                                      
+0xacc104: ldr     x4, [x27, #0x48]                                 ; PP=List(5) [0x1, 0, 0, 0, Null]
+0xacc108: bl      #0x3e9e04                                        ; CALL=0x3e9e04
+0xacc10c: tbnz    w0, #4, #0xacc12c                               
+0xacc110: add     x16, x27, #0x24, lsl #12                        
+0xacc114: ldr     x16, [x16, #0xf50]                               ; PP=TypeArguments: <fpb>
+0xacc118: str     x16, [x15]                                      
+0xacc11c: ldr     x4, [x27, #0x48]                                 ; PP=List(5) [0x1, 0, 0, 0, Null]
+0xacc120: bl      #0x388bd0                                        ; CALL=0x388bd0
+0xacc124: mov     x4, x0                                          
+0xacc128: b       #0xacc158                                       
+0xacc12c: bl      #0xaccce0                                        ; CALL=AllocatefpbStub_accce0
+0xacc130: mov     x1, x0                                          
+0xacc134: stur    x0, [x29, #-0xd0]                               
+0xacc138: bl      #0x38a6b8                                        ; CALL=0x38a6b8
+0xacc13c: add     x16, x27, #0x24, lsl #12                        
+0xacc140: ldr     x16, [x16, #0xf50]                               ; PP=TypeArguments: <fpb>
+0xacc144: ldur    x30, [x29, #-0xd0]                              
+0xacc148: stp     x30, x16, [x15]                                 
+0xacc14c: ldr     x4, [x27, #0xd08]                                ; PP=List(5) [0x1, 0x1, 0x1, 0x1, Null]
+0xacc150: bl      #0x38a0cc                                        ; CALL=0x38a0cc
+0xacc154: mov     x4, x0                                          
+0xacc158: ldur    x0, [x29, #-0xb0]                               
+0xacc15c: stur    x4, [x29, #-0xc8]                               
+0xacc160: ldur    w1, [x0, #0x63]                                 
+0xacc164: add     x1, x1, x28, lsl #32                            
+0xacc168: cmp     w1, w22                                         
+0xacc16c: b.ne    #0xacc178                                       
+0xacc170: movz    x6, #0x1                                        
+0xacc174: b       #0xacc188                                       
+0xacc178: sbfx    x2, x1, #1, #0x1f                               
+0xacc17c: tbz     w1, #0, #0xacc184                               
+0xacc180: ldur    x2, [x1, #7]                                    
+0xacc184: mov     x6, x2                                          
+0xacc188: mov     x1, x4                                          
+0xacc18c: ldur    x2, [x29, #-0xc0]                               
+0xacc190: ldur    x3, [x29, #-0xb8]                               
+0xacc194: mov     x5, x6                                          
+0xacc198: stur    x6, [x29, #-0xd8]                               
+0xacc19c: bl      #0xacc358                                        ; CALL=0xacc358
+0xacc1a0: mov     x1, x0                                          
+0xacc1a4: stur    x1, [x29, #-0xd0]                               
+0xacc1a8: bl      #0xa93b3c                                        ; CALL=AwaitStub_a93b3c
+0xacc1ac: mov     x2, x0                                          
+0xacc1b0: stur    x2, [x29, #-0xb8]                               
+0xacc1b4: cmp     w2, w22                                         
+0xacc1b8: b.eq    #0xacc1dc                                       
+0xacc1bc: ldur    x0, [x2, #-1]                                   
+0xacc1c0: ubfx    x0, x0, #0xc, #0x14                             
+0xacc1c4: mov     x1, x2                                          
+0xacc1c8: movz    x17, #0xe502                                    
+0xacc1cc: add     x30, x0, x17                                    
+0xacc1d0: ldr     x30, [x21, x30, lsl #3]                         
+0xacc1d4: blr     x30                                             
+0xacc1d8: tbnz    w0, #4, #0xacc218                               
+0xacc1dc: ldur    x0, [x29, #-0xc0]                               
+0xacc1e0: mov     x1, x22                                         
+0xacc1e4: movz    x2, #0x4                                        
+0xacc1e8: bl      #0xbb5f20                                        ; CALL=AllocateArrayStub_bb5f20
+0xacc1ec: add     x16, x27, #0x24, lsl #12                        
+0xacc1f0: ldr     x16, [x16, #0xf58]                               ; PP=String: "刷新下载地址失败：接口未返回有效地址 chapterId="
+0xacc1f4: stur    w16, [x0, #0xf]                                 
+0xacc1f8: ldur    x1, [x29, #-0xc0]                               
+0xacc1fc: stur    w1, [x0, #0x13]                                 
+0xacc200: str     x0, [x15]                                       
+0xacc204: bl      #0x31a628                                        ; CALL=dart_core__StringBase::_interpolate_31a628
+0xacc208: mov     x1, x0                                          
+0xacc20c: bl      #0x3b484c                                        ; CALL=0x3b484c
+0xacc210: add     x0, x22, #0x30                                  
+0xacc214: b       #0xa9192c                                       
+0xacc218: ldur    x6, [x29, #-0xa8]                               
