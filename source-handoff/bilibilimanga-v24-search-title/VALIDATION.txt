@@ -1,0 +1,6 @@
+Bilibili Manga v24 search-title sanitizer
+Build: assembleDebug + assembleRelease + lintRelease
+Formatting: spotlessApply + spotlessCheck
+Version: 1.6.24 / Android versionCode 106024
+Signature fingerprint: 1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620
+Device verification: pending user real-device search test
