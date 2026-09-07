@@ -1,0 +1,30 @@
+name: Probe Mengman ARM64 runner v11
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-mengman-arm64-runner-v11.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  arm64:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 5
+    steps:
+      - name: Verify isolated ARM64 execution environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          uname -a
+          uname -m
+          python3 - <<'PY'
+          import platform, struct
+          print('machine', platform.machine())
+          print('pointer_bits', struct.calcsize('P') * 8)
+          if platform.machine().lower() not in ('aarch64','arm64'):
+              raise SystemExit('runner is not ARM64')
+          PY
