@@ -59,7 +59,7 @@ jobs:
             adb shell monkey -p "$QM_PKG" -c android.intent.category.LAUNCHER 1 >/tmp/monkey.log 2>&1 || true
             echo '=== MONKEY ==='
             tail -40 /tmp/monkey.log || true
-            sleep 45
+            sleep 55
             sudo kill "$TCPPID" >/dev/null 2>&1 || true
             sleep 2
             echo '=== APP PROCESS ==='
@@ -84,3 +84,31 @@ jobs:
             PY
             echo '=== LOGCAT HOSTNAMES ==='
             adb logcat -d -v brief | grep -Eio '([a-z0-9-]+\.)+[a-z]{2,}' | grep -Ei 'qingman|zermh|mhxiaomidi|dmzj|pwpni|urlg|f37|comic|manhua|img|cdn' | sort -u | head -300 || true
+            echo '=== SAFE PERSISTED APPCONFIG CLUES ==='
+            adb root >/dev/null 2>&1 || true
+            sleep 2
+            adb wait-for-device
+            rm -rf /tmp/qmdata && mkdir -p /tmp/qmdata
+            adb pull "/data/user/0/$QM_PKG" /tmp/qmdata >/dev/null 2>&1 || true
+            python3 - <<'PY'
+            from pathlib import Path
+            import re
+            root=Path('/tmp/qmdata')
+            deny=re.compile(rb'(?i)(token|authorization|bearer|cookie|password|secret|private|clientp12|certificate|keystore|proof|signature)')
+            url=re.compile(rb'https?://[A-Za-z0-9._:-]+(?:/[A-Za-z0-9._~!$&()*+,;=:@%/?#\-]*)?')
+            host=re.compile(rb'(?i)(?:[a-z0-9-]+\.)+[a-z]{2,}')
+            out=[]
+            for p in root.rglob('*'):
+                if not p.is_file(): continue
+                try:d=p.read_bytes()
+                except Exception: continue
+                if b'baseImgUrl' not in d and b'AppConfig' not in d: continue
+                for m in re.finditer(b'baseImgUrl',d):
+                    c=d[max(0,m.start()-1024):min(len(d),m.end()+3072)]
+                    for raw in url.findall(c)+host.findall(c):
+                        if deny.search(raw): continue
+                        s=raw.decode('utf-8','ignore').rstrip('\x00').lower()
+                        if s and s not in out: out.append(s)
+            print('safe_persisted_candidate_count='+str(len(out)))
+            for i,s in enumerate(out[:40],1): print(f'candidate_{i}={s[:240]}')
+            PY
