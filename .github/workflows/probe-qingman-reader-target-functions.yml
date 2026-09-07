@@ -1,0 +1,87 @@
+name: Dump Qingman Targeted Reader Functions
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-reader-target-functions.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dump:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+      - uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+      - name: Dump exact address neighborhoods
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/apk_url
+          import json,urllib.request,sys
+          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=30))
+          a=o['data']['datas']['android']
+          print(a['downloadUrl'])
+          if (str(a.get('version','')),str(a.get('versionCode',''))) != ('4.4.5','445'):
+              raise SystemExit('unexpected official version')
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          mkdir -p /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/apk-extract
+          cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter
+          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          targets=[
+            ('pageUrls',0x45f368),('referer_model',0x45f398),('pageUrls2',0x460080),('referer2',0x46068c),
+            ('freeLine',0x489d3c),('selectedLine',0x48f000),
+            ('baseImgUrl',0x4cfec8),('freeUrl',0x4cfee0),
+            ('claimedImageUrl',0x7637e8),('claimedImageUrl2',0x7639e4),
+            ('imageUrls',0x7b84e8),('useWebView',0x9baf8c),
+            ('readerReferer',0xaccfbc),('decryptImage',0xb072b0),('decryptCacheImage',0xb681d8),
+            ('refererHeaderA',0x3a625c),('refererHeaderB',0x3a6348),
+          ]
+          deny=re.compile(r'(?i)(password|passwd|pwd|cookie|authorization|bearer|clientp12|privatekey|certificate|keystore|storepassword|keypassword)')
+          files=[]
+          for p in Path('/tmp/blutter-out/asm').rglob('*'):
+              if not p.is_file(): continue
+              try: lines=p.read_text('utf-8',errors='replace').splitlines()
+              except Exception: continue
+              files.append((p,lines))
+          print('ASM_FILES='+str(len(files)))
+          for label,addr in targets:
+              pats=[f'0x{addr:x}',f'{addr:x}:',f'{addr:X}:']
+              hits=[]
+              for p,lines in files:
+                  for i,line in enumerate(lines):
+                      if any(x.lower() in line.lower() for x in pats): hits.append((p,lines,i))
+              print(f'=== TARGET {label} 0x{addr:x} hits={len(hits)} ===')
+              for p,lines,i in hits[:3]:
+                  print('FILE='+str(p.relative_to('/tmp/blutter-out'))+' LINE='+str(i+1))
+                  # Walk to nearest function header if possible, then include wide local context.
+                  lo=max(0,i-110); hi=min(len(lines),i+210)
+                  for n in range(lo,hi):
+                      line=lines[n]
+                      if deny.search(line): line='<redacted-sensitive-line>'
+                      print(f'{n+1:06d}: {line[:500]}')
+          PY
