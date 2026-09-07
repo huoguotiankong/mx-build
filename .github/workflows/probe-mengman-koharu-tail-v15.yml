@@ -1,0 +1,47 @@
+name: Probe Mengman Koharu tail disassembly v15
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-mengman-koharu-tail-v15.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 8
+    steps:
+      - name: Decrypt and disassemble Koharu tail wrapper only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,struct,subprocess,urllib.request
+          def chunks(png):
+              out=[];p=8
+              while p+12<=len(png):
+                  n=struct.unpack('>I',png[p:p+4])[0];t=png[p+4:p+8];s=p+8;e=s+n
+                  if t==b'tEXt':
+                      out.append(png[s:e])
+                      if len(out)==2:return out
+                  p=e+4
+              raise RuntimeError('missing tEXt')
+          png=urllib.request.urlopen(urllib.request.Request('https://static.yisix.cn/bootstrap/a2.png',headers={'User-Agent':'okhttp/4.12.0'}),timeout=30).read()
+          c=chunks(png);open('/tmp/in','wb').write(c[1]);key=c[0][83:99]
+          p=subprocess.run(['openssl','enc','-seed-ecb','-d','-provider','default','-provider','legacy','-K',key.hex(),'-in','/tmp/in','-out','/tmp/plain'],stderr=subprocess.PIPE)
+          if p.returncode:raise SystemExit(p.stderr.decode()[:300])
+          plain=open('/tmp/plain','rb').read();code=plain[:-32]
+          if hashlib.sha256(code).digest()!=plain[-32:]:raise SystemExit('sha mismatch')
+          open('/tmp/koharu.bin','wb').write(code)
+          print('SIZE',len(code),'SHA',hashlib.sha256(code).hexdigest())
+          PY
+
+          echo '=== tail 0x24c00..0x26660 ==='
+          objdump -D -b binary -m aarch64 --start-address=0x24c00 --stop-address=0x26660 /tmp/koharu.bin 2>&1 | head -n 1800 || true
+
+          echo '=== tail strings with offsets ==='
+          strings -a -t x -n 3 /tmp/koharu.bin | awk '$1 >= "24c00" {print}' | head -n 500 || true
