@@ -1,0 +1,117 @@
+name: Trace Qingman Reader Free URL and Type Xrefs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-reader-freeurl-type-xrefs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trace:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Prepare APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools python3-capstone >/dev/null
+          python3 - <<'PY' >/tmp/url
+          import json, urllib.request
+          a=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=30))['data']['datas']['android']
+          if (str(a.get('version','')),str(a.get('versionCode',''))) != ('4.4.5','445'):
+              raise SystemExit('official version changed')
+          print(a['downloadUrl'])
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/url)" -o /tmp/qingman.apk
+          unzip -p /tmp/qingman.apk lib/arm64-v8a/libapp.so >/tmp/libapp.so
+      - name: Trace getter calls and request fields
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
+          import re
+
+          with open('/tmp/libapp.so','rb') as f:
+              elf=ELFFile(f); sec=elf.get_section_by_name('.text'); base=int(sec['sh_addr']); data=sec.data()
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.skipdata=True
+          # Addresses verified from current 4.4.5 AOT probes.
+          call_targets={
+              0x4cfec8:'AppConfig.baseImgUrl getter',
+              0x4cfee0:'AppConfig.freeUrl getter',
+          }
+          pp_targets={
+              0x4fd0:'comicId',0x4fd8:'chapterId',0x4ff8:'type',
+              0x18da0:'ComicReaderHD',0x2a458:'freeLine',0x2a508:'ComicReadSelectedImageLine',
+              0x22648:'pageUrls',0x226c0:'referer',
+          }
+          pending={}; refs=[]; calls=[]
+          for ins in md.disasm(data,base):
+              pending={r:(b,n-1) for r,(b,n) in pending.items() if n>1}
+              op=ins.op_str.lower()
+              m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
+              if ins.mnemonic=='add' and m:
+                  pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),36)
+              if ins.mnemonic in ('ldr','ldur','ldrsw'):
+                  m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
+                  if m:
+                      br=m.group(2); d=int(m.group(3),0) if m.group(3) else 0
+                      off=d if br=='x27' else (pending[br][0]+d if br in pending else None)
+                      if off in pp_targets: refs.append((int(ins.address),off,pp_targets[off]))
+              if ins.mnemonic=='bl' and ins.op_str.startswith('#'):
+                  try: t=int(ins.op_str[1:],0)
+                  except: t=None
+                  if t in call_targets: calls.append((int(ins.address),t,call_targets[t]))
+          print('=== GETTER CALLS ===')
+          for a,t,n in calls: print(f'0x{a:x} -> 0x{t:x} {n}')
+          print('=== POOL XREFS ===')
+          for a,o,n in refs: print(f'0x{a:x} PP+0x{o:x} {n}')
+
+          # Dump compact windows around all getter calls and request field xrefs.
+          centers=[]
+          for a,_,n in calls: centers.append((a,n))
+          for a,_,n in refs:
+              if n in ('comicId','chapterId','type','ComicReaderHD','freeLine','ComicReadSelectedImageLine'):
+                  centers.append((a,n))
+          # Deduplicate close centers to avoid huge logs.
+          centers.sort(); merged=[]
+          for a,n in centers:
+              if merged and a-merged[-1][0] < 0x180:
+                  merged[-1][2].append((a,n))
+              else:
+                  merged.append([a,a,[(a,n)]])
+          print('=== COMPACT WINDOWS ===')
+          for idx,(anchor,_,tags) in enumerate(merged[:50]):
+              start=max(base,anchor-0x220); end=min(base+len(data),anchor+0x420)
+              print(f'--- WINDOW {idx} center=0x{anchor:x} tags={tags} ---')
+              pending={}; count=0
+              for ins in md.disasm(data[start-base:end-base],start):
+                  pending={r:(b,n-1) for r,(b,n) in pending.items() if n>1}
+                  op=ins.op_str.lower(); ann=[]
+                  m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
+                  if ins.mnemonic=='add' and m: pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),36)
+                  if ins.mnemonic in ('ldr','ldur','ldrsw'):
+                      m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
+                      if m:
+                          br=m.group(2); d=int(m.group(3),0) if m.group(3) else 0
+                          off=d if br=='x27' else (pending[br][0]+d if br in pending else None)
+                          if off in pp_targets: ann.append(f'PP={pp_targets[off]}(0x{off:x})')
+                  if ins.mnemonic=='bl' and ins.op_str.startswith('#'):
+                      try: t=int(ins.op_str[1:],0)
+                      except: t=None
+                      if t in call_targets: ann.append(call_targets[t])
+                  ctrl=ins.mnemonic in ('bl','blr','b','ret','cbz','cbnz','tbz','tbnz') or ins.mnemonic.startswith('b.')
+                  # Include small integer moves because type selection is likely encoded as Smi.
+                  imm=ins.mnemonic in ('mov','movz') and re.search(r'#(?:0x)?[0-9a-f]+',op)
+                  if ann or ctrl or imm:
+                      print((f'0x{ins.address:x}: {ins.mnemonic:<7} {ins.op_str:<46}'+((' ; '+' | '.join(ann)) if ann else ''))[:620])
+                      count+=1
+                      if count>450: print('WINDOW_TRUNCATED'); break
+          PY
