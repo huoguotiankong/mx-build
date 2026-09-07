@@ -22,7 +22,6 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq python3-pyelftools python3-capstone cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
           git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
-
       - name: Restore analyzer cache
         uses: actions/cache@v4
         with:
@@ -31,8 +30,7 @@ jobs:
             /tmp/blutter/dartsdk
             /tmp/blutter/packages
           key: qingman-blutter-dart-3.12.2-arm64-v1
-
-      - name: Trace AppConfig request route
+      - name: Resolve request descriptor classes and constructors
         shell: bash
         run: |
           set -euo pipefail
@@ -49,58 +47,46 @@ jobs:
           cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
           cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
           cd /tmp/blutter
-          if ! python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1; then
-            echo 'blutter_failed=true'
-            tail -120 /tmp/blutter.log | grep -Eiv 'token|secret|password|cookie|authorization|bearer|private|clientp12|certificate|proof|signature|sign/key|seed' || true
-            exit 1
-          fi
-
+          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
           python3 - <<'PY'
           from pathlib import Path
           import re
-
           deny=re.compile(r'(?i)(password|token|authorization|bearer|cookie|secret|private|clientp12|certificate|keystore|proof|signature|sign/key|seed|k1a|k1b|k2a|k2b|k3a|k3b)')
-          asm=Path('/tmp/blutter-out/asm')
-          pp=Path('/tmp/blutter-out/pp.txt').read_text('utf-8',errors='replace').splitlines()
-
-          print('=== EXACT PP MARKERS ===')
-          for line in pp:
-              if any(m in line for m in ('baseImgUrl','freeUrl','customerUrl','officialUrl','promotionUrl','Get app config failed')) and not deny.search(line):
-                  print(line[:500])
-
-          # Find the exact request-builder function reached by the AppConfig allocation stub.
-          needles=('0x4cfcfc','0xb02b60','0xb02b78')
-          print('=== REQUEST BUILDER XREFS ===')
-          for p in asm.glob('*.dart'):
+          root=Path('/tmp/blutter-out/asm')
+          targets={992:'AppConfig request descriptor',1114:'Chaping request descriptor'}
+          names={}
+          for p in root.glob('*.dart'):
               lines=p.read_text('utf-8',errors='replace').splitlines()
-              hits=[i for i,l in enumerate(lines) if any(n in l.lower() for n in needles)]
-              for h in hits:
-                  print(f'--- FILE {p.name} HIT {h+1} ---')
-                  for z in lines[max(0,h-180):min(len(lines),h+260)]:
-                      if deny.search(z): continue
-                      # Keep all AOT pseudo-source/disassembly around this very small set of hits.
-                      print(z[:600])
-
-          print('=== APPCONFIG TYPE XREFS ===')
-          for p in asm.glob('*.dart'):
+              for i,line in enumerate(lines):
+                  m=re.search(r'// class id: (\d+), size: (0x[0-9a-fA-F]+)',line)
+                  if not m or int(m.group(1)) not in targets: continue
+                  cid=int(m.group(1)); block=lines[i:min(len(lines),i+140)]
+                  print(f'=== CID {cid} {targets[cid]} FILE={p.name} LINE={i+1} ===')
+                  for z in block:
+                      if not deny.search(z): print(z[:700])
+                  for z in block[:16]:
+                      cm=re.match(r'class\s+([A-Za-z0-9_$]+)',z.strip())
+                      if cm: names[cid]=cm.group(1)
+          print('resolved_names='+','.join(f'{k}:{v}' for k,v in sorted(names.items())))
+          needles=set(names.values())|{'0x3ea090','0xb02b90','0xb028d0'}
+          print('=== CLASS/CALLER XREFS ===')
+          for p in root.glob('*.dart'):
               lines=p.read_text('utf-8',errors='replace').splitlines()
-              hits=[i for i,l in enumerate(lines) if 'uxb' in l.lower()]
+              hits=[i for i,z in enumerate(lines) if any(n.lower() in z.lower() for n in needles)]
               if not hits: continue
-              for h in hits[:12]:
-                  block='\n'.join(lines[max(0,h-30):min(len(lines),h+80)])
-                  if 'app config' not in block.lower() and '1ec38' not in block.lower() and '1eba0' not in block.lower():
-                      continue
-                  print(f'--- TYPE FILE {p.name} HIT {h+1} ---')
-                  for z in block.splitlines():
-                      if not deny.search(z): print(z[:600])
-
-          print('=== ALL NON-SENSITIVE CONFIG ROUTE LITERALS ===')
-          seen=[]
-          route_re=re.compile(r'api/[A-Za-z0-9_./{}-]+')
+              for h in hits[:30]:
+                  print(f'--- FILE={p.name} HIT={h+1} ---')
+                  for z in lines[max(0,h-90):min(len(lines),h+180)]:
+                      if not deny.search(z): print(z[:700])
+          pp=Path('/tmp/blutter-out/pp.txt').read_text('utf-8',errors='replace').splitlines()
+          routes=[]
           for line in pp:
               if deny.search(line): continue
-              for s in route_re.findall(line):
-                  if 'config' in s.lower() and s not in seen:
-                      seen.append(s)
-          for s in seen: print('route='+s)
+              m=re.search(r'String: "([^"]+)"',line)
+              if not m: continue
+              s=m.group(1)
+              if s.startswith('api/') and s not in routes: routes.append(s)
+          print('=== PUBLIC API ROUTES WITH CONFIG/APP TERMS ===')
+          for s in routes:
+              if any(k in s.lower() for k in ('config','appapi','radio')): print(s)
           PY
