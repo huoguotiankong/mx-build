@@ -1,0 +1,216 @@
+name: Qingman Cache Contract Xref Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-cache-contract-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev python3-pyelftools python3-capstone >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+      - uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+      - name: Analyze official Qingman 4.4.5
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/apk_url
+          import json,urllib.request
+          a=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=30))['data']['datas']['android']
+          if (str(a.get('version','')),str(a.get('versionCode',''))) != ('4.4.5','445'):
+              raise SystemExit('official version changed')
+          print(a['downloadUrl'])
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/out /tmp/x
+          mkdir -p /tmp/app-lib /tmp/out /tmp/x
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/x
+          cp /tmp/x/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/x/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter && python3 blutter.py /tmp/app-lib /tmp/out >/tmp/blutter.log 2>&1
+          cd "$GITHUB_WORKSPACE"
+          python3 - <<'PY' > .github/qingman-cache-contract-v2.txt
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
+          import re,bisect
+
+          def clean(s):
+              s=re.sub(r'(?i)(bearer\s+)[A-Za-z0-9._~+/=-]{8,}',r'\1<redacted>',s)
+              s=re.sub(r'(?i)((?:password|cookie|appaccesstoken)\s*[:=]\s*)[^,}\s]+',r'\1<redacted>',s)
+              if re.search(r'(?i)(clientp12|privatekey|keystore|storepassword|keypassword|bootstrapproof|bootstrapdecrypt)',s):
+                  return '<redacted-sensitive-structure>'
+              return s[:1000]
+
+          pp={}
+          for line in Path('/tmp/out/pp.txt').read_text('utf-8',errors='replace').splitlines():
+              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s+(.*)$',line)
+              if m: pp[int(m.group(1),16)]=m.group(2)
+
+          syms={}
+          for line in Path('/tmp/out/ida_script/addNames.py').read_text('utf-8',errors='replace').splitlines():
+              m=re.search(r'set_name\((0x[0-9a-fA-F]+|\d+),\s*[ru]?([\'\"])(.*?)\2',line)
+              if m:
+                  try: syms[int(m.group(1),0)]=m.group(3)
+                  except: pass
+
+          asm_files=list(Path('/tmp/out/asm').rglob('*.dart'))
+          funcs=[]
+          for p in asm_files:
+              ls=p.read_text('utf-8',errors='replace').splitlines()
+              for i,line in enumerate(ls):
+                  m=re.search(r'\*\* addr: 0x([0-9a-fA-F]+), size: 0x([0-9a-fA-F]+)',line)
+                  if not m: continue
+                  st=int(m.group(1),16); en=st+int(m.group(2),16); decl=''
+                  for j in range(i-1,max(-1,i-12),-1):
+                      t=ls[j].strip()
+                      if t and not t.startswith('//'):
+                          decl=t; break
+                  funcs.append((st,en,p,decl,i))
+          funcs.sort(key=lambda x:x[0]); starts=[f[0] for f in funcs]
+          def owner(a):
+              i=bisect.bisect_right(starts,a)-1
+              return funcs[i] if i>=0 and funcs[i][0]<=a<funcs[i][1] else None
+
+          with open('/tmp/app-lib/libapp.so','rb') as f:
+              elf=ELFFile(f); sec=elf.get_section_by_name('.text'); base=int(sec['sh_addr']); blob=sec.data()
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.skipdata=True
+          allins=list(md.disasm(blob,base))
+
+          # Decode PP loads robustly enough for the relevant AOT patterns.
+          xrefs={}
+          pending={}
+          for ins in allins:
+              pending={k:(v,n-1) for k,(v,n) in pending.items() if n>1}
+              op=ins.op_str.lower()
+              m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
+              if ins.mnemonic=='add' and m:
+                  pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),48)
+              if ins.mnemonic in ('ldr','ldur','ldrsw'):
+                  m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
+                  if m:
+                      br=m.group(2); d=int(m.group(3),0) if m.group(3) else 0
+                      off=d if br=='x27' else (pending[br][0]+d if br in pending else None)
+                      if off in pp: xrefs.setdefault(off,[]).append(ins.address)
+
+          ins_by_addr={i.address:i for i in allins}
+          addrs=[i.address for i in allins]
+          def dump_addr(center,before=30,after=45):
+              idx=bisect.bisect_left(addrs,center)
+              lo=max(0,idx-before); hi=min(len(allins),idx+after)
+              for ins in allins[lo:hi]:
+                  ann=''
+                  if ins.mnemonic=='bl' and ins.op_str.startswith('#'):
+                      try: t=int(ins.op_str[1:],0); ann=' ; CALL='+clean(syms.get(t,f'0x{t:x}'))
+                      except: pass
+                  print(clean(f'0x{ins.address:x}: {ins.mnemonic:<7} {ins.op_str:<50}{ann}'))
+
+          print('Qingman 4.4.5 cache/detail contract xref probe')
+
+          print('\n===== CLASS DEFINITIONS =====')
+          for cls in ['oub','fpb','stb','Rpc']:
+              found=0
+              rx=re.compile(r'^class\s+'+re.escape(cls)+r'\b')
+              for p in asm_files:
+                  ls=p.read_text('utf-8',errors='replace').splitlines()
+                  for i,line in enumerate(ls):
+                      if rx.search(line.strip()):
+                          print(f'--- {cls} in {p.name}:{i+1} ---')
+                          for s in ls[max(0,i-4):min(len(ls),i+90)]: print(clean(s))
+                          found+=1
+                          if found>=2: break
+                  if found>=2: break
+              if not found: print(f'{cls}: <not found>')
+
+          print('\n===== OWNER OF DOWNLOAD REFRESH CALL SITE =====')
+          for a in [0xacc05c,0xacc1a8,0xacc358,0xacc58c,0xacc934,0xaccb5c,0x461f94,0x4619ec,0x3b3984]:
+              f=owner(a)
+              print(f'0x{a:x}: symbol={clean(syms.get(a,"<unnamed>"))} owner='+(clean(f'{f[2].name} :: {f[3]} [0x{f[0]:x}-0x{f[1]:x}]') if f else '<unmapped>'))
+
+          print('\n===== CALLERS OF FUNCTION CONTAINING 0xacc1a8 =====')
+          target_func=owner(0xacc1a8)
+          if target_func:
+              target=target_func[0]
+              print(f'target start=0x{target:x} decl={clean(target_func[3])}')
+              for ins in allins:
+                  if ins.mnemonic!='bl' or not ins.op_str.startswith('#'): continue
+                  try: t=int(ins.op_str[1:],0)
+                  except: continue
+                  if t==target:
+                      f=owner(ins.address)
+                      print(f'caller=0x{ins.address:x} owner='+(clean(f'{f[2].name} :: {f[3]}') if f else '<unmapped>'))
+                      dump_addr(ins.address,28,38)
+          else: print('<owner not found>')
+
+          print('\n===== PP XREFS FOR REQUEST KEYS / ROUTE / REFRESH LOGS =====')
+          patterns=[
+              'api/comic/chapter/ie84hfh8/cache/detail','comicId','chapterId','type','picList','preChapterId','nextChapterId',
+              '[下载token刷新] 图片资源未就绪','[下载token刷新] 触发了cache/detail的原因',
+              '[下载token刷新] 重拉 cache/detail 失败','[下载token刷新] 重拉 cache/detail 返回空数据',
+              '[下载token刷新] 已更新下载地址','数量='
+          ]
+          seen=set()
+          for pat in patterns:
+              print(f'\n--- pattern: {pat} ---')
+              matches=[(o,v) for o,v in pp.items() if pat.lower() in v.lower()]
+              if not matches:
+                  print('<no PP matches>'); continue
+              for off,val in matches[:20]:
+                  print(f'PP+0x{off:x}: {clean(val)}')
+                  refs=xrefs.get(off,[])
+                  print('xrefs='+(', '.join(f'0x{x:x}' for x in refs[:30]) if refs else '<none decoded>'))
+                  for x in refs[:6]:
+                      key=(off,x)
+                      if key in seen: continue
+                      seen.add(key)
+                      f=owner(x)
+                      print('owner='+(clean(f'{f[2].name} :: {f[3]} [0x{f[0]:x}-0x{f[1]:x}]') if f else '<unmapped>'))
+                      dump_addr(x,18,28)
+
+          print('\n===== FULL REFRESH FUNCTION AROUND 0xacc1a8 =====')
+          f=owner(0xacc1a8)
+          if f:
+              for ins in allins[bisect.bisect_left(addrs,f[0]):bisect.bisect_left(addrs,f[1])]:
+                  ann=''
+                  if ins.mnemonic=='bl' and ins.op_str.startswith('#'):
+                      try: t=int(ins.op_str[1:],0); ann=' ; CALL='+clean(syms.get(t,f'0x{t:x}'))
+                      except: pass
+                  print(clean(f'0x{ins.address:x}: {ins.mnemonic:<7} {ins.op_str:<50}{ann}'))
+          else: print('<not found>')
+          PY
+      - name: Persist result
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .github/qingman-cache-contract-v2.txt
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'chore(qingman): record cache contract xrefs'
+          for attempt in 1 2 3 4 5; do
+            git fetch origin main
+            if git rebase origin/main && git push origin HEAD:main; then exit 0; fi
+            git rebase --abort 2>/dev/null || true
+            sleep $((attempt*2))
+          done
+          exit 1
