@@ -115,7 +115,7 @@ if old_body not in ts:
     raise SystemExit('transport reader body block changed; aborting exact v12 patch')
 ts = ts.replace(old_body, new_body, 1)
 old_const = '        private const val READER_PATH = "api/comic/chapter/ie84hfh8/detail"\n'
-if old_const not in ts or 'READER_CACHE_PATH' in ts:
+if old_const not in ts or 'private const val READER_CACHE_PATH' in ts:
     raise SystemExit('transport reader constants changed; aborting exact v12 patch')
 ts = ts.replace(old_const, old_const + '        private const val READER_CACHE_PATH = "api/comic/chapter/ie84hfh8/cache/detail"\n', 1)
 t.write_text(ts, 'utf-8')
