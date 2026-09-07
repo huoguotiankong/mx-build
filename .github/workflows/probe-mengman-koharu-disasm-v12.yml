@@ -1,0 +1,60 @@
+name: Probe Mengman Koharu disassembly v12
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-mengman-koharu-disasm-v12.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 8
+    steps:
+      - name: Decrypt and statically inspect verified Koharu blob
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, struct, subprocess, urllib.request
+          def chunks(png):
+              out=[];p=8
+              while p+12<=len(png):
+                  n=struct.unpack('>I',png[p:p+4])[0];t=png[p+4:p+8];s=p+8;e=s+n
+                  if t==b'tEXt':
+                      out.append(png[s:e])
+                      if len(out)==2:return out
+                  p=e+4
+              raise RuntimeError('missing tEXt')
+          req=urllib.request.Request('https://static.yisix.cn/bootstrap/a2.png',headers={'User-Agent':'okhttp/4.12.0'})
+          png=urllib.request.urlopen(req,timeout=30).read(); c=chunks(png); key=c[0][83:99]
+          open('/tmp/a2.enc','wb').write(c[1])
+          p=subprocess.run(['openssl','enc','-seed-ecb','-d','-provider','default','-provider','legacy','-K',key.hex(),'-in','/tmp/a2.enc','-out','/tmp/a2.plain'],stderr=subprocess.PIPE)
+          if p.returncode: raise SystemExit(p.stderr.decode('utf-8','replace')[:300])
+          plain=open('/tmp/a2.plain','rb').read(); code=plain[:-32]; expected=plain[-32:]
+          if hashlib.sha256(code).digest()!=expected: raise SystemExit('Koharu SHA mismatch')
+          open('/tmp/koharu.bin','wb').write(code)
+          print('CODE_SIZE',len(code),'SHA256',hashlib.sha256(code).hexdigest())
+          PY
+
+          echo '=== tools ==='
+          command -v llvm-objdump || true
+          command -v objdump || true
+          file /tmp/koharu.bin
+
+          echo '=== first 384 bytes as AArch64 instructions ==='
+          if command -v llvm-objdump >/dev/null; then
+            llvm-objdump -D --triple=aarch64 --start-address=0 --stop-address=384 /tmp/koharu.bin 2>&1 | head -n 180 || true
+          else
+            objdump -D -b binary -m aarch64 --start-address=0 --stop-address=384 /tmp/koharu.bin 2>&1 | head -n 180 || true
+          fi
+
+          echo '=== protocol-related printable strings ==='
+          strings -a -t x -n 4 /tmp/koharu.bin | grep -Ei 'sign|nonce|hiyori|koharu|sha|hmac|md5|base64|hex|json|url|method|device|body|http|query|header|user-agent|package|version' | head -n 240 || true
+
+          echo '=== all short strings near beginning ==='
+          strings -a -t x -n 4 /tmp/koharu.bin | head -n 180 || true
