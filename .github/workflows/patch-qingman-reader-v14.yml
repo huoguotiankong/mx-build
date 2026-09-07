@@ -75,3 +75,5 @@ jobs:
           git -C dev add src/zh/qingman docs/sources/qingman.md
           git -C dev commit -m 'fix(qingman): decouple online reader from cache endpoint'
           git -C dev push origin HEAD:fix/qingman-v3-runtime-clean
+
+# rerun after fixing docs newline handling
