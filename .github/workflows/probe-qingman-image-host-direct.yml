@@ -15,12 +15,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Probe official image host candidate
+      - name: Probe current dynamic media base
         shell: bash
         run: |
           set -euo pipefail
+          base=$(python3 - <<'PY'
+          import json,urllib.parse,urllib.request
+          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
+          u=o['data']['datas']['android']['downloadUrl']
+          p=urllib.parse.urlsplit(u)
+          print(f'{p.scheme}://{p.netloc}')
+          PY
+          )
           path='/comic/chaoqing/woduzishengji/S5bc96b9b-78d1-4c3b-84fa-954ade659d60.webp'
-          url="https://img-qingman.dmzj.com${path}"
+          url="${base}${path}"
+          echo "dynamic_media_host=$(python3 -c 'import sys,urllib.parse; print(urllib.parse.urlsplit(sys.argv[1]).hostname)' "$base")"
           for mode in bare app referer; do
             hdr=$(mktemp); body=$(mktemp)
             args=(-L --max-redirs 3 -sS --connect-timeout 8 --max-time 25 -D "$hdr" -o "$body" -w '%{http_code}')
@@ -34,9 +43,7 @@ jobs:
             magic=$(od -An -tx1 -N16 "$body" | tr -d ' \n')
             echo "mode=$mode http=$code bytes=$bytes ctype=$ctype magic=$magic"
             if [[ "$code" == 200 && "$ctype" == image/* && "$bytes" -gt 1000 ]]; then
-              echo "image_host_verified=true mode=$mode"
+              echo "dynamic_media_base_verified=true mode=$mode"
             fi
             rm -f "$hdr" "$body"
           done
-
-# rerun after v1.6.14 device diagnostics proved reader pageUrls are relative
