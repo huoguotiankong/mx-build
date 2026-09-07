@@ -1,0 +1,70 @@
+name: Decode Qingman Reader Line Option Objects
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-reader-line-objects.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  decode:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev python3-pyelftools python3-capstone >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+      - uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+      - name: Decode reader line options
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/url
+          import json,urllib.request
+          a=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=30))['data']['datas']['android']
+          if (str(a.get('version','')),str(a.get('versionCode',''))) != ('4.4.5','445'): raise SystemExit('official version changed')
+          print(a['downloadUrl'])
+          PY
+          curl -fsSL --retry 2 --max-time 180 "$(cat /tmp/url)" -o /tmp/a.apk
+          rm -rf /tmp/lib /tmp/out /tmp/x; mkdir -p /tmp/lib /tmp/out /tmp/x
+          unzip -q /tmp/a.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/x
+          cp /tmp/x/lib/arm64-v8a/libapp.so /tmp/lib/; cp /tmp/x/lib/arm64-v8a/libflutter.so /tmp/lib/
+          cd /tmp/blutter && python3 blutter.py /tmp/lib /tmp/out >/tmp/b.log 2>&1
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          lines=Path('/tmp/out/pp.txt').read_text('utf-8',errors='replace').splitlines()
+          print('=== TARGET PP BLOCKS ===')
+          targets=('PP+0x2a278','PP+0x2a280','PP+0x2a288','PP+0x2a290','PP+0x2a298','PP+0x2a2a0','PP+0x31650')
+          for i,line in enumerate(lines):
+              if any(t in line for t in targets):
+                  print(f'-- line {i+1}: {line}')
+                  for x in lines[i+1:min(i+16,len(lines))]:
+                      if re.match(r'\[pp\+0x[0-9a-fA-F]+\]',x): break
+                      print(x[:700])
+          print('=== ALL ifb OBJECT DECLARATIONS ===')
+          for i,line in enumerate(lines):
+              if 'Obj!ifb@577d' in line:
+                  print(f'-- line {i+1}: {line}')
+                  for x in lines[i+1:min(i+18,len(lines))]:
+                      if re.match(r'\[pp\+0x[0-9a-fA-F]+\]',x): break
+                      print(x[:700])
+          print('=== LABEL ADJACENCY ===')
+          for i,line in enumerate(lines):
+              if 'String: "加速线路"' in line or 'String: "备用线路"' in line:
+                  for x in lines[max(0,i-8):min(len(lines),i+9)]: print(x[:700])
+          PY
