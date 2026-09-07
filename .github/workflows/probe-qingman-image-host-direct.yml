@@ -38,3 +38,5 @@ jobs:
             fi
             rm -f "$hdr" "$body"
           done
+
+# rerun after v1.6.14 device diagnostics proved reader pageUrls are relative
