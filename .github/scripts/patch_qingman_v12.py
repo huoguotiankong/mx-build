@@ -137,4 +137,4 @@ note = '''
 `1.6.12` 在章节详情成功后，以同一 `comicId / chapterId / type / deviceId` 调用认证 `api/comic/chapter/ie84hfh8/cache/detail`，若返回新的 `picList/pageUrls/imageUrls` 则优先使用；为空或失败时回退章节详情原 URL。该改动只刷新已授权正文的图片下载地址，不伪造会员、广告或解锁状态。
 '''
 if '## 2026-09-07 v1.6.12 正文签名图片 URL 刷新' not in ds:
-    d.write_text(ds.rstrip() + note + '\n', 'utf-8')
+    d.write_text(ds.rstrip() + note.rstrip() + '\n', 'utf-8')
