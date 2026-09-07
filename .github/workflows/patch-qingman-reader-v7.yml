@@ -72,7 +72,7 @@ jobs:
           ds=d.read_text('utf-8')
           note='''\n\n## 2026-09-07 v1.6.7 正文解析修复\n\n用户对公开测试版 `1.6.6` 实机确认：封面已恢复；填写官方账号后，正文不再提示“请先登录”，但报“正文接口未返回有效 pageUrls”。\n\n随后以当前官方 Android `4.4.5 / 445` APK 静态复核，确认阅读响应相关字符串同时存在 `pageUrls`、`imageUrls`、`imageUrl`、`picList`。`1.6.6` 解析器漏掉了复数键 `imageUrls`，与实机现象吻合。\n\n`1.6.7`：\n\n- 增加 `imageUrls`、`image_urls`、`page_urls` 正文图片键；\n- 对已识别的正文图片容器递归提取字符串叶子，兼容数组、对象和再嵌套结构；\n- 对对象项兼容 `pageUrl/imageUrl/url/picUrl/src/path/originalUrl/originUrl/hdUrl`；\n- 账号、Token、Cookie 等用户凭据仍只保存在用户本机扩展设置，不写入仓库或 CI 日志。\n'''
           if '## 2026-09-07 v1.6.7 正文解析修复' not in ds:
-              d.write_text(ds.rstrip()+note+'\n','utf-8')
+              d.write_text(ds.rstrip()+note.rstrip()+'\n','utf-8')
           PY
           git diff --check
           git diff -- src/zh/qingman docs/sources/qingman.md
