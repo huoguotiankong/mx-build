@@ -133,4 +133,45 @@ jobs:
                   if any(k in z for k in ('api/comic/','verify','unlock','vip','member','adUnlock','LoadField','StoreField','call 0x','Await','ReturnAsync','field_')):
                       print('    '+safe(z)); emitted += 1
                       if emitted>=130: break
+
+          def dump(title,start,end):
+              print(f'\n=== {title} 0x{start:x}-0x{end:x} ===')
+              pending={}
+              for ins in md.disasm(data[start-base:end-base],start):
+                  pending={r:(b,n-1) for r,(b,n) in pending.items() if n>1}
+                  op=ins.op_str.lower(); ann=''
+                  m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
+                  if ins.mnemonic=='add' and m:
+                      pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),24)
+                  elif ins.mnemonic in ('ldr','ldur','ldrsw'):
+                      m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
+                      if m:
+                          br=m.group(2); disp=int(m.group(3),0) if m.group(3) else 0
+                          off=disp if br=='x27' else (pending[br][0]+disp if br in pending else None)
+                          if off is not None and off in pp: ann=' ; '+safe(f'PP+0x{off:x} {pp[off]}')
+                  if ann or ins.mnemonic in ('bl','blr','ret','b','b.eq','b.ne','b.ls','b.hi','cbz','cbnz','tbz','tbnz') or ins.mnemonic.startswith('st'):
+                      print(f'0x{ins.address:x} {ins.mnemonic:<7} {ins.op_str}{ann}')
+
+          dump('unlock request flow',0xae52e0,0xae55d0)
+          dump('vip/reward gate',0xae5b40,0xae60a0)
+          dump('reward success reader continuation',0x48ec40,0x48ed60)
+          dump('ad unlock minutes model/service',0x45ac00,0x45ae80)
+
+          print('\n=== DECLARATIONS FOR TARGET WINDOWS ===')
+          window_targets=(0xae52e0,0xae5404,0xae54e4,0xae5c04,0xae5c20,0xae5cd8,0x48ecec,0x45adc8)
+          shown=set()
+          for f in funcs:
+              st,en,pn,decl,lines,mark=f
+              if not any(st<=t<en or abs(st-t)<=0x80 for t in window_targets):
+                  continue
+              key=(st,pn)
+              if key in shown: continue
+              shown.add(key)
+              print(f'OWNER=0x{st:x}-0x{en:x} file={pn} decl={safe(decl)}')
+              emitted=0
+              for z in lines[max(0,mark-5):min(len(lines),mark+180)]:
+                  if sensitive.search(z): continue
+                  if any(k in z for k in ('api/comic/','verify','unlock','vip','member','adUnlock','LoadField','StoreField','call 0x','Await','ReturnAsync','field_','String:')):
+                      print('  '+safe(z)); emitted+=1
+                      if emitted>=100: break
           PY
