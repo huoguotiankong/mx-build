@@ -13,27 +13,14 @@ permissions:
 jobs:
   trace:
     runs-on: ubuntu-24.04
-    timeout-minutes: 12
+    timeout-minutes: 8
     steps:
-      - name: Prepare analyzer
+      - name: Decode raw route dispatch selector
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq python3-pyelftools cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
-          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
-      - name: Restore analyzer cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            /tmp/blutter/bin
-            /tmp/blutter/dartsdk
-            /tmp/blutter/packages
-          key: qingman-blutter-dart-3.12.2-arm64-v1
-      - name: Identify route getter owners
-        shell: bash
-        run: |
-          set -euo pipefail
+          sudo apt-get install -y -qq python3-pyelftools python3-capstone >/dev/null
           python3 - <<'PY' >/tmp/apk_url
           import json,urllib.request
           a=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))['data']['datas']['android']
@@ -41,66 +28,32 @@ jobs:
           print(a['downloadUrl'])
           PY
           curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/q.apk
-          rm -rf /tmp/lib /tmp/out /tmp/x && mkdir -p /tmp/lib /tmp/out /tmp/x
-          unzip -q /tmp/q.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/x
-          cp /tmp/x/lib/arm64-v8a/libapp.so /tmp/x/lib/arm64-v8a/libflutter.so /tmp/lib/
-          cd /tmp/blutter && python3 blutter.py /tmp/lib /tmp/out >/dev/null 2>&1
+          rm -rf /tmp/x && mkdir -p /tmp/x
+          unzip -q /tmp/q.apk 'lib/arm64-v8a/libapp.so' -d /tmp/x
           python3 - <<'PY'
-          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
           import re
-          asm=Path('/tmp/out/asm')
-          targets={
-              0xaa0948:'generic_route_dispatch',
-              0x7e25d0:'interstitial_getter',
-              0x7e280c:'homeList_getter',
-              0x7e2f78:'getAdConfig_getter',
-              0x7e3010:'version_getter',
-          }
-          print('=== TARGET OWNER SUMMARY ===')
-          for target,label in targets.items():
-              needle=f'0x{target:x}'
-              hits=[]
-              for p in asm.glob('*.dart'):
-                  lines=p.read_text('utf-8',errors='replace').splitlines()
-                  for i,z in enumerate(lines):
-                      if needle not in z.lower(): continue
-                      func='?'; cls='?'; cid='?'
-                      for j in range(i,-1,-1):
-                          if func=='?' and '** addr:' in lines[j]:
-                              func=' | '.join(q.strip() for q in lines[max(0,j-2):j+1] if q.strip())
-                          if re.match(r'(?:abstract\s+)?class\s+',lines[j].strip()):
-                              cls=lines[j].strip()
-                              for k in range(max(0,j-4),j):
-                                  m=re.search(r'class id:\s*(\d+)',lines[k])
-                                  if m: cid=m.group(1)
-                              break
-                      hits.append((p.name,i+1,cid,cls,func))
-                  if hits: break
-              if hits:
-                  for p,line,cid,cls,func in hits[:3]: print(f'{label}: addr={needle} file={p} line={line} cid={cid} class={cls} fn={func}')
-              else: print(f'{label}: addr={needle} no_source_owner')
+          path='/tmp/x/lib/arm64-v8a/libapp.so'
+          with open(path,'rb') as f:
+              elf=ELFFile(f); text=elf.get_section_by_name('.text'); base=int(text['sh_addr']); data=text.data()
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.detail=True
+          def dis(start,end,title):
+              print(f'=== {title} 0x{start:x}-0x{end:x} ===')
+              for i in md.disasm(data[start-base:end-base],start):
+                  print(f'0x{i.address:x}: {i.mnemonic:<7} {i.op_str}')
+          # The generic requester asks the request descriptor for its route in this window.
+          dis(0xaa08d0,0xaa09d0,'GENERIC ROUTE DISPATCH')
+          # Known tiny route getters, useful as calibration points for the same selector.
+          for a,n in ((0x7e25d0,'interstitial'),(0x7e280c,'homeList'),(0x7e2f78,'getAdConfig'),(0x7e3010,'version')):
+              dis(a,a+0x14,'KNOWN ROUTE GETTER '+n)
+          # AppConfig request allocation + call to generic requester.
+          dis(0xb028dc,0xb02a20,'APPCONFIG FETCH PREFIX')
 
-          print('=== GENERIC ROUTE DISPATCH COMPACT ===')
-          for p in asm.glob('*.dart'):
-              lines=p.read_text('utf-8',errors='replace').splitlines()
-              hs=[i for i,z in enumerate(lines) if '0xaa0948' in z.lower()]
-              for h in hs[:2]:
-                  for q in lines[max(0,h-12):min(len(lines),h+85)]: print(q[:900])
-
-          print('=== FUNCTIONS DECLARED IN GETTER REGION ===')
-          rows=[]
-          for p in asm.glob('*.dart'):
-              lines=p.read_text('utf-8',errors='replace').splitlines()
-              cls='?'; cid='?'
-              for i,z in enumerate(lines):
-                  cm=re.search(r'class id:\s*(\d+)',z)
-                  if cm: cid=cm.group(1)
-                  if re.match(r'(?:abstract\s+)?class\s+',z.strip()): cls=z.strip()
-                  m=re.search(r'\*\* addr:\s*0x([0-9a-fA-F]+)',z)
-                  if m:
-                      a=int(m.group(1),16)
-                      if 0x7e2400<=a<=0x7e3200:
-                          fn=' | '.join(q.strip() for q in lines[max(0,i-2):i+1] if q.strip())
-                          rows.append((a,p.name,cid,cls,fn))
-          for a,p,cid,cls,fn in sorted(rows): print(f'addr=0x{a:x} file={p} cid={cid} class={cls} fn={fn}')
+          print('=== GDT CALL SHAPES IN GENERIC ROUTE WINDOW ===')
+          ins=list(md.disasm(data[0xaa08d0-base:0xaa09d0-base],0xaa08d0))
+          for idx,i in enumerate(ins):
+              if i.mnemonic=='blr':
+                  print(f'blr_at=0x{i.address:x} target={i.op_str}')
+                  for q in ins[max(0,idx-12):idx+2]: print(f'  0x{q.address:x}: {q.mnemonic} {q.op_str}')
           PY
