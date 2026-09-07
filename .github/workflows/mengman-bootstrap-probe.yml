@@ -1,4 +1,4 @@
-name: Mengman Search Shard Probe
+name: Mengman Guest Search Probe
 
 on:
   push:
@@ -13,51 +13,57 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe shard static ranking and search API
+      - name: Probe guest registration and search
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import hashlib,time,urllib.request,urllib.error
-          static='https://static.yisix.cn'
-          seed='94e890e3a45ba392c0c519ed45190a4c'
-          static_paths=[
-            '/static/comic/45/2145.zip',
-            '/static/comic/65/1565.zip',
-            '/static/ranking/update.zip',
-            '/static/ranking/view.zip',
-            '/static/ranking/favorite.zip',
-            '/static/ranking/comic/0/update.zip',
-            '/static/ranking/comic/1/update.zip',
-            '/static/ranking/comic/0/view.zip',
-            '/static/ranking/comic/1/view.zip',
-          ]
-          headers={'User-Agent':'okhttp/4.12.0','Accept':'application/json,*/*'}
-          for path in static_paths:
-              ts=str(int(time.time())); sign=hashlib.md5((seed+path+ts).encode()).hexdigest()
-              url=f'{static}{path}?ts={ts}&sign={sign}'
-              try:
-                  with urllib.request.urlopen(urllib.request.Request(url,headers=headers),timeout=30) as r:
-                      b=r.read(64); print('STATIC',path,'STATUS',r.status,'LEN',r.headers.get('content-length'),'HEAD',b.hex())
-              except urllib.error.HTTPError as e:
-                  print('STATIC',path,'HTTP',e.code,e.read(200).decode('utf-8','replace'))
-              except Exception as e: print('STATIC',path,'ERR',repr(e))
-          qs=['%E4%BB%99%E5%B8%9D','%E4%BB%99%E5%B8%9D%E5%BD%92%E6%9D%A5']
-          api_urls=[]
-          for q in qs:
-              api_urls += [
-                f'https://api.yisix.cn/api/v1/search?q={q}',
-                f'https://api.yisix.cn/api/v1/search?keyword={q}&page=1&page_size=20',
-                f'https://api.yisix.cn/search?q={q}',
-                f'https://api.yisix.cn/search/suggest?keyword={q}',
-              ]
-          api_urls += ['https://api.yisix.cn/search/hot','https://api.yisix.cn/api/v1/search/hot']
-          for url in api_urls:
-              print('\nAPI',url)
-              try:
-                  with urllib.request.urlopen(urllib.request.Request(url,headers=headers),timeout=30) as r:
-                      b=r.read(5000); print('STATUS',r.status,'TYPE',r.headers.get('content-type')); print(b.decode('utf-8','replace'))
-              except urllib.error.HTTPError as e:
-                  print('HTTP',e.code,e.read(3000).decode('utf-8','replace'))
-              except Exception as e: print('ERR',repr(e))
+          import hashlib,json,uuid,urllib.request,urllib.error
+          base='https://api.yisix.cn/api/v1/'
+          did=uuid.uuid4().hex
+          android_id=uuid.uuid4().hex[:16]
+          body={
+            'device_id':did,
+            'platform':'android',
+            'android_id_md5':hashlib.md5(android_id.encode()).hexdigest(),
+            'device_model':'Pixel 8',
+            'os_version':'16',
+            'app_version':'1.0.1',
+            'oaid':'',
+            'oaid_md5':'',
+            'fresh_guest':True,
+            'restore_device_account':True,
+            'invite_code':'',
+          }
+          common={
+            'User-Agent':'okhttp/4.12.0',
+            'Accept':'application/json',
+            'Content-Type':'application/json; charset=utf-8',
+            'X-Package':'com.mengman.app',
+            'X-App-VersionCode':'101',
+            'X-Platform':'android',
+            'X-Device-ID':did,
+            'X-Device-Model':'Pixel 8',
+            'X-OS-Version':'16',
+          }
+          def req(url,method='GET',data=None,headers=None):
+            h=dict(common); h.update(headers or {})
+            r=urllib.request.Request(url,data=(json.dumps(data,separators=(',',':')).encode() if data is not None else None),headers=h,method=method)
+            try:
+              with urllib.request.urlopen(r,timeout=30) as x:
+                b=x.read(10000); print('STATUS',x.status,'URL',url); print(b.decode('utf-8','replace')); return x.status,b
+            except urllib.error.HTTPError as e:
+              b=e.read(10000); print('HTTP',e.code,'URL',url); print(b.decode('utf-8','replace')); return e.code,b
+          print('BODY',json.dumps(body,ensure_ascii=False))
+          st,b=req(base+'auth/guest','POST',body)
+          token=''
+          try:
+            o=json.loads(b); d=o.get('data') or {}; token=d.get('token') or d.get('access_token') or ''
+          except Exception: pass
+          print('TOKEN?',bool(token),'LEN',len(token))
+          hs={'Authorization':'Bearer '+token} if token else {}
+          for kw in ['仙帝','仙帝归来','我偏要装']:
+            from urllib.parse import urlencode
+            url=base+'search?'+urlencode({'keyword':kw,'page':1,'page_size':20})
+            req(url,headers=hs)
           PY
