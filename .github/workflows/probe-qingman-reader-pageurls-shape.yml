@@ -1,0 +1,93 @@
+name: Trace Qingman Reader PageUrls Shape
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-reader-pageurls-shape.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools python3-capstone cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+      - name: Restore analyzer cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+      - name: Trace reader response model and URL consumers
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/apk_url
+          import json,urllib.request
+          print(json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))['data']['datas']['android']['downloadUrl'])
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          mkdir -p /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/apk-extract
+          cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter
+          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          root=Path('/tmp/blutter-out')
+          sensitive=re.compile(r'(?i)(password|passwd|pwd|token|cookie|authorization|bearer|private|clientp12|certificate|proof|signature|p12|seed)')
+          terms=('pageUrls','pageUrl','picList','picUrl','referer','freeLine','imageLine','imageUrl','ComicReadSelectedImageLine')
+          pp_lines=root.joinpath('pp.txt').read_text('utf-8',errors='replace').splitlines()
+          print('=== PP FIELD STRINGS ===')
+          for line in pp_lines:
+              if sensitive.search(line): continue
+              if any(t.lower() in line.lower() for t in terms):
+                  print(line[:1000])
+
+          print('\n=== ASM MODEL/SERIALIZER CONTEXT ===')
+          hits=0
+          for p in root.joinpath('asm').rglob('*.dart'):
+              lines=p.read_text('utf-8',errors='replace').splitlines()
+              idx=[i for i,s in enumerate(lines) if any(t in s for t in terms) and not sensitive.search(s)]
+              if not idx: continue
+              print(f'--- {p.name} ---')
+              emitted=set()
+              for i in idx[:12]:
+                  a=max(0,i-35); b=min(len(lines),i+75)
+                  key=(a,b)
+                  if key in emitted: continue
+                  emitted.add(key)
+                  for s in lines[a:b]:
+                      if sensitive.search(s): continue
+                      if ('class ' in s or 'String:' in s or 'TypeArguments' in s or 'LoadField' in s or 'StoreField' in s or 'Allocate' in s or 'call 0x' in s or 'List<' in s or 'Map<' in s or 'page' in s.lower() or 'referer' in s.lower() or 'line' in s.lower()):
+                          print(s[:1100])
+                  print('...')
+                  hits += 1
+                  if hits >= 30: raise SystemExit
+
+          print('\n=== OBJECT METADATA MATCHES ===')
+          for name in ('objs.txt','classes.txt','objects.txt'):
+              f=root/name
+              if not f.exists(): continue
+              print(f'-- {name} --')
+              for line in f.read_text('utf-8',errors='replace').splitlines():
+                  if sensitive.search(line): continue
+                  if any(t.lower() in line.lower() for t in terms) or 'List<String' in line:
+                      print(line[:1000])
+          PY
