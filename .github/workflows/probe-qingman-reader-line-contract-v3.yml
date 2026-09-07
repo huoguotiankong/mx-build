@@ -1,0 +1,109 @@
+name: Map Qingman Reader Selected Line Contract v3
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-reader-line-contract-v3.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  map:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev python3-pyelftools python3-capstone >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+      - uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+      - name: Map selected line and AppConfig
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/url
+          import json,urllib.request
+          a=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=30))['data']['datas']['android']
+          if (str(a.get('version','')),str(a.get('versionCode',''))) != ('4.4.5','445'): raise SystemExit('official version changed')
+          print(a['downloadUrl'])
+          PY
+          curl -fsSL --retry 2 --max-time 180 "$(cat /tmp/url)" -o /tmp/a.apk
+          rm -rf /tmp/lib /tmp/out /tmp/x; mkdir -p /tmp/lib /tmp/out /tmp/x
+          unzip -q /tmp/a.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/x
+          cp /tmp/x/lib/arm64-v8a/libapp.so /tmp/lib/; cp /tmp/x/lib/arm64-v8a/libflutter.so /tmp/lib/
+          cd /tmp/blutter && python3 blutter.py /tmp/lib /tmp/out >/tmp/b.log 2>&1
+          python3 - <<'PY'
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
+          import re
+
+          pp={}
+          for l in Path('/tmp/out/pp.txt').read_text('utf-8',errors='replace').splitlines():
+              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s+(.*)$',l)
+              if m: pp[int(m.group(1),16)]=m.group(2)
+
+          print('=== STATIC READER LABELS ===')
+          terms=('baseImgUrl','freeUrl','freeLine','ComicReadSelectedImageLine','加速线路','备用线路','comic_read_line_select','ComicReaderHD','pageUrls','referer')
+          for o,v in sorted(pp.items()):
+              if any(t.lower() in v.lower() for t in terms): print(f'PP+0x{o:x} {v[:320]}')
+
+          print('=== BLUTTER TEXT REFERENCES ===')
+          for p in Path('/tmp/out').rglob('*'):
+              if not p.is_file() or p.name=='pp.txt': continue
+              try: lines=p.read_text('utf-8',errors='replace').splitlines()
+              except Exception: continue
+              hits=[]
+              for i,line in enumerate(lines):
+                  if any(t in line for t in ('baseImgUrl','freeUrl','freeLine','ComicReadSelectedImageLine')):
+                      hits.append((i,line))
+              if hits:
+                  print('FILE='+str(p.relative_to('/tmp/out')))
+                  for i,line in hits[:30]: print(f'{i+1}: {line[:500]}')
+
+          with open('/tmp/lib/libapp.so','rb') as f:
+              e=ELFFile(f); s=e.get_section_by_name('.text'); base=int(s['sh_addr']); data=s.data()
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.skipdata=True
+          safe_terms=('baseImgUrl','freeUrl','freeLine','ComicReadSelectedImageLine','加速线路','备用线路','ComicReaderHD','pageUrls','referer','comicId','chapterId','type','线路','图片')
+          def window(title,start,end):
+              print(f'=== {title} 0x{start:x}-0x{end:x} ===')
+              pending={}; emitted=0
+              for ins in md.disasm(data[start-base:end-base],start):
+                  pending={r:(b,n-1) for r,(b,n) in pending.items() if n>1}
+                  op=ins.op_str.lower(); anns=[]
+                  m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
+                  if ins.mnemonic=='add' and m: pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),36)
+                  if ins.mnemonic in ('ldr','ldur','ldrsw'):
+                      m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
+                      if m:
+                          br=m.group(2); d=int(m.group(3),0) if m.group(3) else 0
+                          off=d if br=='x27' else (pending[br][0]+d if br in pending else None)
+                          if off in pp:
+                              v=pp[off]
+                              if not v.startswith('String:') or any(t.lower() in v.lower() for t in safe_terms): anns.append(f'PP+0x{off:x}={v[:180]}')
+                  ctrl=ins.mnemonic in ('bl','blr','b','ret','cbz','cbnz','tbz','tbnz') or ins.mnemonic.startswith('b.')
+                  imm=ins.mnemonic in ('mov','movz','cmp','subs','adds')
+                  if anns or ctrl or imm:
+                      print((f'0x{ins.address:x}: {ins.mnemonic:<7} {ins.op_str:<46}'+((' ; '+' | '.join(anns)) if anns else ''))[:650])
+                      emitted+=1
+                      if emitted>1200: print('TRUNCATED'); break
+
+          window('selected-line-pref-and-decision',0x48ef90,0x48f390)
+          window('selected-line-secondary-xref',0x642350,0x642510)
+          window('appconfig-json-A',0x4cfe40,0x4cff50)
+          window('appconfig-json-B',0x4d0380,0x4d0520)
+          window('reader-model-pageurls-referer-A',0x45f2c0,0x45f460)
+          window('reader-model-pageurls-referer-B',0x460000,0x460760)
+          PY
