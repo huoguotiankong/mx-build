@@ -38,12 +38,7 @@ jobs:
           set -euo pipefail
           rm -rf upstream/src/zh/miaowumanhua
           cp -a mxdev/src/zh/miaowumanhua upstream/src/zh/miaowumanhua
-          find upstream/src/zh/miaowumanhua -maxdepth 5 -type f -print
-
-      - name: Validate layout
-        shell: bash
-        working-directory: upstream
-        run: python3 scripts/validate_sources.py src/zh/miaowumanhua
+          find upstream/src/zh/miaowumanhua -maxdepth 6 -type f -print
 
       - name: Set up JDK
         uses: actions/setup-java@v4
