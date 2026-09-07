@@ -1,0 +1,117 @@
+name: Probe Mengman guest auth v8
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-mengman-guest-auth-v8.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Verify guest session and nonce challenge without logging credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, urllib.error, urllib.parse, urllib.request, uuid
+
+          base='https://api.yisix.cn'
+          device='mxprobe-'+uuid.uuid4().hex
+          android_md5=hashlib.md5(device.encode()).hexdigest()
+          common={
+              'Content-Type':'application/json',
+              'X-Platform':'android',
+              'X-App-Version':'1.0.1',
+              'X-App-VersionCode':'101',
+              'X-App-Name':'com.mengman.app',
+              'X-Package':'com.mengman.app',
+              'X-Channel':'official',
+              'X-Device-Model':'Android',
+              'X-OS-Version':'16',
+              'X-Device-ID':device,
+              'User-Agent':'okhttp/4.12.0',
+              'Accept':'application/json, text/plain, */*',
+          }
+
+          def request(path, method='GET', body=None, headers=None):
+              h=dict(common); h.update(headers or {})
+              data=None if body is None else json.dumps(body,separators=(',',':')).encode()
+              req=urllib.request.Request(base+path,data=data,headers=h,method=method)
+              try:
+                  with urllib.request.urlopen(req,timeout=30) as r:
+                      raw=r.read().decode('utf-8','replace'); status=r.status
+              except urllib.error.HTTPError as e:
+                  raw=e.read().decode('utf-8','replace'); status=e.code
+              try: obj=json.loads(raw)
+              except Exception: obj=None
+              return status,obj,raw
+
+          challenge_body={'device_id':device,'package_name':'com.mengman.app'}
+          st,ch,raw=request('/api/v1/sign/challenge','POST',challenge_body,{'X-Sign-Capability':'nonce-v1'})
+          print('CHALLENGE_STATUS',st)
+          if isinstance(ch,dict):
+              d=ch.get('data') or {}
+              print('CHALLENGE_CODE',ch.get('code'),'MESSAGE',ch.get('message'))
+              print('CHALLENGE_FIELDS',sorted(d.keys()) if isinstance(d,dict) else type(d).__name__)
+              if isinstance(d,dict):
+                  print('CHALLENGE_NONCE_ID_LEN',len(str(d.get('nonce_id') or '')))
+                  print('CHALLENGE_NONCE_LEN',len(str(d.get('nonce') or '')))
+                  print('CHALLENGE_EXPIRES_AT',d.get('expires_at'))
+                  print('CHALLENGE_MAX_SEQ',d.get('max_seq'))
+          else:
+              print('CHALLENGE_BODY_PREFIX',raw[:300])
+
+          guest_body={
+              'device_id':device,
+              'platform':1,
+              'android_id_md5':android_md5,
+              'device_model':'Android',
+              'os_version':'16',
+              'app_version':'1.0.1',
+              'fresh_guest':True,
+              'restore_device_account':False,
+          }
+          st,g,raw=request('/api/v1/auth/guest','POST',guest_body)
+          print('\nGUEST_STATUS',st)
+          token=''
+          if isinstance(g,dict):
+              print('GUEST_CODE',g.get('code'),'MESSAGE',g.get('message'))
+              d=g.get('data')
+              print('GUEST_DATA_TYPE',type(d).__name__)
+              if isinstance(d,dict):
+                  print('GUEST_DATA_KEYS',sorted(d.keys()))
+                  token=str(d.get('token') or '')
+                  u=d.get('user') or {}
+                  if isinstance(u,dict): print('GUEST_USER_KEYS',sorted(u.keys())[:40])
+              print('GUEST_TOKEN_PRESENT',bool(token),'LEN',len(token),'SHA256_PREFIX',hashlib.sha256(token.encode()).hexdigest()[:16] if token else '')
+          else:
+              print('GUEST_BODY_PREFIX',raw[:300])
+
+          if token:
+              auth={'Authorization':'Bearer '+token}
+              tests=[
+                  ('category',{'page':1,'size':20,'category_id':1}),
+                  ('update',{'page':1,'size':20,'sort':'update'}),
+                  ('hot',{'page':1,'size':20,'sort':'hot'}),
+                  ('keyword',{'page':1,'size':20,'keyword':'仙帝归来'}),
+              ]
+              for label,params in tests:
+                  path='/api/v1/comics?'+urllib.parse.urlencode(params)
+                  st,j,raw=request(path,'GET',None,auth)
+                  print('\nCOMICS',label,'STATUS',st)
+                  if isinstance(j,dict):
+                      d=j.get('data') or {}; lst=d.get('list') if isinstance(d,dict) else None
+                      print('COMICS_CODE',j.get('code'),'MESSAGE',j.get('message'),'LIST_LEN',len(lst) if isinstance(lst,list) else 'n/a','TOTAL',d.get('total') if isinstance(d,dict) else None)
+                      if isinstance(lst,list) and lst and isinstance(lst[0],dict):
+                          sample={k:lst[0].get(k) for k in ['id','title','cover','latest_chapter','serial_status'] if k in lst[0]}
+                          print('COMICS_SAMPLE',json.dumps(sample,ensure_ascii=False)[:800])
+                  else:
+                      print('COMICS_BODY_PREFIX',raw[:300])
+          PY
