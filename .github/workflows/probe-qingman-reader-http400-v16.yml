@@ -57,7 +57,7 @@ jobs:
             exit 1
           fi
           echo "blutter_files=$(find /tmp/blutter-out -type f | wc -l)"
-          find /tmp/blutter-out -maxdepth 2 -type f -printf '%p %s\n' | head -80
+          find /tmp/blutter-out -maxdepth 2 -type f -printf '%p %s\n' | head -80 || true
 
       - name: Trace reader URL, transforms and image request contract
         shell: bash
@@ -119,7 +119,6 @@ jobs:
               if key in focus_names:
                   focus.append((idx,addr,off,key))
 
-          # Include known reader/parser/image-provider addresses from previous successful xref probes.
           known=[0x45f368,0x45f398,0x460080,0x46068c,0x489d3c,0x48f000,0x4cfec8,0x4cfee0,0x7637e8,0x7639e4,0xaccfbc,0xb072b0,0xb681d8]
           addr_to_idx={int(i.address):n for n,i in enumerate(insns)}
           for addr in known:
@@ -136,16 +135,8 @@ jobs:
               print(f'--- around 0x{addr:x} trigger={key} ---')
               for j in range(lo,hi):
                   ins=insns[j]
-                  extra=''
-                  op=ins.op_str.lower()
-                  # annotate direct pp loads seen in the local window
-                  for po,pv in targets.items():
-                      if f'#0x{po:x}' in op and 'x27' in op:
-                          extra=' ; PP '+pv[:120]
-                          break
-                  print(f'0x{ins.address:x}: {ins.mnemonic:8s} {ins.op_str}{extra}')
+                  print(f'0x{ins.address:x}: {ins.mnemonic:8s} {ins.op_str}')
 
-          # Safe semantic contexts directly from generated files, with sensitive values redacted.
           deny=re.compile(r'(?i)(password|passwd|pwd|cookie|authorization|bearer|clientp12|privatekey|certificate|keystore|storepassword|keypassword)')
           terms=('pageUrls','referer','baseImgUrl','freeUrl','freeLine','ComicReadSelectedImageLine','claimedImageUrl','decryptImage','QxComicCacheImageProvider','signature_url','x-custom-timestamp','x-custom-signature','X-Signature')
           print('\n=== GENERATED TEXT CONTEXT ===')
