@@ -1,4 +1,4 @@
-name: Probe Qingman Runtime Public Hosts x86_64
+name: Probe Qingman Persisted AppConfig x86_64
 
 on:
   push:
@@ -28,23 +28,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo "HOST_ARCH=$(uname -m)"
           python3 - <<'PY' > /tmp/apk_url
-          import json, urllib.request
-          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
-          a=o['data']['datas']['android']
+          import json, urllib.request, sys
+          a=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))['data']['datas']['android']
+          if str(a.get('version'))!='4.4.5' or str(a.get('versionCode'))!='445': raise SystemExit('Unexpected Qingman version')
           print(a['downloadUrl'])
-          print('version='+str(a.get('version','')), file=__import__('sys').stderr)
-          print('versionCode='+str(a.get('versionCode','')), file=__import__('sys').stderr)
+          print('official_version=4.4.5', file=sys.stderr)
           PY
           curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(head -1 /tmp/apk_url)" -o /tmp/qingman.apk
           AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -1)"
           QM_PKG="$("$AAPT" dump badging /tmp/qingman.apk | sed -n "s/package: name='\([^']*\)'.*/\1/p" | head -1)"
           test -n "$QM_PKG"
           echo "QM_PKG=$QM_PKG" >> "$GITHUB_ENV"
-          unzip -Z1 /tmp/qingman.apk | sed -n 's#^lib/\([^/]*\)/.*#\1#p' | sort -u
+          echo "official_package=$QM_PKG"
 
-      - name: Run official app and capture only public host/config clues
+      - name: Run official app and inspect persisted AppConfig only
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
@@ -52,26 +50,63 @@ jobs:
           profile: pixel_6
           disable-animations: true
           emulator-boot-timeout: 600
-          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-metrics
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-metrics -writable-system
           script: |
-            set -u
-            echo "runtime_host_arch=$(uname -m)"
+            set -euo pipefail
             adb wait-for-device
-            echo "device_abi=$(adb shell getprop ro.product.cpu.abi)"
             adb install -r /tmp/qingman.apk
-            adb logcat -c
             adb shell am force-stop "$QM_PKG" || true
-            adb shell monkey -p "$QM_PKG" -c android.intent.category.LAUNCHER 1 >/tmp/monkey.log 2>&1 || true
-            echo '=== MONKEY ==='
-            tail -40 /tmp/monkey.log || true
-            sleep 45
-            echo '=== APP PROCESS ==='
-            adb shell pidof "$QM_PKG" || true
-            echo '=== SAFE RUNTIME DOMAIN LOGS ==='
-            adb logcat -d -v brief \
-              | grep -Ei 'bootstrap:|apiDomain|baseImgUrl|freeUrl|customerUrl|officialUrl|promotionUrl|comic.*(host|domain|url)|image.*(host|domain|url)' \
-              | sed -E 's/(token|access|proof|signature|sign|password|cookie|authorization)[=:][^ ]+/\1=<redacted>/Ig' \
-              | grep -Eiv 'clientp12|privatekey|certificate|keystore' \
-              | tail -300 || true
-            echo '=== LOGCAT HOSTNAMES ==='
-            adb logcat -d -v brief | grep -Eio '([a-z0-9-]+\.)+[a-z]{2,}' | grep -Ei 'qingman|zermh|mhxiaomidi|dmzj|pwpni|urlg|f37|comic|manhua|img|cdn' | sort -u | head -300 || true
+            adb shell monkey -p "$QM_PKG" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1 || true
+            sleep 55
+            echo "app_process=$(adb shell pidof "$QM_PKG" || true)"
+
+            adb root >/tmp/adb-root.txt 2>&1 || true
+            sleep 3
+            adb wait-for-device
+            echo '=== DATA FILE INVENTORY ==='
+            adb shell "find /data/user/0/$QM_PKG /data/data/$QM_PKG -maxdepth 5 -type f 2>/dev/null | sed 's#^/data/user/0/'\"$QM_PKG\"'#<app-data>#; s#^/data/data/'\"$QM_PKG\"'#<app-data>#' | sort -u" | head -300 || true
+
+            rm -rf /tmp/qmdata && mkdir -p /tmp/qmdata
+            adb pull "/data/user/0/$QM_PKG" /tmp/qmdata >/dev/null 2>&1 || adb pull "/data/data/$QM_PKG" /tmp/qmdata >/dev/null 2>&1 || true
+
+            python3 - <<'PY'
+            from pathlib import Path
+            import re
+            root=Path('/tmp/qmdata')
+            key=b'baseImgUrl'
+            files=[]
+            for p in root.rglob('*'):
+                if not p.is_file(): continue
+                try:
+                    data=p.read_bytes()
+                except Exception:
+                    continue
+                if key in data or b'AppConfig' in data:
+                    files.append((p,data))
+            print('appconfig_candidate_files='+str(len(files)))
+            deny=re.compile(rb'(?i)(token|authorization|bearer|cookie|password|secret|private|clientp12|certificate|keystore|proof|signature)')
+            url_re=re.compile(rb'https?://[A-Za-z0-9._:-]+(?:/[A-Za-z0-9._~!$&()*+,;=:@%/?#\-]*)?')
+            host_re=re.compile(rb'(?i)(?:[a-z0-9-]+\.)+[a-z]{2,}')
+            found=[]
+            for p,data in files:
+                rel=str(p.relative_to(root))
+                print('candidate_file='+rel[:220]+' bytes='+str(len(data)))
+                for m in re.finditer(key,data):
+                    lo=max(0,m.start()-512); hi=min(len(data),m.end()+1536); chunk=data[lo:hi]
+                    for u in url_re.findall(chunk):
+                        if deny.search(u): continue
+                        s=u.decode('utf-8','ignore').rstrip('\x00')
+                        if s and s not in found: found.append(s)
+                    # Some Hive values are stored as host only instead of a full URL.
+                    for h in host_re.findall(chunk):
+                        if deny.search(h): continue
+                        s=h.decode('ascii','ignore').lower()
+                        if s and s not in found and any(x in s for x in ('img','cdn','comic','manhua','qingman','dmzj','mh')):
+                            found.append(s)
+            print('safe_baseimg_candidates='+str(len(found)))
+            for i,s in enumerate(found[:30],1):
+                # Only public URL/hostname candidates near literal baseImgUrl are emitted.
+                print(f'baseimg_candidate_{i}={s[:240]}')
+            if not found:
+                print('baseimg_candidate_found=false')
+            PY
