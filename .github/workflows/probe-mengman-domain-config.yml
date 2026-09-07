@@ -1,0 +1,32 @@
+name: Probe Mengman domain config
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-mengman-domain-config.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Probe public domain config
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, urllib.request
+          url='https://static.yisix.cn/static/config/domain.json'
+          req=urllib.request.Request(url,headers={'User-Agent':'okhttp/4.12.0','Accept':'application/json,*/*'})
+          with urllib.request.urlopen(req,timeout=20) as r:
+              raw=r.read()
+              print('HTTP',r.status,'BYTES',len(raw),'CONTENT_TYPE',r.headers.get('Content-Type'))
+          data=json.loads(raw.decode('utf-8'))
+          print('TYPE',type(data).__name__)
+          print('JSON',json.dumps(data,ensure_ascii=False,sort_keys=True,indent=2)[:12000])
+          PY
