@@ -1,0 +1,120 @@
+name: Probe Qingman Search And Reader Contract
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-search-reader-v7.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Resolve current official APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/qm_version
+          import json,urllib.request
+          a=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))['data']['datas']['android']
+          print(a['downloadUrl']); print(a.get('version','')); print(a.get('versionCode',''))
+          PY
+          sed -n '2,3p' /tmp/qm_version | paste -sd ' ' - | sed 's/^/official_version=/'
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(head -1 /tmp/qm_version)" -o /tmp/qingman.apk
+          mkdir -p /tmp/qm-native
+          unzip -q -j /tmp/qingman.apk 'lib/arm64-v8a/libqx_security.so' 'lib/arm64-v8a/libapp.so' -d /tmp/qm-native
+
+      - name: Inspect safe current search and reader literals
+        shell: bash
+        run: |
+          set -euo pipefail
+          strings -a -n 4 /tmp/qm-native/libapp.so > /tmp/qm_strings
+          echo '=== SEARCH ROUTES/LITERALS ==='
+          grep -Eai 'api/comic/.{0,80}search|Search comic failed|ComicSearchUseWebApi|comic_search_|keyword|/comic/search' /tmp/qm_strings | sort -u | head -n 120 || true
+          echo '=== READER FIELD LITERALS ==='
+          grep -Eai '^(pageUrls|pageUrl|imageUrls|imageUrl|picList|picUrl|images|imageList|contentUrls|chapterPics|chapterImages|imgList|imgUrls|freeLine|freeUrl|currentLine|lineUrl|urlList)$' /tmp/qm_strings | sort -u || true
+
+      - name: Bootstrap and probe search endpoint variants
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools python3-cryptography >/dev/null
+          python3 - <<'PY'
+          import base64,hashlib,json,time,urllib.error,urllib.parse,urllib.request,uuid
+          from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+          from elftools.elf.elffile import ELFFile
+
+          SO='/tmp/qm-native/libqx_security.so'; BOOT='https://mu8xm4cx.zermh.com/bootstrap/domain'
+          with open(SO,'rb') as f:
+              elf=ELFFile(f)
+              def read_va(va,n):
+                  for seg in elf.iter_segments():
+                      if seg['p_type']!='PT_LOAD': continue
+                      s=int(seg['p_vaddr']); e=s+int(seg['p_filesz'])
+                      if s<=va and va+n<=e:
+                          f.seek(int(seg['p_offset'])+va-s); return f.read(n)
+                  raise RuntimeError('VA not file-backed')
+              seed=read_va(0x14a40,16)+read_va(0x14af0,16)
+              sc=read_va(0x17d1f,33); ac=read_va(0x17d40,32)
+          base=hashlib.sha256(seed).digest()
+          def deob(c,k):
+              out=b''; i=0
+              while len(out)<len(c): out+=hashlib.sha256(base+bytes([k])+i.to_bytes(4,'big')).digest(); i+=1
+              return bytes(x^y for x,y in zip(c,out))
+          sm=deob(sc,1); aes=deob(ac,2)
+          did=uuid.uuid4().hex; ts=str(int(time.time()*1000)); nonce=uuid.uuid4().hex
+          sig=hashlib.sha256(ts.encode()+nonce.encode()+did.encode()+sm).hexdigest()
+          bh={'Content-Type':'application/json','Accept':'application/json, text/plain, */*','User-Agent':'qingman/4.4.5 (Android)','appVersion':'4.4.5','platform':'android','X-Device-Id':did}
+          bdata=json.dumps({'timestamp':ts,'nonce':nonce,'sign':sig,'deviceId':did},separators=(',',':')).encode()
+          br=json.load(urllib.request.urlopen(urllib.request.Request(BOOT,data=bdata,headers=bh),timeout=20))
+          enc=br['data']; payload=base64.urlsafe_b64decode(enc+'='*((4-len(enc)%4)%4))
+          cfg=json.loads(AESGCM(aes).decrypt(payload[:12],payload[12:],(ts+'|'+nonce).encode()).decode())
+          host=urllib.parse.urlsplit(cfg['apiDomain']).hostname; access=cfg['appAccessToken']
+          baseurl='http://'+host
+          h={'Accept':'application/json, text/plain, */*','Content-Type':'application/json','User-Agent':'qingman/4.4.5 (Android)','appVersion':'4.4.5','platform':'android','X-Device-Id':did,'X-QM-App-Access':access}
+          print('bootstrap_ok=true dynamic_host='+host+' sensitive_fields_logged=false')
+
+          def req(method,path,query=None,body=None):
+              u=baseurl+'/'+path
+              if query: u+='?'+urllib.parse.urlencode(query)
+              data=None if body is None else json.dumps(body,separators=(',',':')).encode()
+              r=urllib.request.Request(u,data=data,headers=h,method=method)
+              try:
+                  with urllib.request.urlopen(r,timeout=20) as x: return x.status,x.read(200000)
+              except urllib.error.HTTPError as e: return e.code,e.read(200000)
+              except Exception as e: return 0,str(e).encode()
+
+          def summarize(raw):
+              try:
+                  o=json.loads(raw.decode('utf-8','replace'))
+                  def clean(v,depth=0):
+                      if depth>5: return '<depth>'
+                      if isinstance(v,dict):
+                          out={}
+                          for k,x in v.items():
+                              if any(t in k.lower() for t in ('token','proof','sign','password')): out[k]='<redacted>'
+                              else: out[k]=clean(x,depth+1)
+                          return out
+                      if isinstance(v,list): return [clean(x,depth+1) for x in v[:8]]
+                      return v
+                  return json.dumps(clean(o),ensure_ascii=False,separators=(',',':'))[:5000]
+              except Exception: return raw.decode('utf-8','replace')[:1000]
+
+          query='一人之下'
+          candidates=[
+              ('POST','api/comic/history/fu893u94/search',{'keyword':query,'page':'1','pageNum':'1','pageSize':'20','size':'20'},{}),
+              ('GET','api/comic/history/fu893u94/search',{'keyword':query,'page':'1','pageNum':'1','pageSize':'20','size':'20'},None),
+              ('POST','api/comic/history/fu893u94/search',{}, {'keyword':query,'page':1,'pageNum':1,'pageSize':20,'size':20}),
+              ('POST','api/comic/categories/comicList',{'keyword':query,'page':'1','pageNum':'1','pageSize':'20','size':'20'},{}),
+              ('POST','api/comic/categories/comicList',{}, {'keyword':query,'page':1,'pageNum':1,'pageSize':20,'size':20}),
+          ]
+          for method,path,q,b in candidates:
+              st,raw=req(method,path,q,b)
+              print(f'PROBE method={method} path={path} query_keys={sorted(q.keys())} body_keys={sorted((b or {}).keys())} http={st} body={summarize(raw)}')
+          PY
