@@ -1,0 +1,114 @@
+name: Probe Qingman v17 Reader Disasm Contract
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-v17-disasm-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  disasm:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev python3-pyelftools python3-capstone >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+      - uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+      - name: Distill disassembly contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/apk_url
+          import json,urllib.request
+          a=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=30))['data']['datas']['android']
+          if (str(a.get('version','')),str(a.get('versionCode',''))) != ('4.4.5','445'): raise SystemExit('official version changed')
+          print(a['downloadUrl'])
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/out /tmp/x && mkdir -p /tmp/app-lib /tmp/out /tmp/x
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/x
+          cp /tmp/x/lib/arm64-v8a/libapp.so /tmp/app-lib/; cp /tmp/x/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter && python3 blutter.py /tmp/app-lib /tmp/out >/tmp/blutter.log 2>&1
+          cd "$GITHUB_WORKSPACE" && mkdir -p reports
+          python3 - <<'PY'
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
+          import re
+          pp={}
+          for line in Path('/tmp/out/pp.txt').read_text('utf-8',errors='replace').splitlines():
+              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s+(.*)$',line)
+              if m: pp[int(m.group(1),16)]=m.group(2)
+          names={}
+          text=Path('/tmp/out/ida_script/addNames.py').read_text('utf-8',errors='replace')
+          for m in re.finditer(r'set_name\((0x[0-9a-fA-F]+|\d+),\s*[ru]?([\'\"])(.*?)\2',text):
+              try: names[int(m.group(1),0)]=m.group(3)
+              except: pass
+          with open('/tmp/app-lib/libapp.so','rb') as f:
+              elf=ELFFile(f); sec=elf.get_section_by_name('.text'); base=int(sec['sh_addr']); data=sec.data()
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.skipdata=True
+          windows=[
+              (0xacce80,0xacd500,'reader image request/download'),
+              (0x3b5f80,0x3b6320,'API guard/proof headers'),
+              (0x4cfd80,0x4d0580,'AppConfig baseImgUrl/freeUrl consumers'),
+              (0x488c00,0x490800,'reader line selection'),
+          ]
+          out=[]
+          def log(s): out.append(str(s)); print(s)
+          deny=re.compile(r'(?i)(password|passwd|pwd|authorization|bearer|cookie|privatekey|certificate|appaccesstoken)')
+          for start,end,label in windows:
+              log(f'===== {label} 0x{start:x}-0x{end:x} =====')
+              pending={}
+              for ins in md.disasm(data[start-base:end-base],start):
+                  pending={r:(v,n-1) for r,(v,n) in pending.items() if n>1}
+                  op=ins.op_str.lower(); ann=[]
+                  m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
+                  if ins.mnemonic=='add' and m:
+                      pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),48)
+                  if ins.mnemonic in ('ldr','ldur','ldrsw'):
+                      m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
+                      if m:
+                          br=m.group(2); d=int(m.group(3),0) if m.group(3) else 0
+                          off=d if br=='x27' else (pending[br][0]+d if br in pending else None)
+                          if off in pp:
+                              val=pp[off]
+                              if deny.search(val): val='<redacted-sensitive-pp>'
+                              ann.append(f'PP+0x{off:x}={val[:210]}')
+                  if ins.mnemonic=='bl':
+                      mm=re.match(r'#(0x[0-9a-f]+|\d+)',op)
+                      if mm:
+                          tgt=int(mm.group(1),0)
+                          if tgt in names: ann.append('CALL='+names[tgt][:180])
+                  # Keep all control-flow and annotated lines plus target neighborhoods.
+                  important=bool(ann) or ins.mnemonic in ('bl','blr','ret','cbz','cbnz','tbz','tbnz') or ins.mnemonic.startswith('b.')
+                  if important:
+                      log((f'0x{ins.address:x}: {ins.mnemonic:<7} {ins.op_str:<46}'+((' ; '+' | '.join(ann)) if ann else ''))[:900])
+          Path('reports/qingman-v17-disasm-contract.txt').write_text('\n'.join(out)+'\n',encoding='utf-8')
+          PY
+      - name: Commit redacted disassembly report
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add reports/qingman-v17-disasm-contract.txt
+          if git diff --cached --quiet; then echo 'No report changes'; else git commit -m 'probe(qingman): record v17 disasm contract'; git push origin HEAD:main; fi
