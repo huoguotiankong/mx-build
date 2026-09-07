@@ -1,0 +1,139 @@
+name: Trace Qingman AppConfig Route Getter
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-gdt-route.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trace:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools python3-capstone cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+      - name: Restore analyzer cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+      - name: Trace route getter and PP xrefs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/apk_url
+          import json,urllib.request
+          a=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))['data']['datas']['android']
+          if str(a.get('version'))!='4.4.5' or str(a.get('versionCode'))!='445': raise SystemExit('Unexpected Qingman version')
+          print(a['downloadUrl'])
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          mkdir -p /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/apk-extract
+          cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter
+          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
+          python3 - <<'PY'
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
+          import re
+
+          deny=re.compile(r'(?i)(password|token|authorization|bearer|cookie|secret|private|clientp12|certificate|keystore|proof|signature|sign/key|seed|k1a|k1b|k2a|k2b|k3a|k3b)')
+          root=Path('/tmp/blutter-out')
+          asm=root/'asm'
+          pp={}
+          for line in (root/'pp.txt').read_text('utf-8',errors='replace').splitlines():
+              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s+(.*)$',line)
+              if m: pp[int(m.group(1),16)]=m.group(2)
+
+          print('=== BLUTTER OUTPUT FILES ===')
+          for p in sorted(root.iterdir()): print(p.name)
+
+          def source_hits(addr):
+              needle=f'0x{addr:x}'
+              for p in asm.glob('*.dart'):
+                  lines=p.read_text('utf-8',errors='replace').splitlines()
+                  hs=[i for i,z in enumerate(lines) if needle in z.lower()]
+                  for h in hs[:6]:
+                      print(f'=== SOURCE HIT {needle} FILE={p.name} LINE={h+1} ===')
+                      for q in lines[max(0,h-90):min(len(lines),h+260)]:
+                          if not deny.search(q): print(q[:900])
+          for a in (0xaa0250,0xaa0948,0xaa1538,0x3e9f24): source_hits(a)
+
+          with open('/tmp/app-lib/libapp.so','rb') as f:
+              elf=ELFFile(f); sec=elf.get_section_by_name('.text'); base=int(sec['sh_addr']); data=sec.data()
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.skipdata=True
+          ins=list(md.disasm(data,base))
+
+          # Locate actual machine-code references to selected known route strings. This gives us
+          # concrete getter implementations to compare against txb's route getter selector.
+          route_names=(
+              'api/radio/api/config/version',
+              'api/radio/api/config/getAdConfig',
+              'api/radio/api/config/homepage/interstitial',
+              'api/comic/comics/v1/homeList',
+              'api/comic/categories/list',
+          )
+          route_off={}
+          for off,val in pp.items():
+              m=re.match(r'String: "([^"]+)"',val)
+              if m and m.group(1) in route_names: route_off[m.group(1)]=off
+          print('=== RAW PP XREFS FOR KNOWN ROUTES ===')
+          # Recognize common PP load pair: add Xn, PP, #imm, lsl #12; ldr Xn,[Xn,#disp]
+          for name,off in route_off.items():
+              print(f'ROUTE={name} PP=0x{off:x}')
+              hits=[]
+              regs={}
+              for idx,x in enumerate(ins):
+                  # expire remembered high portions quickly
+                  regs={r:(b,n-1) for r,(b,n) in regs.items() if n>1}
+                  op=x.op_str.lower()
+                  m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
+                  if x.mnemonic=='add' and m:
+                      regs[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),8)
+                      continue
+                  if x.mnemonic in ('ldr','ldur'):
+                      m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(0x[0-9a-f]+|\d+))?\]',op)
+                      if m and m.group(2) in regs:
+                          got=regs[m.group(2)][0]+(int(m.group(3),0) if m.group(3) else 0)
+                          if got==off: hits.append(idx)
+              for h in hits[:12]:
+                  print(f'  HIT=0x{ins[h].address:x}')
+                  for q in ins[max(0,h-12):min(len(ins),h+18)]: print(f'    0x{q.address:x} {q.mnemonic} {q.op_str}')
+
+          print('=== GDT SELECTOR 0xBEBA CALLS ===')
+          # All route-getter GDT call sites use this selector; list source context and raw address.
+          pat=re.compile(r'movz\s+x17,\s*#0xbeba\b',re.I)
+          for p in asm.glob('*.dart'):
+              lines=p.read_text('utf-8',errors='replace').splitlines()
+              for i,z in enumerate(lines):
+                  if pat.search(z):
+                      print(f'FILE={p.name} LINE={i+1}')
+                      for q in lines[max(0,i-25):min(len(lines),i+35)]:
+                          if not deny.search(q): print(q[:850])
+
+          print('=== TXB / CID 992 REFERENCES OUTSIDE CLASS DECL ===')
+          for name in ('objs.txt','pp.txt'):
+              lines=(root/name).read_text('utf-8',errors='replace').splitlines()
+              hs=[i for i,z in enumerate(lines) if re.search(r'\btxb\b',z,re.I) or re.search(r'\b992\b',z)]
+              for h in hs[:30]:
+                  print(f'FILE={name} LINE={h+1}')
+                  for q in lines[max(0,h-8):min(len(lines),h+20)]:
+                      if not deny.search(q): print(q[:800])
+          PY
