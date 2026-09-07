@@ -1,0 +1,108 @@
+name: Probe Qingman v17 Reader Function Contract
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-v17-reader-function-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  map:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev python3-pyelftools python3-capstone >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+      - uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+      - name: Map exact functions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/apk_url
+          import json,urllib.request
+          a=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=30))['data']['datas']['android']
+          if (str(a.get('version','')),str(a.get('versionCode',''))) != ('4.4.5','445'): raise SystemExit('official version changed')
+          print(a['downloadUrl'])
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/out /tmp/x
+          mkdir -p /tmp/app-lib /tmp/out /tmp/x
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/x
+          cp /tmp/x/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/x/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter && python3 blutter.py /tmp/app-lib /tmp/out >/tmp/blutter.log 2>&1
+          cd "$GITHUB_WORKSPACE"
+          mkdir -p reports
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          targets={
+            0x45f368:'pageUrls parser xref A',0x460080:'pageUrls parser xref B',
+            0x489d3c:'freeLine reader selector',0x48f000:'selected image line',
+            0x4cfec8:'baseImgUrl consumer A',0x4d0434:'baseImgUrl consumer B',
+            0xaccfbc:'reader/download Referer xref',0xacd0ac:'image request construction',
+            0xacd2ac:'download status log',0xacd328:'download failure log',
+            0xb072b0:'decryptImage',0x3b6158:'proof header set xref',0x8a2b10:'cache image provider'
+          }
+          deny=re.compile(r'(?i)(password|passwd|pwd|authorization|bearer|cookie|clientp12|privatekey|certificate|keystore|storepassword|keypassword|qm_auth_token|appaccesstoken)')
+          addr_re=re.compile(r'// \*\* addr: 0x([0-9a-fA-F]+), size: 0x([0-9a-fA-F]+)')
+          funcs=[]
+          for p in Path('/tmp/out/asm').glob('*.dart'):
+              lines=p.read_text('utf-8',errors='replace').splitlines(); starts=[]
+              for i,line in enumerate(lines):
+                  m=addr_re.search(line)
+                  if m: starts.append((i,int(m.group(1),16),int(m.group(2),16)))
+              for n,(i,a,size) in enumerate(starts):
+                  end=starts[n+1][0] if n+1<len(starts) else len(lines)
+                  funcs.append((a,a+size,p,lines,i,end))
+          out=[]
+          def log(s): out.append(str(s)); print(s)
+          for target,label in targets.items():
+              log(f'===== {label} target=0x{target:x} =====')
+              matches=[f for f in funcs if f[0] <= target < f[1]]
+              if not matches:
+                  log('NO_BLUTTER_FUNCTION'); continue
+              a,b,p,lines,i,end=min(matches,key=lambda f:f[1]-f[0])
+              log(f'FILE={p.name} FUNCTION=0x{a:x}-0x{b:x} SIZE=0x{b-a:x}')
+              # Find exact/nearest address line inside the function, then include declaration + tight window.
+              addr_line=None
+              for j in range(i,end):
+                  if f'0x{target:x}' in lines[j].lower(): addr_line=j; break
+              ranges=[(max(0,i-3),min(end,i+18))]
+              if addr_line is not None: ranges.append((max(i,addr_line-24),min(end,addr_line+36)))
+              seen=set()
+              for lo,hi in ranges:
+                  for j in range(lo,hi):
+                      if j in seen: continue
+                      seen.add(j); s=lines[j]
+                      if deny.search(s): s='<redacted-sensitive-line>'
+                      log(f'{j+1:06d}: {s[:560]}')
+          Path('reports/qingman-v17-reader-function-contract.txt').write_text('\n'.join(out)+'\n',encoding='utf-8')
+          PY
+      - name: Commit redacted function report
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add reports/qingman-v17-reader-function-contract.txt
+          if git diff --cached --quiet; then echo 'No report changes'; else git commit -m 'probe(qingman): record v17 reader function contract'; git push origin HEAD:main; fi
