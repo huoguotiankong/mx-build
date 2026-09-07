@@ -1,0 +1,93 @@
+name: Verify Qingman Media Host V1
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/verify-qingman-media-host-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Verify multiple official cover paths against current media host
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools python3-cryptography >/dev/null
+          python3 - <<'PY'
+          import base64,hashlib,json,os,tempfile,time,urllib.error,urllib.parse,urllib.request,uuid,zipfile
+          from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+          from elftools.elf.elffile import ELFFile
+          UA='qingman/4.4.5 (Android)'
+          VERSION='https://bass8ycl.zermh.com/api/radio/api/config/version'
+          vr=json.load(urllib.request.urlopen(urllib.request.Request(VERSION,headers={'User-Agent':'mx-qingman-media-check/1.0'}),timeout=20))['data']['datas']['android']
+          if str(vr.get('version'))!='4.4.5' or str(vr.get('versionCode'))!='445': raise SystemExit('Unexpected Qingman version')
+          media=urllib.parse.urlsplit(vr['downloadUrl'])
+          if not media.hostname: raise SystemExit('No media host')
+          media_base=media.scheme+'://'+media.netloc
+          with tempfile.TemporaryDirectory() as td:
+              apk=os.path.join(td,'q.apk'); so=os.path.join(td,'s.so')
+              with urllib.request.urlopen(urllib.request.Request(vr['downloadUrl'],headers={'User-Agent':'mx-qingman-media-check/1.0'}),timeout=60) as r,open(apk,'wb') as f:f.write(r.read())
+              with zipfile.ZipFile(apk) as z,z.open('lib/arm64-v8a/libqx_security.so') as s,open(so,'wb') as d:d.write(s.read())
+              with open(so,'rb') as f:
+                  elf=ELFFile(f)
+                  def rv(va,n):
+                      for seg in elf.iter_segments():
+                          if seg['p_type']!='PT_LOAD':continue
+                          a=int(seg['p_vaddr']); b=a+int(seg['p_filesz'])
+                          if a<=va and va+n<=b:
+                              f.seek(int(seg['p_offset'])+va-a);return f.read(n)
+                      raise RuntimeError('VA')
+                  seed=rv(0x14a40,16)+rv(0x14af0,16);sc=rv(0x17d1f,33);ac=rv(0x17d40,32)
+          base=hashlib.sha256(seed).digest()
+          def deob(c,k):
+              out=b'';i=0
+              while len(out)<len(c):out+=hashlib.sha256(base+bytes([k])+i.to_bytes(4,'big')).digest();i+=1
+              return bytes(a^b for a,b in zip(c,out))
+          sm=deob(sc,1);aes=deob(ac,2)
+          ts=str(int(time.time()*1000));did=uuid.uuid4().hex;nonce=uuid.uuid4().hex
+          sig=hashlib.sha256(ts.encode()+nonce.encode()+did.encode()+sm).hexdigest()
+          body=json.dumps({'timestamp':ts,'nonce':nonce,'sign':sig,'deviceId':did},separators=(',',':')).encode()
+          bh={'Content-Type':'application/json','Accept':'application/json, text/plain, */*','User-Agent':UA,'appVersion':'4.4.5','platform':'android','X-Device-Id':did}
+          br=json.load(urllib.request.urlopen(urllib.request.Request('https://mu8xm4cx.zermh.com/bootstrap/domain',data=body,headers=bh,method='POST'),timeout=20))
+          enc=br['data'];blob=base64.urlsafe_b64decode(enc+'='*((4-len(enc)%4)%4));cfg=json.loads(AESGCM(aes).decrypt(blob[:12],blob[12:],(ts+'|'+nonce).encode()))
+          api=urllib.parse.urlsplit(cfg['apiDomain']).hostname;access=cfg['appAccessToken']
+          ah={'Accept':'application/json, text/plain, */*','Content-Type':'application/json','User-Agent':UA,'appVersion':'4.4.5','platform':'android','X-Device-Id':did,'X-QM-App-Access':access}
+          req=urllib.request.Request('http://'+api+'/api/comic/comics/v1/homeList?page=1&pageNum=1&pageSize=20',data=b'{}',headers=ah,method='POST')
+          home=json.load(urllib.request.urlopen(req,timeout=20))
+          covers=[]
+          def walk(x):
+              if isinstance(x,dict):
+                  for k,v in x.items():
+                      if k in ('verticalCover','horizontalCover','comicCoverUrl','cover') and isinstance(v,str) and v.startswith('/') and v not in covers:covers.append(v)
+                      walk(v)
+              elif isinstance(x,list):
+                  for v in x:walk(v)
+          walk(home)
+          covers=covers[:12]
+          if len(covers)<5:raise SystemExit('Too few cover samples')
+          modes={
+            'none':{},
+            'source':{'Accept':'application/json, text/plain, */*','User-Agent':UA,'appVersion':'4.4.5','platform':'android'},
+            'image':{'Accept':'image/avif,image/webp,image/*,*/*;q=0.8','User-Agent':UA,'Referer':'https://www.qingman.app/'},
+          }
+          print('media_host='+media.hostname+' sample_count='+str(len(covers)))
+          for mode,h in modes.items():
+              ok=0
+              for p in covers:
+                  try:
+                      r=urllib.request.urlopen(urllib.request.Request(media_base+p,headers=h),timeout=12)
+                      magic=r.read(12);ctype=r.headers.get('Content-Type','');status=r.status;r.close()
+                      image=(status==200 and ('image/' in ctype.lower() or magic.startswith(b'RIFF') or magic.startswith(b'\xff\xd8') or magic.startswith(b'\x89PNG')))
+                      ok+=int(image)
+                  except Exception:pass
+              print('mode='+mode+' image_ok='+str(ok)+'/'+str(len(covers)))
+              if ok!=len(covers):raise SystemExit('media verification failed for '+mode)
+          PY
