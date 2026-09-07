@@ -227,4 +227,4 @@ jobs:
         if: always()
         run: rm -f upstream/signingkey.jks
 
-# trigger: v1.6.6 dynamic media resolution d5a8c4d0
+# trigger: v1.6.7 official search and authenticated reader parser 370047d0
