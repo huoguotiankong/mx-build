@@ -1,0 +1,81 @@
+name: Map Qingman Reader Functions
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-reader-function-map.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  map:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev python3-pyelftools python3-capstone >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+      - uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+      - name: Resolve function map
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/apk_url
+          import json,urllib.request
+          a=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=30))['data']['datas']['android']
+          if (str(a.get('version','')),str(a.get('versionCode',''))) != ('4.4.5','445'): raise SystemExit('official version changed')
+          print(a['downloadUrl'])
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/out /tmp/x
+          mkdir -p /tmp/app-lib /tmp/out /tmp/x
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/x
+          cp /tmp/x/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/x/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter && python3 blutter.py /tmp/app-lib /tmp/out >/tmp/blutter.log 2>&1
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('/tmp/out/ida_script/addNames.py')
+          lines=p.read_text('utf-8',errors='replace').splitlines()
+          targets=[0x45f368,0x460080,0x461be0,0x462044,0x46ee8c,0x470e58,0x489d3c,0x48f000,0x490594,0x4cfec8,0x4cfee0,0x4d0434,0x4d0484,0xacc318,0xaccfbc,0xacd2ac,0xacd328,0xb072b0]
+          syms=[]
+          pats=[
+              re.compile(r'set_name\((0x[0-9a-fA-F]+|\d+),\s*[ru]?([\'\"])(.*?)\2'),
+              re.compile(r'add_func\((0x[0-9a-fA-F]+|\d+)'),
+          ]
+          for i,line in enumerate(lines):
+              m=pats[0].search(line)
+              if m:
+                  try: a=int(m.group(1),0)
+                  except: continue
+                  syms.append((a,m.group(3),i+1,line.strip()))
+          syms.sort()
+          print('SYMBOL_COUNT',len(syms))
+          for t in targets:
+              print(f'=== TARGET 0x{t:x} ===')
+              nearby=[x for x in syms if t-0x1000 <= x[0] <= t+0x1000]
+              if not nearby:
+                  print('NO_NEARBY_SYMBOLS')
+              for a,n,ln,raw in nearby[-25:]:
+                  print(f'0x{a:x} {n} line={ln}')
+          # Print syntax sample for understanding generated assembler files.
+          samples=sorted(Path('/tmp/out/asm').glob('*.dart'))[:3]
+          print('=== ASM SAMPLE ===')
+          for f in samples:
+              print('FILE',f.name)
+              for line in f.read_text('utf-8',errors='replace').splitlines()[:80]: print(line[:500])
+          PY
