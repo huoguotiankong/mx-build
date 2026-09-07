@@ -1,0 +1,104 @@
+name: Resolve Qingman Reader Line URL Contract v2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-reader-line-contract-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev python3-pyelftools python3-capstone >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+      - uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+      - name: Resolve line transformation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/url
+          import json,urllib.request
+          a=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=30))['data']['datas']['android']
+          if (str(a.get('version','')),str(a.get('versionCode',''))) != ('4.4.5','445'): raise SystemExit('official version changed')
+          print(a['downloadUrl'])
+          PY
+          curl -fsSL --retry 2 --max-time 180 "$(cat /tmp/url)" -o /tmp/a.apk
+          rm -rf /tmp/lib /tmp/out /tmp/x; mkdir -p /tmp/lib /tmp/out /tmp/x
+          unzip -q /tmp/a.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/x
+          cp /tmp/x/lib/arm64-v8a/libapp.so /tmp/lib/; cp /tmp/x/lib/arm64-v8a/libflutter.so /tmp/lib/
+          cd /tmp/blutter && python3 blutter.py /tmp/lib /tmp/out >/tmp/b.log 2>&1
+          python3 - <<'PY'
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
+          import re
+
+          pp={}
+          for l in Path('/tmp/out/pp.txt').read_text('utf-8',errors='replace').splitlines():
+              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s+(.*)$',l)
+              if m: pp[int(m.group(1),16)]=m.group(2)
+
+          # Redact credential/key material, but keep route names, field names, and URL templates.
+          sensitive=re.compile(r'(?i)(password|passwd|pwd|authorization|bearer|cookie|clientp12|private.?key|certificate|keystore|storepassword|keypassword|aes.?key|sign.?key)')
+          entropy=re.compile(r'^[A-Za-z0-9+/=_-]{40,}$')
+          def safe(v):
+              if sensitive.search(v): return '<redacted-sensitive>'
+              m=re.search(r'String: "(.*)"$',v)
+              if m and entropy.match(m.group(1)): return 'String: "<redacted-high-entropy>"'
+              return v[:260]
+
+          print('=== PP 0x2a530-0x2a640 ===')
+          for o in sorted(pp):
+              if 0x2a530 <= o <= 0x2a640: print(f'PP+0x{o:x} {safe(pp[o])}')
+          print('=== PP AppConfig fields ===')
+          for o,v in sorted(pp.items()):
+              if any(t in v for t in ('baseImgUrl','freeUrl','freeLine','ComicReadSelectedImageLine')):
+                  print(f'PP+0x{o:x} {safe(v)}')
+
+          with open('/tmp/lib/libapp.so','rb') as f:
+              e=ELFFile(f); s=e.get_section_by_name('.text'); base=int(s['sh_addr']); data=s.data()
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.skipdata=True
+          windows=[
+            ('line_main',0x48f3d0,0x48fa40),
+            ('line_helper_A',0x48fa50,0x48fb20),
+            ('line_helper_B',0x490560,0x490680),
+            ('line_helper_C',0x4906f0,0x490900),
+          ]
+          for title,start,end in windows:
+              print(f'=== {title} 0x{start:x}-0x{end:x} ===')
+              pending={}; emitted=0
+              for ins in md.disasm(data[start-base:end-base],start):
+                  pending={r:(b,n-1) for r,(b,n) in pending.items() if n>1}
+                  op=ins.op_str.lower(); anns=[]
+                  m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
+                  if ins.mnemonic=='add' and m:
+                      pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),32)
+                  if ins.mnemonic in ('ldr','ldur','ldrsw'):
+                      m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
+                      if m:
+                          br=m.group(2); d=int(m.group(3),0) if m.group(3) else 0
+                          off=d if br=='x27' else (pending[br][0]+d if br in pending else None)
+                          if off in pp: anns.append(f'PP+0x{off:x}={safe(pp[off])}')
+                  ctrl=ins.mnemonic in ('bl','blr','b','ret','cbz','cbnz','tbz','tbnz') or ins.mnemonic.startswith('b.')
+                  if anns or ctrl:
+                      text=f'0x{ins.address:x}: {ins.mnemonic:<7} {ins.op_str:<46}'+((' ; '+' | '.join(anns)) if anns else '')
+                      print(text[:720]); emitted+=1
+                      if emitted>1600: print('TRUNCATED'); break
+          PY
