@@ -30,7 +30,7 @@ jobs:
             /tmp/blutter/dartsdk
             /tmp/blutter/packages
           key: qingman-blutter-dart-3.12.2-arm64-v1
-      - name: Isolate fPa and txb request behavior
+      - name: Inspect AppConfig request construction
         shell: bash
         run: |
           set -euo pipefail
@@ -53,66 +53,52 @@ jobs:
           import re
           deny=re.compile(r'(?i)(password|token|authorization|bearer|cookie|secret|private|clientp12|certificate|keystore|proof|signature|sign/key|seed|k1a|k1b|k2a|k2b|k3a|k3b)')
           asm=Path('/tmp/blutter-out/asm')
-          pp=Path('/tmp/blutter-out/pp.txt').read_text('utf-8',errors='replace').splitlines()
 
-          def safe(line): return not deny.search(line)
-          def emit_block(p, lines, i, before=20, after=260, title=''):
+          def emit(title,p,lines,i,before,after):
               print(f'=== {title} FILE={p.name} LINE={i+1} ===')
               for z in lines[max(0,i-before):min(len(lines),i+after)]:
-                  if safe(z): print(z[:900])
+                  if not deny.search(z): print(z[:900])
 
-          # Exact base class definition, including abstract classes.
-          found=False
+          # AppConfig fetch is known to allocate txb in the 0xb028dc..0xb02b5f function.
           for p in asm.glob('*.dart'):
               lines=p.read_text('utf-8',errors='replace').splitlines()
-              for i,line in enumerate(lines):
-                  if re.match(r'(?:abstract\s+)?class\s+fPa\b',line.strip()):
-                      found=True; emit_block(p,lines,i,30,420,'FPA BASE'); break
-          print('fpa_found='+str(found).lower())
+              hits=[i for i,z in enumerate(lines) if re.search(r'0xb0290[0-9a-f]:',z,re.I) or re.search(r'0xb028dc\b',z,re.I)]
+              for h in hits[:4]: emit('APPCONFIG FETCH EXACT',p,lines,h,120,320)
 
-          # Exact function whose start address is 0x3ea090, rather than every caller.
-          found=False
+          # Locate the nearest declared AOT functions around common initializer 0x3ea090.
+          funcs=[]
           for p in asm.glob('*.dart'):
               lines=p.read_text('utf-8',errors='replace').splitlines()
-              for i,line in enumerate(lines):
-                  if re.search(r'\*\* addr:\s*0x3ea090\b',line):
-                      found=True; emit_block(p,lines,i,15,260,'FPA INIT OWNER')
-          print('fpa_init_owner_found='+str(found).lower())
+              for i,z in enumerate(lines):
+                  m=re.search(r'\*\* addr:\s*0x([0-9a-fA-F]+)',z)
+                  if m: funcs.append((int(m.group(1),16),p,i))
+          funcs.sort(key=lambda x:x[0])
+          target=0x3ea090
+          near=[x for x in funcs if target-0x1200 <= x[0] <= target+0x1200]
+          print('=== FUNCTIONS NEAR 0x3ea090 ===')
+          for addr,p,i in near:
+              lines=p.read_text('utf-8',errors='replace').splitlines()
+              header=' | '.join(z.strip() for z in lines[max(0,i-3):i+2] if z.strip())
+              if not deny.search(header): print(f'addr=0x{addr:x} file={p.name} line={i+1} {header[:800]}')
+          below=[x for x in funcs if x[0] <= target]
+          above=[x for x in funcs if x[0] > target]
+          if below:
+              addr,p,i=below[-1]; emit(f'NEAREST BELOW 0x{addr:x}',p,p.read_text('utf-8',errors='replace').splitlines(),i,12,260)
+          if above:
+              addr,p,i=above[0]; emit(f'NEAREST ABOVE 0x{addr:x}',p,p.read_text('utf-8',errors='replace').splitlines(),i,12,120)
 
-          # Exact txb/uxb models and any method/class-table metadata nearby.
-          for target in ('txb','uxb'):
-              for p in asm.glob('*.dart'):
-                  lines=p.read_text('utf-8',errors='replace').splitlines()
-                  for i,line in enumerate(lines):
-                      if re.match(r'(?:abstract\s+)?class\s+'+target+r'\b',line.strip()):
-                          emit_block(p,lines,i,20,180,target.upper()+' CLASS')
-
-          # Find every exact class-id 992 mention in objs/pp/asm metadata, excluding unrelated address substrings.
-          print('=== CID 992 METADATA ===')
-          pats=(re.compile(r'(?i)class id:\s*992\b'),re.compile(r'(?i)cid[=: ]+992\b'),re.compile(r'(?i)class.?id[=: ]+992\b'))
-          for p in [Path('/tmp/blutter-out/objs.txt'),Path('/tmp/blutter-out/pp.txt')]+list(asm.glob('*.dart')):
-              try: lines=p.read_text('utf-8',errors='replace').splitlines()
-              except Exception: continue
-              hits=[i for i,z in enumerate(lines) if any(q.search(z) for q in pats)]
-              for h in hits[:8]:
-                  print(f'FILE={p.name} LINE={h+1}')
-                  for z in lines[max(0,h-8):min(len(lines),h+24)]:
-                      if safe(z): print(z[:900])
-
-          # Locate AppConfig fetch function exactly by allocation of txb, then surface only PP-backed literals/calls nearby.
-          print('=== TXB ALLOCATION CALLERS ===')
+          # Raw call sites to 0x3ea090, compact, so argument setup before the call is visible.
+          print('=== 0x3ea090 CALL SITES ===')
+          count=0
           for p in asm.glob('*.dart'):
               lines=p.read_text('utf-8',errors='replace').splitlines()
-              hits=[i for i,z in enumerate(lines) if 'AllocatetxbStub' in z]
-              for h in hits[:8]: emit_block(p,lines,h,140,260,'TXB CALLER')
-
-          # Public route strings with offsets, to compare against route-return functions discovered above.
-          print('=== PUBLIC ROUTE OFFSETS ===')
-          for line in pp:
-              if not safe(line): continue
-              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\].*String: "([^"]+)"',line)
-              if m and m.group(2).startswith('api/'):
-                  s=m.group(2)
-                  if any(x in s.lower() for x in ('config','home','comic')):
-                      print(f'0x{m.group(1)} {s}')
+              for i,z in enumerate(lines):
+                  if re.search(r'bl\s+#0x3ea090\b',z,re.I):
+                      count+=1
+                      print(f'--- caller {count} {p.name}:{i+1} ---')
+                      for q in lines[max(0,i-28):min(len(lines),i+18)]:
+                          if not deny.search(q): print(q[:900])
+                      if count>=12: break
+              if count>=12: break
+          print('shown_callers='+str(count))
           PY
