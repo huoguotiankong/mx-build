@@ -58,3 +58,5 @@ jobs:
             echo "--- $q ---"
             grep -R -n -F --exclude='pp.txt' --exclude='objs.txt' "$q" /tmp/out 2>/dev/null | sed -n '1,40p' || true
           done
+
+# rerun: 2026-09-07 v13 ordinary-reader reconstruction
