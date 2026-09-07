@@ -65,11 +65,12 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Check formatting
+      - name: Apply and verify formatting
         working-directory: upstream
         shell: bash
         run: |
           set -euo pipefail
+          ./gradlew :src:zh:mengman:spotlessApply
           ./gradlew :src:zh:mengman:spotlessCheck
 
       - name: Build debug APK
@@ -78,6 +79,16 @@ jobs:
         run: |
           set -euo pipefail
           ./gradlew :src:zh:mengman:assembleDebug --stacktrace
+
+      - name: Upload formatted source
+        uses: actions/upload-artifact@v4
+        with:
+          name: mengman-v1-formatted-source
+          path: |
+            upstream/src/zh/mengman/src/eu/kanade/tachiyomi/extension/zh/mengman/Mengman.kt
+            upstream/src/zh/mengman/src/eu/kanade/tachiyomi/extension/zh/mengman/MengmanBootstrapCipher.kt
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
