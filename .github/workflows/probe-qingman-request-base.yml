@@ -30,7 +30,7 @@ jobs:
             /tmp/blutter/dartsdk
             /tmp/blutter/packages
           key: qingman-blutter-dart-3.12.2-arm64-v1
-      - name: Trace fPa hierarchy and descriptor initialization
+      - name: Isolate fPa and txb request behavior
         shell: bash
         run: |
           set -euo pipefail
@@ -55,64 +55,64 @@ jobs:
           asm=Path('/tmp/blutter-out/asm')
           pp=Path('/tmp/blutter-out/pp.txt').read_text('utf-8',errors='replace').splitlines()
 
-          print('=== FPA CLASS DEFINITION ===')
+          def safe(line): return not deny.search(line)
+          def emit_block(p, lines, i, before=20, after=260, title=''):
+              print(f'=== {title} FILE={p.name} LINE={i+1} ===')
+              for z in lines[max(0,i-before):min(len(lines),i+after)]:
+                  if safe(z): print(z[:900])
+
+          # Exact base class definition, including abstract classes.
+          found=False
           for p in asm.glob('*.dart'):
               lines=p.read_text('utf-8',errors='replace').splitlines()
               for i,line in enumerate(lines):
-                  if re.match(r'class\s+fPa\b',line.strip()):
-                      print(f'FILE={p.name} LINE={i+1}')
-                      for z in lines[max(0,i-20):min(len(lines),i+360)]:
-                          if not deny.search(z): print(z[:760])
+                  if re.match(r'(?:abstract\s+)?class\s+fPa\b',line.strip()):
+                      found=True; emit_block(p,lines,i,30,420,'FPA BASE'); break
+          print('fpa_found='+str(found).lower())
 
-          print('=== ALL DIRECT FPA SUBCLASSES (NAMES/CIDS) ===')
-          subclasses=[]
+          # Exact function whose start address is 0x3ea090, rather than every caller.
+          found=False
           for p in asm.glob('*.dart'):
               lines=p.read_text('utf-8',errors='replace').splitlines()
               for i,line in enumerate(lines):
-                  m=re.match(r'class\s+([A-Za-z0-9_$]+)\s+extends\s+fPa\b',line.strip())
-                  if not m: continue
-                  cid='?'
-                  for b in range(max(0,i-4),i):
-                      cm=re.search(r'// class id: (\d+)',lines[b])
-                      if cm: cid=cm.group(1)
-                  subclasses.append((m.group(1),cid,p.name,i+1))
-          for row in subclasses: print('subclass='+' cid='.join([row[0],row[1]])+f' file={row[2]} line={row[3]}')
+                  if re.search(r'\*\* addr:\s*0x3ea090\b',line):
+                      found=True; emit_block(p,lines,i,15,260,'FPA INIT OWNER')
+          print('fpa_init_owner_found='+str(found).lower())
 
-          print('=== COMMON CONSTRUCTOR 0x3ea090 ===')
-          for p in asm.glob('*.dart'):
-              lines=p.read_text('utf-8',errors='replace').splitlines()
-              hits=[i for i,z in enumerate(lines) if '0x3ea090' in z.lower()]
-              for h in hits[:30]:
-                  print(f'FILE={p.name} HIT={h+1}')
-                  for z in lines[max(0,h-120):min(len(lines),h+240)]:
-                      if not deny.search(z): print(z[:760])
-
-          print('=== TXB / ASB REFERENCES ===')
-          for target in ('txb','Asb'):
-              print('TARGET='+target)
+          # Exact txb/uxb models and any method/class-table metadata nearby.
+          for target in ('txb','uxb'):
               for p in asm.glob('*.dart'):
                   lines=p.read_text('utf-8',errors='replace').splitlines()
-                  hits=[i for i,z in enumerate(lines) if re.search(r'\b'+re.escape(target)+r'\b',z)]
-                  for h in hits[:20]:
-                      print(f'FILE={p.name} HIT={h+1}')
-                      for z in lines[max(0,h-80):min(len(lines),h+160)]:
-                          if not deny.search(z): print(z[:760])
+                  for i,line in enumerate(lines):
+                      if re.match(r'(?:abstract\s+)?class\s+'+target+r'\b',line.strip()):
+                          emit_block(p,lines,i,20,180,target.upper()+' CLASS')
 
-          # Compare descriptors tied to known public route strings by finding route PP xrefs and nearby Allocate*Stub names.
-          print('=== KNOWN ROUTE XREF COMPARISON ===')
-          route_terms=('api/comic/comics/v1/homeList','api/radio/api/config/getAdConfig','api/radio/api/config/homepage/interstitial','api/radio/api/config/version')
-          offsets={}
+          # Find every exact class-id 992 mention in objs/pp/asm metadata, excluding unrelated address substrings.
+          print('=== CID 992 METADATA ===')
+          pats=(re.compile(r'(?i)class id:\s*992\b'),re.compile(r'(?i)cid[=: ]+992\b'),re.compile(r'(?i)class.?id[=: ]+992\b'))
+          for p in [Path('/tmp/blutter-out/objs.txt'),Path('/tmp/blutter-out/pp.txt')]+list(asm.glob('*.dart')):
+              try: lines=p.read_text('utf-8',errors='replace').splitlines()
+              except Exception: continue
+              hits=[i for i,z in enumerate(lines) if any(q.search(z) for q in pats)]
+              for h in hits[:8]:
+                  print(f'FILE={p.name} LINE={h+1}')
+                  for z in lines[max(0,h-8):min(len(lines),h+24)]:
+                      if safe(z): print(z[:900])
+
+          # Locate AppConfig fetch function exactly by allocation of txb, then surface only PP-backed literals/calls nearby.
+          print('=== TXB ALLOCATION CALLERS ===')
+          for p in asm.glob('*.dart'):
+              lines=p.read_text('utf-8',errors='replace').splitlines()
+              hits=[i for i,z in enumerate(lines) if 'AllocatetxbStub' in z]
+              for h in hits[:8]: emit_block(p,lines,h,140,260,'TXB CALLER')
+
+          # Public route strings with offsets, to compare against route-return functions discovered above.
+          print('=== PUBLIC ROUTE OFFSETS ===')
           for line in pp:
+              if not safe(line): continue
               m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\].*String: "([^"]+)"',line)
-              if m and m.group(2) in route_terms: offsets[m.group(2)]=int(m.group(1),16)
-          for route,off in offsets.items():
-              print(f'ROUTE={route} PP=0x{off:x}')
-              needle=f'pp+0x{off:x}'
-              for p in asm.glob('*.dart'):
-                  lines=p.read_text('utf-8',errors='replace').splitlines()
-                  hits=[i for i,z in enumerate(lines) if needle in z.lower()]
-                  for h in hits[:8]:
-                      print(f'FILE={p.name} HIT={h+1}')
-                      for z in lines[max(0,h-100):min(len(lines),h+180)]:
-                          if not deny.search(z): print(z[:760])
+              if m and m.group(2).startswith('api/'):
+                  s=m.group(2)
+                  if any(x in s.lower() for x in ('config','home','comic')):
+                      print(f'0x{m.group(1)} {s}')
           PY
