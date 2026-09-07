@@ -1,0 +1,101 @@
+name: Resolve Qingman Exact AppConfig Route
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-appconfig-route-exact.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trace:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-capstone cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+
+      - name: Restore analyzer cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+
+      - name: Trace AppConfig request route
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/apk_url
+          import json,urllib.request
+          a=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))['data']['datas']['android']
+          if str(a.get('version'))!='4.4.5' or str(a.get('versionCode'))!='445': raise SystemExit('Unexpected Qingman version')
+          print(a['downloadUrl'])
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          mkdir -p /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/apk-extract
+          cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter
+          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          deny=re.compile(r'(?i)(password|token|authorization|bearer|cookie|secret|private|clientp12|certificate|keystore|proof|signature|sign/key|seed|k1a|k1b|k2a|k2b|k3a|k3b)')
+          asm=Path('/tmp/blutter-out/asm')
+          pp_lines=Path('/tmp/blutter-out/pp.txt').read_text('utf-8',errors='replace').splitlines()
+
+          print('=== EXACT PP MARKERS ===')
+          markers=('baseImgUrl','freeUrl','customerUrl','officialUrl','promotionUrl','Get app config failed')
+          for i,line in enumerate(pp_lines):
+              if any(m in line for m in markers) and not deny.search(line):
+                  print(line[:500])
+
+          print('=== APPCONFIG MODEL / REQUEST XREFS ===')
+          needles=('0x4cfcfc','0xb02b60','0xb02b78','0x1eba0','0x1ec38','baseImgUrl','Get app config failed','TypeArguments: <uxb?>')
+          seen=set()
+          for p in asm.glob('*.dart'):
+              lines=p.read_text('utf-8',errors='replace').splitlines()
+              hits=[i for i,l in enumerate(lines) if any(n.lower() in l.lower() for n in needles)]
+              if not hits: continue
+              for h in hits[:30]:
+                  key=(p.name,h)
+                  if key in seen: continue
+                  seen.add(key)
+                  print(f'--- FILE {p.name} HIT {h+1} ---')
+                  for z in lines[max(0,h-70):min(len(lines),h+130)]:
+                      if deny.search(z): continue
+                      # Keep control-flow, PP strings, request/model field accesses and function headers.
+                      if ('String:' in z or '[pp+' in z or 'class ' in z or '[closure]' in z or
+                          ' addr:' in z or ' bl ' in z or ': bl' in z or ': b.' in z or ': b ' in z or
+                          'LoadField:' in z or 'StoreField:' in z or 'Allocate' in z or 'TypeArguments:' in z or
+                          '0x4cfcfc' in z.lower() or '0xb02b' in z.lower() or '0x1eba0' in z.lower() or '0x1ec38' in z.lower()):
+                          print(z[:520])
+
+          print('=== SAFE ROUTE-LIKE LITERALS NEAR APPCONFIG PP AREA ===')
+          # Show only route/domain-like non-sensitive strings in a bounded PP neighborhood.
+          parsed=[]
+          for i,line in enumerate(pp_lines):
+              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s+String:\s+"(.*)"$',line)
+              if not m: continue
+              off=int(m.group(1),16); s=m.group(2)
+              if 0x1e700 <= off <= 0x1ef80 and not deny.search(s):
+                  if ('/' in s or 'config' in s.lower() or 'app' in s.lower() or 'url' in s.lower() or 'base' in s.lower()):
+                      parsed.append((off,s))
+          for off,s in parsed:
+              print(f'pp=0x{off:x} literal={s[:300]}')
+          PY
