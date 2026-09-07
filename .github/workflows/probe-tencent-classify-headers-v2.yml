@@ -1,0 +1,91 @@
+name: Probe Tencent classify common headers v2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-tencent-classify-headers-v2.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Install crypto dependency
+        run: python3 -m pip install --disable-pip-version-check pycryptodome
+      - name: Probe header combinations
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, hashlib, json, random, time, urllib.parse, urllib.request
+          from Crypto.Cipher import DES3
+          from Crypto.Util.Padding import unpad
+
+          VERSION='12.19.9'; CHANNEL='dm306015002'; UA='okhttp/4.10.0'
+          SUFFIX='4jo2YHMm0d2VGt59tVYndX9P7eFcw8TvRv5lMqFP1TT'
+          KEY=b'42e0d587d5bda41326c2000d'
+          HOSTS=['https://a.ac.qq.com','https://android.ac.qq.com']
+          PATH=f'/{VERSION}/Classify/comicClassifyList'
+
+          def decode(raw):
+              text=raw.decode('utf-8','replace').strip()
+              if text.startswith('{') or text.startswith('['): return json.loads(text)
+              return json.loads(unpad(DES3.new(KEY, DES3.MODE_ECB).decrypt(base64.b64decode(text)),8).decode())
+
+          def trace_headers():
+              now=int(time.time()*1000)
+              count=random.randrange(0,65536)
+              trace=('04'+f'{now:010X}'[-10:]+'00000000'+f'{count:04X}'[-4:]).lower()
+              span=(f'{random.getrandbits(64):016x}')[-16:]
+              return {'trace-id':trace,'span-id':span}
+
+          cases=[]
+          cases.append(('minimal',{}))
+          cases.append(('login',{'logintype':'0'}))
+          cases.append(('common-no-trace',{
+              'logintype':'0','resolution':'1080*2400','network':'wifi','osversion':'16',
+              'teen-state':'1','gender':'0','model':'Android','brand':'Android','os-bit':'64',
+              'recommend-switch':'2','oversea':'1','userstate':'1',
+          }))
+          c={
+              'logintype':'0','resolution':'1080*2400','network':'wifi','osversion':'16',
+              'teen-state':'1','gender':'0','model':'Android','brand':'Android','os-bit':'64',
+              'recommend-switch':'2','oversea':'1','userstate':'1',
+              'RECOMMEND-TRACE-ID':'',
+          }; c.update(trace_headers()); cases.append(('common-trace',c))
+          c2=dict(c); c2['qimei36']=''; c2['oaid']=''; cases.append(('common-trace-empty-device',c2))
+
+          for host in HOSTS:
+              hostname=urllib.parse.urlparse(host).hostname
+              for name,extra in cases:
+                  localtime=str(int(time.time()*1000))
+                  qimei=extra.get('qimei','')
+                  decoded=urllib.parse.unquote(PATH.replace('//','/'))
+                  sc=hashlib.md5((decoded+hostname+'0'+qimei+localtime+SUFFIX).encode()).hexdigest()
+                  headers={
+                      'Accept':'application/json, text/plain, */*','User-Agent':UA,'version':VERSION,
+                      'channel':CHANNEL,'fakeduin':'0','localtime':localtime,'userstate':'1','oversea':'1','sc':sc,
+                  }
+                  for k,v in extra.items():
+                      if v!='': headers[k]=v
+                  req=urllib.request.Request(host+PATH,headers=headers,method='GET')
+                  try:
+                      with urllib.request.urlopen(req,timeout=20) as r:
+                          root=decode(r.read())
+                      code=root.get('errorCode',root.get('error_code'))
+                      msg=root.get('msg',root.get('message',root.get('errorMsg')))
+                      data=root.get('data')
+                      keys=sorted(data.keys()) if isinstance(data,dict) else []
+                      print(name,host,'http',r.status,'code',code,'msg',repr(msg),'data_keys',keys)
+                      if code==2 and isinstance(data,dict) and data:
+                          print('HEADER_PROBE_OK',name,host)
+                          raise SystemExit(0)
+                  except SystemExit: raise
+                  except Exception as e:
+                      print(name,host,'transport_fail',type(e).__name__,str(e)[:200])
+          raise SystemExit('no common-header case succeeded')
+          PY
