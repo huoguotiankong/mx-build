@@ -1,0 +1,77 @@
+name: Patch Qingman Reader v14
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/patch-qingman-reader-v14.yml'
+      - '.github/scripts/patch_qingman_v14.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check private source token
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+        run: test -n "$MX_PRIVATE_READ_TOKEN"
+
+      - name: Checkout Qingman runtime branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: fix/qingman-v3-runtime-clean
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: dev
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply v14 patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/patch_qingman_v14.py
+          git -C dev diff --check
+          source='dev/src/zh/qingman/src/eu/kanade/tachiyomi/extension/zh/qingman/Qingman.kt'
+          grep -q 'for (readerType in listOf(2, 1))' "$source"
+          grep -q 'readerDiagnostic' "$source"
+          grep -q '\.reversed()' "$source"
+          if sed -n '/override suspend fun getPageList/,/override fun imageRequest/p' "$source" | grep -q 'fetchReaderCacheRoot'; then
+            echo '::error::Online reader still calls cache/detail helper'
+            exit 1
+          fi
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Validate with current Keiyoushi framework
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://github.com/keiyoushi/extensions-source.git upstream
+          rm -rf upstream/src/zh/qingman
+          cp -a dev/src/zh/qingman upstream/src/zh/qingman
+          python3 dev/scripts/prepare_qingman_bootstrap.py --module upstream/src/zh/qingman
+          cd upstream
+          ./gradlew :src:zh:qingman:spotlessCheck
+          ./gradlew :src:zh:qingman:assembleDebug
+
+      - name: Commit Qingman v14 source patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C dev config user.name 'github-actions[bot]'
+          git -C dev config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C dev add src/zh/qingman docs/sources/qingman.md
+          git -C dev commit -m 'fix(qingman): decouple online reader from cache endpoint'
+          git -C dev push origin HEAD:fix/qingman-v3-runtime-clean
