@@ -1,0 +1,83 @@
+name: Compact Qingman Route Dispatch Trace
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-route-gdt-compact.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trace:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Prepare and trace
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools python3-capstone cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+          python3 - <<'PY' >/tmp/apk_url
+          import json,urllib.request
+          a=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))['data']['datas']['android']
+          print(a['downloadUrl'])
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/q.apk
+          mkdir -p /tmp/lib /tmp/out /tmp/x
+          unzip -q /tmp/q.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/x
+          cp /tmp/x/lib/arm64-v8a/libapp.so /tmp/x/lib/arm64-v8a/libflutter.so /tmp/lib/
+          cd /tmp/blutter && python3 blutter.py /tmp/lib /tmp/out >/dev/null 2>&1
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          asm=Path('/tmp/out/asm')
+          targets=(0xaa0948,0xaa0250,0x7e25d0,0x7e280c,0x7e2f78,0x7e3010)
+          print('=== TARGET OWNERS ===')
+          for target in targets:
+              needle=f'0x{target:x}'
+              found=False
+              for p in asm.glob('*.dart'):
+                  lines=p.read_text('utf-8',errors='replace').splitlines()
+                  for i,z in enumerate(lines):
+                      if needle not in z.lower(): continue
+                      found=True
+                      # nearest function and class header
+                      fhead='?'; chead='?'; cid='?'
+                      for j in range(i,-1,-1):
+                          if fhead=='?' and '** addr:' in lines[j]:
+                              fhead=' | '.join(q.strip() for q in lines[max(0,j-2):j+1] if q.strip())
+                          if re.match(r'(?:abstract\s+)?class\s+',lines[j].strip()):
+                              chead=lines[j].strip()
+                              for k in range(max(0,j-4),j):
+                                  m=re.search(r'class id:\s*(\d+)',lines[k])
+                                  if m: cid=m.group(1)
+                              break
+                      print(f'target={needle} file={p.name} line={i+1} cid={cid} class={chead} function={fhead}')
+                      if target in (0xaa0948,0xaa0250):
+                          for q in lines[max(0,i-30):min(len(lines),i+90)]: print(q[:900])
+                      break
+                  if found: break
+              if not found: print(f'target={needle} not_found')
+
+          print('=== ROUTE GETTER REGION FUNCTIONS ===')
+          rows=[]
+          for p in asm.glob('*.dart'):
+              lines=p.read_text('utf-8',errors='replace').splitlines()
+              curr_class='?'; curr_cid='?'
+              for i,z in enumerate(lines):
+                  m=re.search(r'class id:\s*(\d+)',z)
+                  if m: curr_cid=m.group(1)
+                  if re.match(r'(?:abstract\s+)?class\s+',z.strip()): curr_class=z.strip()
+                  m=re.search(r'\*\* addr:\s*0x([0-9a-fA-F]+)',z)
+                  if m:
+                      a=int(m.group(1),16)
+                      if 0x7e2400<=a<=0x7e3200:
+                          head=' | '.join(q.strip() for q in lines[max(0,i-2):i+1] if q.strip())
+                          rows.append((a,p.name,curr_cid,curr_class,head))
+          for a,p,cid,cl,h in sorted(rows): print(f'0x{a:x} file={p} cid={cid} class={cl} fn={h}')
+          PY
