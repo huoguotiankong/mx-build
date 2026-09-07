@@ -61,6 +61,7 @@ jobs:
           git clone --depth 1 https://github.com/keiyoushi/extensions-source.git upstream
           rm -rf upstream/src/zh/qingman
           cp -a dev/src/zh/qingman upstream/src/zh/qingman
+          python3 -m pip install --disable-pip-version-check pyelftools >/dev/null
           python3 dev/scripts/prepare_qingman_bootstrap.py --module upstream/src/zh/qingman
           cd upstream
           ./gradlew :src:zh:qingman:spotlessCheck
@@ -75,5 +76,3 @@ jobs:
           git -C dev add src/zh/qingman docs/sources/qingman.md
           git -C dev commit -m 'fix(qingman): decouple online reader from cache endpoint'
           git -C dev push origin HEAD:fix/qingman-v3-runtime-clean
-
-# rerun after fixing docs newline handling
