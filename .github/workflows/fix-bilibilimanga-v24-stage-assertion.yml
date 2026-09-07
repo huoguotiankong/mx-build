@@ -1,0 +1,38 @@
+name: Repair Bilibili v24 staging assertion
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/fix-bilibilimanga-v24-stage-assertion.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Remove invalid staged-file assertion
+        shell: bash
+        run: |
+          set -euo pipefail
+          target='.github/workflows/stage-bilibilimanga-v24-search-title.yml'
+          grep -Fq 'test -f dev/src/zh/bilibilimanga/src/eu/kanade/tachiyomi/source/mx/Comment.kt' "$target"
+          sed -i '/test -f dev\/src\/zh\/bilibilimanga\/src\/eu\/kanade\/tachiyomi\/source\/mx\/Comment.kt/d' "$target"
+          if grep -Fq 'test -f dev/src/zh/bilibilimanga/src/eu/kanade/tachiyomi/source/mx/Comment.kt' "$target"; then
+            echo '::error::Invalid assertion still present'
+            exit 1
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/fix-bilibilimanga-v24-stage-assertion.yml
+          git add "$target"
+          git diff --cached --check
+          git commit -m 'ci(bilibilimanga): fix v24 staged payload assertion'
+          git pull --rebase origin main
+          git push origin HEAD:main
