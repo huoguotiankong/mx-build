@@ -1,0 +1,42 @@
+name: Probe Mengman category counts v13
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-mengman-category-counts-v13.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect live category counts and search crawl size
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          wf=open('.github/workflows/probe-mengman-json-schema-v6.yml','r',encoding='utf-8').read()
+          marker="python3 - <<'PY'\n"; start=wf.index(marker)+len(marker); end=wf.rindex('\n          PY')
+          code=wf[start:end]
+          code='\n'.join(line[10:] if line.startswith('          ') else line for line in code.splitlines())
+          prefix=code.split('test_paths=[',1)[0]
+          ns={}; exec(prefix,ns,ns)
+          files=ns['unzip_bundle']('/static/category/list.zip')
+          root=json.loads(files['data.json'].decode('utf-8'))
+          cats=root.get('data') or []
+          total_pages=0
+          print('CATEGORY_COUNT',len(cats))
+          for c in cats:
+              cid=c.get('id'); name=c.get('name'); count=int(c.get('comic_count') or 0); pages=(count+19)//20
+              total_pages+=pages
+              print('CATEGORY',cid,name,'COMICS',count,'PAGES',pages,'GENDER',c.get('gender'),'SORT',c.get('sort'))
+          print('SUM_CATEGORY_COMICS',sum(int(c.get('comic_count') or 0) for c in cats))
+          print('SUM_CATEGORY_PAGES',total_pages)
+          PY
