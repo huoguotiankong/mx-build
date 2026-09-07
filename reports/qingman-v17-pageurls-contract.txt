@@ -1,0 +1,124 @@
+Qingman 4.4.5 pageUrls contract probe
+sensitive_values_logged=false
+
+===== PP pageUrls neighborhood =====
+[pp+0x22570] String: "httpdatasource"
+[pp+0x22578] String: "econnreset"
+[pp+0x22580] String: "connection reset"
+[pp+0x22588] String: "connection closed"
+[pp+0x22590] String: "unable to connect"
+[pp+0x22598] String: "failed to connect"
+[pp+0x225a0] String: "499"
+[pp+0x225a8] List(7) [0, 0x4, 0x1, 0x3, "fQi", 0x3, Null]
+[pp+0x225b0] TypeArguments: <eqb>
+[pp+0x225b8] String: "completed"
+[pp+0x225c0] String: "radio"
+[pp+0x225c8] String: "解析本地广播剧缓存失败: chapterId="
+[pp+0x225d0] Obj!_RL@576041 : {
+}
+[pp+0x225d8] String: "解密缓存广播剧音频失败: comicId="
+[pp+0x225e0] String: " chapterId="
+[pp+0x225e8] String: " error="
+[pp+0x225f0] String: "srcPath"
+[pp+0x225f8] String: "dstPath"
+[pp+0x22600] String: "decryptCacheFileToPath"
+[pp+0x22608] String: "radio_play_cache"
+[pp+0x22610] String: "^\\.+"
+[pp+0x22618] Field <eqb._Gii@1566372493>: late final (offset: 0x30)
+[pp+0x22620] String: "qx-offline-name-v1-3f9a2c"
+[pp+0x22628] String: ".bin"
+[pp+0x22630] Field <eqb._Bii@1566372493>: late final (offset: 0x18)
+[pp+0x22638] TypeArguments: <Upb?>
+[pp+0x22640] String: "comic_cache_tasks"
+[pp+0x22648] String: "pageUrls"
+[pp+0x22650] Null
+[pp+0x22658] String: " in type cast"
+[pp+0x22660] AnonymousClosure: static (0x461008), of [Yzm] Upb
+[pp+0x22668] AnonymousClosure: (0x3be634), of [Lem] IMa
+[pp+0x22670] Null
+[pp+0x22678] String: " in type cast"
+[pp+0x22680] String: "comicTitle"
+[pp+0x22688] String: "comicCoverUrl"
+[pp+0x22690] String: "chapterCoverUrl"
+[pp+0x22698] String: "chapterIndex"
+[pp+0x226a0] Null
+[pp+0x226a8] String: " in type cast"
+[pp+0x226b0] String: "isLastReadChapter"
+[pp+0x226b8] String: "localDir"
+[pp+0x226c0] String: "referer"
+[pp+0x226c8] String: "pending"
+[pp+0x226d0] String: "progressPercent"
+[pp+0x226d8] Null
+[pp+0x226e0] String: " in type cast"
+[pp+0x226e8] String: "totalPages"
+[pp+0x226f0] Null
+[pp+0x226f8] String: " in type cast"
+[pp+0x22700] String: "downloadedPages"
+[pp+0x22708] Null
+[pp+0x22710] String: " in type cast"
+[pp+0x22718] String: "createdAt"
+[pp+0x22720] String: "updatedAt"
+[pp+0x22728] String: "isSelected"
+[pp+0x22730] String: "fileExtension"
+[pp+0x22738] String: "localSizeBytes"
+[pp+0x22740] Null
+[pp+0x22748] String: " in type cast"
+[pp+0x22750] String: "totalSizeBytes"
+[pp+0x22758] Null
+[pp+0x22760] String: " in type cast"
+
+===== GENERATED DART pageUrls contexts =====
+NO_GENERATED_PAGEURL_CONTEXT
+
+===== RAW address windows for known pageUrls xrefs =====
+--- TARGET 0x45f368 ---
+NO_TEXT_MATCH
+--- TARGET 0x460080 ---
+NO_TEXT_MATCH
+--- TARGET 0x45f398 ---
+NO_TEXT_MATCH
+--- TARGET 0x46068c ---
+NO_TEXT_MATCH
+--- TARGET 0x461008 ---
+FILE=Yzm.dart line=32
+// lib: , url: Yzm
+
+// class id: 1050442, size: 0x8
+class :: {
+}
+
+// class id: 1171, size: 0x68, field offset: 0x8
+class Upb extends Object {
+
+  Map<String, dynamic> YDc(Upb) {
+    // ** addr: 0xac93f8, size: 0x48
+    // 0xac93f8: EnterFrame
+    //     0xac93f8: stp             fp, lr, [SP, #-0x10]!
+    //     0xac93fc: mov             fp, SP
+    // 0xac9400: CheckStackOverflow
+    //     0xac9400: ldr             x16, [THR, #0x48]  ; THR::stack_limit
+    //     0xac9404: cmp             SP, x16
+    //     0xac9408: b.ls            #0xac9420
+    // 0xac940c: ldr             x1, [fp, #0x10]
+    // 0xac9410: r0 = call 0x45f260
+    //     0xac9410: bl              #0x45f260
+    // 0xac9414: LeaveFrame
+    //     0xac9414: mov             SP, fp
+    //     0xac9418: ldp             fp, lr, [SP], #0x10
+    // 0xac941c: ret
+    //     0xac941c: ret             
+    // 0xac9420: r0 = StackOverflowSharedWithoutFPURegs()
+    //     0xac9420: bl              #0xbb602c  ; StackOverflowSharedWithoutFPURegsStub
+    // 0xac9424: b               #0xac940c
+  }
+  [closure] static String <anonymous closure>(dynamic, dynamic) {
+    // ** addr: 0x461008, size: -0x1
+  }
+  [closure] static Upb Upb.iff(dynamic, Map<String, dynamic>) {
+    // ** addr: 0x46001c, size: -0x1
+  }
+}
+
+===== Candidate split/delimiter evidence near page model files =====
+
+===== page model class declarations =====
