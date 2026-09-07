@@ -1,0 +1,77 @@
+name: Probe Mengman Koharu metadata v9
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-mengman-koharu-metadata-v9.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect verified Koharu payload metadata only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, re, struct, urllib.request
+          text=open('.github/workflows/probe-mengman-native-seed-v4.yml','r',encoding='utf-8').read()
+          m=re.search(r"SS0_HEX='([0-9a-f]+)'",text)
+          SS0=list(struct.unpack('<256I',bytes.fromhex(m.group(1))))
+          KC=[0x9e3779b9,0x3c6ef373,0x78dde6e6,0xf1bbcdcc,0xe3779b99,0xc6ef3733,0x8dde6e67,0x1bbcdccf,0x3779b99e,0x6ef3733c,0xdde6e678,0xbbcdccf1,0x779b99e3,0xef3733c6,0xde6e678d,0xbcdccf1b]
+          MASK=0xffffffff
+          A5=[x>>24 for x in SS0];A6=[(x>>16)&255 for x in SS0];A7=[(x>>8)&255 for x in SS0];A8=[x&255 for x in SS0]
+          def G(x):
+              x&=MASK;b3=(x>>24)&255;b2=(x>>16)&255;b1=(x>>8)&255;b0=x&255
+              o3=A6[b2]^A5[b3]^A7[b1]^A8[b0];o2=A6[b1]^A5[b2]^A7[b0]^A8[b3];o1=A6[b0]^A5[b1]^A7[b3]^A8[b2];o0=A6[b3]^A5[b0]^A7[b2]^A8[b1]
+              return ((o3<<24)|(o2<<16)|(o1<<8)|o0)&MASK
+          def schedule(k):
+              a,b,c,d=struct.unpack('>4I',k);rk=[]
+              for i,kc in enumerate(KC):
+                  rk += [G(c+a-kc),G(b-d+kc)]
+                  if i%2==0:
+                      oa,ob=a,b;a,b=((oa>>8)|(ob<<24))&MASK,((ob>>8)|(oa<<24))&MASK
+                  else:
+                      oc,od=c,d;c,d=((oc<<8)|(od>>24))&MASK,((od<<8)|(oc>>24))&MASK
+              return rk
+          def block(k,s):
+              rk=schedule(k);a,b,c,d=struct.unpack('>4I',s)
+              for r in range(15,-1,-1):
+                  oa,ob=a,b;t0=rk[2*r]^c;t1=rk[2*r+1]^d;x=G(t0^t1);y=G(x+t0);z=G(y+x);n0=((z+y)&MASK)^oa;n1=z^ob;a,b,c,d=c,d,n0&MASK,n1&MASK
+              return struct.pack('>4I',c,a,d,b)
+          def transform(k,d):return b''.join(block(k,d[i:i+16]) for i in range(0,len(d),16))
+          def chunks(png):
+              out=[];p=8
+              while p+12<=len(png):
+                  n=struct.unpack('>I',png[p:p+4])[0];t=png[p+4:p+8];s=p+8;e=s+n
+                  if t==b'tEXt':
+                      out.append(png[s:e])
+                      if len(out)==2:return out
+                  p=e+4
+              raise RuntimeError('missing tEXt')
+          req=urllib.request.Request('https://static.yisix.cn/bootstrap/a2.png',headers={'User-Agent':'okhttp/4.12.0'})
+          png=urllib.request.urlopen(req,timeout=30).read(); c=chunks(png)
+          out=transform(c[0][83:99],c[1])
+          pad=out[-1]; pad_ok=1<=pad<=16 and out[-pad:]==bytes([pad])*pad
+          if pad_ok: out=out[:-pad]
+          print('A2_RAW',len(png),'TEXT',list(map(len,c)),'DECRYPTED',len(out),'PKCS7',pad_ok)
+          if len(out)<33: raise SystemExit('payload too short')
+          code=out[:-32]; expected=out[-32:]; actual=hashlib.sha256(code).digest()
+          print('KOHARU_CODE_SIZE',len(code),'SHA256_OK',actual==expected,'CODE_SHA256_PREFIX',actual.hex()[:16])
+          print('CODE_PREFIX',code[:32].hex())
+          # Surface only short printable metadata strings, not binary contents or cryptographic material.
+          ss=[]
+          for m in re.finditer(rb'[ -~]{4,120}',code):
+              s=m.group().decode('ascii','replace')
+              if any(x in s.lower() for x in ['sha','hmac','sign','nonce','url','method','device','body','md5','base64','hex','koharu','aes','chacha','blake','crc','http','json']):
+                  ss.append((m.start(),s))
+          print('MATCHED_STRINGS',len(ss))
+          for off,s in ss[:120]: print('STR',hex(off),repr(s))
+          PY
