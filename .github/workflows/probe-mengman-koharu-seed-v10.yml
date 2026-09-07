@@ -1,0 +1,52 @@
+name: Probe Mengman Koharu SEED v10
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-mengman-koharu-seed-v10.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Verify a2 with standard SEED and inspect signer metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, os, re, struct, subprocess, tempfile, urllib.request
+          def chunks(png):
+              out=[];p=8
+              while p+12<=len(png):
+                  n=struct.unpack('>I',png[p:p+4])[0];t=png[p+4:p+8];s=p+8;e=s+n
+                  if t==b'tEXt':
+                      out.append(png[s:e])
+                      if len(out)==2:return out
+                  p=e+4
+              raise RuntimeError('missing tEXt')
+          req=urllib.request.Request('https://static.yisix.cn/bootstrap/a2.png',headers={'User-Agent':'okhttp/4.12.0'})
+          png=urllib.request.urlopen(req,timeout=30).read(); c=chunks(png); key=c[0][83:99]
+          with tempfile.TemporaryDirectory() as td:
+              fi=td+'/in';fo=td+'/out';open(fi,'wb').write(c[1])
+              p=subprocess.run(['openssl','enc','-seed-ecb','-d','-provider','default','-provider','legacy','-K',key.hex(),'-in',fi,'-out',fo],stderr=subprocess.PIPE)
+              if p.returncode: raise SystemExit('SEED decrypt failed: '+p.stderr.decode('utf-8','replace')[:300])
+              plain=open(fo,'rb').read()
+          print('A2_BYTES',len(png),'TEXT',list(map(len,c)),'PLAIN',len(plain))
+          if len(plain)<33: raise SystemExit('plain too short')
+          code=plain[:-32];expected=plain[-32:];actual=hashlib.sha256(code).digest()
+          print('KOHARU_CODE_SIZE',len(code),'SHA256_OK',actual==expected,'CODE_SHA256_PREFIX',actual.hex()[:16])
+          print('CODE_PREFIX',code[:32].hex())
+          # Print only descriptive ASCII strings relevant to protocol/algorithms.
+          hits=[]
+          for m in re.finditer(rb'[ -~]{4,160}',code):
+              s=m.group().decode('ascii','replace'); low=s.lower()
+              if any(x in low for x in ['sha','hmac','sign','nonce','url','method','device','body','md5','base64','hex','http','json','crc','version']): hits.append((m.start(),s))
+          print('MATCHED_STRINGS',len(hits))
+          for off,s in hits[:200]: print('STR',hex(off),repr(s))
+          PY
