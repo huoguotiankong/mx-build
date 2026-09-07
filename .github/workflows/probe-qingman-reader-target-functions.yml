@@ -78,10 +78,11 @@ jobs:
               print(f'=== TARGET {label} 0x{addr:x} hits={len(hits)} ===')
               for p,lines,i in hits[:3]:
                   print('FILE='+str(p.relative_to('/tmp/blutter-out'))+' LINE='+str(i+1))
-                  # Walk to nearest function header if possible, then include wide local context.
                   lo=max(0,i-110); hi=min(len(lines),i+210)
                   for n in range(lo,hi):
                       line=lines[n]
                       if deny.search(line): line='<redacted-sensitive-line>'
                       print(f'{n+1:06d}: {line[:500]}')
           PY
+
+# rerun: 2026-09-07 v13 ordinary-reader reconstruction
