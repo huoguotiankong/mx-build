@@ -1,0 +1,111 @@
+name: Decompile Qingman Security Channel Wrapper
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-security-channel-dex.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  decompile:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Download current official APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/url
+          import json,urllib.request,sys
+          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=30))
+          a=o['data']['datas']['android']
+          print(a['downloadUrl'])
+          print('OFFICIAL_VERSION='+str(a.get('version','')),file=sys.stderr)
+          print('OFFICIAL_VERSION_CODE='+str(a.get('versionCode','')),file=sys.stderr)
+          if (str(a.get('version','')),str(a.get('versionCode',''))) != ('4.4.5','445'):
+              raise SystemExit('unexpected official version')
+          PY
+          curl -fsSL --retry 3 --connect-timeout 20 --max-time 240 "$(cat /tmp/url)" -o /tmp/qm.apk
+          unzip -tq /tmp/qm.apk >/dev/null
+
+      - name: Download JADX CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/jadx_url
+          import json,urllib.request
+          req=urllib.request.Request('https://api.github.com/repos/skylot/jadx/releases/latest',headers={'User-Agent':'mx-qingman-probe'})
+          rel=json.load(urllib.request.urlopen(req,timeout=30))
+          assets=rel.get('assets',[])
+          c=[a['browser_download_url'] for a in assets if a.get('name','').startswith('jadx-') and a.get('name','').endswith('.zip') and 'gui' not in a.get('name','').lower()]
+          if not c:
+              raise SystemExit('jadx cli zip asset not found')
+          print(c[0])
+          PY
+          curl -fsSL --retry 3 "$(cat /tmp/jadx_url)" -o /tmp/jadx.zip
+          rm -rf /tmp/jadx && mkdir -p /tmp/jadx
+          unzip -q /tmp/jadx.zip -d /tmp/jadx
+          chmod +x /tmp/jadx/bin/jadx
+          /tmp/jadx/bin/jadx --version
+
+      - name: Decompile DEX
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/dex /tmp/jadx-out && mkdir -p /tmp/dex /tmp/jadx-out
+          cd /tmp/dex
+          unzip -q /tmp/qm.apk 'classes*.dex'
+          /tmp/jadx/bin/jadx --no-res --show-bad-code -d /tmp/jadx-out classes*.dex >/tmp/jadx.log 2>&1 || true
+          tail -40 /tmp/jadx.log
+
+      - name: Print security channel wrapper
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root=Path('/tmp/jadx-out/sources')
+          needles=['qx/security','initializeSignKeys','buildHeaders','apiGuard','canonicalRequest','X-QM-Proof','X-QM-Request-Id','X-Signature']
+          files=[]
+          for p in root.rglob('*.java'):
+              try: t=p.read_text('utf-8',errors='replace')
+              except Exception: continue
+              score=sum(1 for n in needles if n in t)
+              if score:
+                  files.append((score,p,t))
+          files.sort(key=lambda x:(-x[0],str(x[1])))
+          print('MATCHED_FILES='+str(len(files)))
+          deny=re.compile(r'(?i)(BEGIN PRIVATE KEY|clientp12|keystore|storepassword|keypassword)')
+          emitted=0
+          for score,p,t in files[:12]:
+              print(f'=== FILE score={score} path={p.relative_to(root)} ===')
+              lines=t.splitlines()
+              hitidx=[i for i,l in enumerate(lines) if any(n in l for n in needles)]
+              ranges=[]
+              for i in hitidx:
+                  lo=max(0,i-90); hi=min(len(lines),i+150)
+                  if ranges and lo<=ranges[-1][1]+10:
+                      ranges[-1]=(ranges[-1][0],max(ranges[-1][1],hi))
+                  else:
+                      ranges.append((lo,hi))
+              for lo,hi in ranges[:8]:
+                  print(f'--- lines {lo+1}-{hi} ---')
+                  for n in range(lo,hi):
+                      line=lines[n]
+                      if deny.search(line):
+                          line='<redacted-sensitive-line>'
+                      print(f'{n+1:04d}: {line[:420]}')
+                      emitted+=1
+                      if emitted>=2600:
+                          break
+                  if emitted>=2600:
+                      break
+              if emitted>=2600:
+                  break
+          print('EMITTED_LINES='+str(emitted))
+          PY
