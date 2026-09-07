@@ -1,0 +1,40 @@
+name: Verify Qingman Image Host Candidate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-image-host-direct.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe official image host candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          path='/comic/chaoqing/woduzishengji/S5bc96b9b-78d1-4c3b-84fa-954ade659d60.webp'
+          url="https://img-qingman.dmzj.com${path}"
+          for mode in bare app referer; do
+            hdr=$(mktemp); body=$(mktemp)
+            args=(-L --max-redirs 3 -sS --connect-timeout 8 --max-time 25 -D "$hdr" -o "$body" -w '%{http_code}')
+            case "$mode" in
+              app) args+=(-H 'User-Agent: qingman/4.4.5 (Android)' -H 'Accept: image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8') ;;
+              referer) args+=(-H 'User-Agent: qingman/4.4.5 (Android)' -H 'Referer: https://www.qingman.app/') ;;
+            esac
+            code=$(curl "${args[@]}" "$url" || true)
+            ctype=$(awk 'BEGIN{IGNORECASE=1}/^content-type:/{v=$0}END{sub(/^content-type:[ ]*/,"",v);gsub("\r", "", v);print v}' "$hdr")
+            bytes=$(wc -c < "$body" | tr -d ' ')
+            magic=$(od -An -tx1 -N16 "$body" | tr -d ' \n')
+            echo "mode=$mode http=$code bytes=$bytes ctype=$ctype magic=$magic"
+            if [[ "$code" == 200 && "$ctype" == image/* && "$bytes" -gt 1000 ]]; then
+              echo "image_host_verified=true mode=$mode"
+            fi
+            rm -f "$hdr" "$body"
+          done
