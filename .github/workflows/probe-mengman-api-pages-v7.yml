@@ -1,0 +1,85 @@
+name: Probe Mengman API and page schema v7
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-mengman-api-pages-v7.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect comic API and chapter page fields
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, urllib.parse, urllib.request
+
+          # Reuse the already verified v6 bootstrap/static-decryption setup without copying its cipher table again.
+          wf=open('.github/workflows/probe-mengman-json-schema-v6.yml','r',encoding='utf-8').read()
+          marker="python3 - <<'PY'\n"
+          start=wf.index(marker)+len(marker)
+          end=wf.rindex('\n          PY')
+          code=wf[start:end]
+          # YAML block indentation is 10 spaces.
+          code='\n'.join(line[10:] if line.startswith('          ') else line for line in code.splitlines())
+          prefix=code.split('test_paths=[',1)[0]
+          ns={}
+          exec(prefix,ns,ns)
+
+          files=ns['unzip_bundle']('/static/comic/chapter/2140/1.zip')
+          obj=json.loads(files['data.json'].decode('utf-8'))
+          data=obj.get('data') or {}
+          pages=data.get('pages') or []
+          print('PAGE_COUNT',len(pages))
+          for i,p in enumerate(pages[:3]):
+              print('PAGE_SAMPLE',i,json.dumps(p,ensure_ascii=False,sort_keys=True)[:2000])
+
+          def api(path,params):
+              url='https://api.yisix.cn'+path+'?'+urllib.parse.urlencode(params)
+              req=urllib.request.Request(url,headers={
+                  'User-Agent':'mengman/1.0.1 (Android)',
+                  'Accept':'application/json, text/plain, */*',
+              })
+              try:
+                  with urllib.request.urlopen(req,timeout=30) as r:
+                      raw=r.read().decode('utf-8','replace')
+                      print('\nAPI',path,params,'status',r.status,'bytes',len(raw))
+              except urllib.error.HTTPError as e:
+                  raw=e.read().decode('utf-8','replace')
+                  print('\nAPI',path,params,'status',e.code,'bytes',len(raw))
+              try:
+                  j=json.loads(raw)
+                  print('API_TOP_KEYS',sorted(j.keys()) if isinstance(j,dict) else type(j).__name__)
+                  if isinstance(j,dict):
+                      print('API_CODE',j.get('code'),'MESSAGE',j.get('message'))
+                      d=j.get('data')
+                      if isinstance(d,dict):
+                          print('API_DATA_KEYS',sorted(d.keys()))
+                          lst=d.get('list') or []
+                          print('API_LIST_LEN',len(lst) if isinstance(lst,list) else 'not-list')
+                          if isinstance(lst,list) and lst:
+                              item=lst[0]
+                              if isinstance(item,dict):
+                                  safe={k:item.get(k) for k in ['id','title','cover','latest_chapter','author','tags','serial_status','favorite_count'] if k in item}
+                                  print('API_SAMPLE',json.dumps(safe,ensure_ascii=False)[:1500])
+                      elif isinstance(d,list):
+                          print('API_DATA_LIST_LEN',len(d))
+                  return j
+              except Exception as ex:
+                  print('API_JSON_FAIL',type(ex).__name__,str(ex)[:300],'BODY',raw[:500])
+                  return None
+
+          api('/api/v1/comics',{'page':1,'size':20,'keyword':'仙帝归来'})
+          api('/api/v1/comics',{'page':1,'size':20,'sort':'update'})
+          api('/api/v1/comics',{'page':1,'size':20,'sort':'hot'})
+          api('/api/v1/comics',{'page':1,'size':20,'category_id':1})
+          PY
