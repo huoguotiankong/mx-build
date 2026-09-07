@@ -1,8 +1,8 @@
 {
-  "versionName": "1.6.9",
-  "androidVersionCode": 106009,
+  "versionName": "1.6.10",
+  "androidVersionCode": 106010,
   "packageName": "eu.kanade.tachiyomi.extension.zh.qingman",
-  "apkSha256": "2e01ebaa99c4c1f0c8e58a0fd01e54ffd0225ee1bcff45e7c81c66babcacfe5b",
+  "apkSha256": "7e9baee06f94b133723ca9280783098b71eb2cfd036eeaf9587f1a253f4cd3df",
   "signingCertificateSha256": "1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620",
   "permissions": [
     "package: eu.kanade.tachiyomi.extension.zh.qingman"
