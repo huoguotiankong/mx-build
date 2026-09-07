@@ -1,0 +1,35 @@
+official_version=4.4.5/445
+apk_download_url: absolute=True scheme=https host=glumimage.pwpni.com path_prefix=/app/qingman_4.4.5_445_qm1_web_arm64_08301633.apk
+bootstrap_ok=true
+bootstrap_keys=apiDomain,expireAt,nonce,timestamp
+bootstrap_apiDomain: absolute=True scheme=https host=vkh30hp8.mhxiaomidi.com path_prefix=
+bootstrap_baseImgUrl=missing
+bootstrap_freeUrl=missing
+bootstrap_customerUrl=missing
+bootstrap_officialUrl=missing
+bootstrap_promotionUrl=missing
+route=api/comic/comics/v1/homeList?page=1&pageNum=1&pageSize=20 method=POST http=200 code=1
+relative_cover=true path_prefix=/comic/chaoqing/woduzishengji/S5bc96b9b-78d1-4c3b-84fa-954ade659d60.webp query_present=True
+route=api/appapi/theme/appconfig method=GET http=404 code=None
+route=api/appapi/theme/appconfig method=POST http=404 code=None
+route=api/appapi/theme/appConfig method=GET http=404 code=None
+route=api/appapi/theme/appConfig method=POST http=404 code=None
+route=api/appapi/theme/config method=GET http=404 code=None
+route=api/appapi/theme/config method=POST http=404 code=None
+route=api/appapi/theme/getappconfig method=GET http=404 code=None
+route=api/appapi/theme/getappconfig method=POST http=404 code=None
+route=api/appapi/theme/getAppConfig method=GET http=404 code=None
+route=api/appapi/theme/getAppConfig method=POST http=404 code=None
+delivery base=api_http mode=bare http=404 ctype=text/html
+delivery base=api_http mode=ua http=404 ctype=text/html
+delivery base=api_http mode=referer http=404 ctype=text/html
+delivery base=api_https mode=bare error=SSLError
+delivery base=api_https mode=ua error=SSLError
+delivery base=api_https mode=referer error=SSLError
+delivery base=apk_download_origin mode=bare http=200 bytes32=32 ctype=image/webp final_host=glumimage.pwpni.com
+delivery base=apk_download_origin mode=ua http=200 bytes32=32 ctype=image/webp final_host=glumimage.pwpni.com
+delivery base=apk_download_origin mode=referer http=200 bytes32=32 ctype=image/webp final_host=glumimage.pwpni.com
+delivery base=official_https mode=bare http=403 ctype=text/html
+delivery base=official_https mode=ua http=200 bytes32=32 ctype=text/html final_host=y4h4s84eqqlwmlu5.urlg.cc
+delivery base=official_https mode=referer http=200 bytes32=32 ctype=text/html final_host=y4h4s84eqqlwmlu5.urlg.cc
+sensitive_values_logged=false
