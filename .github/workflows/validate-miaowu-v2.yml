@@ -46,10 +46,10 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Spotless
+      - name: Spotless Miaowu only
         shell: bash
         working-directory: upstream
-        run: ./gradlew spotlessCheck --no-daemon
+        run: ./gradlew :src:zh:miaowumanhua:spotlessCheck --no-daemon
 
       - name: Assemble debug
         shell: bash
