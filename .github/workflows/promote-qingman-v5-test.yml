@@ -162,3 +162,5 @@ jobs:
           assert Path('repo/test/icon/eu.kanade.tachiyomi.extension.zh.qingman-v106005.png').is_file()
           print('Promoted Qingman v5 index/APK/icon verified')
           PY
+
+# trigger: audited raw-auth rebuild c2ebf2c
