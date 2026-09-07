@@ -60,3 +60,5 @@ jobs:
                   print(line[:900]); n+=1
                   if n>=320: break
           PY
+
+# rerun: 2026-09-07 v11 HTTP400 follow-up
