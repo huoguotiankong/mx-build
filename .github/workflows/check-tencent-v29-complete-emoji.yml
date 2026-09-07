@@ -1,0 +1,101 @@
+name: Check Tencent v29 complete emoji coverage
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/check-tencent-v29-complete-emoji.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Check private source token
+        shell: bash
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]]
+
+      - name: Checkout Tencent v29 branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: fix/tencent-v29-complete-emoji-coverage
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: dev
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify exhaustive emoji coverage markers
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dev
+          python3 scripts/validate_sources.py
+          git diff --check
+          grep -F 'versionCode = 29' src/zh/tencentcomics/build.gradle.kts
+          grep -F 'TENCENT_NAMED_EMOJI_TEXT[label] ?: "🙂[$label]"' src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+          grep -F '"不开心" to "😞"' src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+          grep -F '"叹气" to "😮‍💨"' src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+          grep -F '"嘤嘤" to "🥺"' src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+          grep -F '"城会玩" to "🤪"' src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+          grep -F '"察觉" to "👀"' src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+          grep -F '"期待" to "🤩"' src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+          grep -F '"渣渣" to "😒"' src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+          grep -F '"脱裤看这" to "👀"' src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+          grep -F '"节操来一斤" to "🙈"' src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+          grep -F 'removeAllQueryParameters("tp")' src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          text = Path('src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt').read_text('utf-8')
+          named = text[text.index('val TENCENT_NAMED_EMOJI_TEXT = mapOf('):text.index('val JSON = Json {')]
+          labels = set(re.findall(r'^\s*"([^"]+)"\s+to\s+"', named, flags=re.M))
+          assert len(labels) == 118, len(labels)
+          numeric = text[text.index('val TENCENT_EMOJI_TEXT = mapOf('):text.index('val TENCENT_NAMED_EMOJI_TEXT = mapOf(')]
+          codes = {int(x) for x in re.findall(r'^\s*(\d+)\s+to\s+"', numeric, flags=re.M)}
+          assert codes == set(range(90)), sorted(set(range(90)) - codes)
+          print('Tencent official 12.19.9 coverage: 90 numeric + 118 unique named labels')
+          PY
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Checkout current Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Overlay Tencent extension
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf upstream/src/zh/tencentcomics
+          cp -a dev/src/zh/tencentcomics upstream/src/zh/tencentcomics
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Verify Spotless
+        working-directory: upstream
+        run: ./gradlew :src:zh:tencentcomics:spotlessCheck
+
+      - name: Build debug and release
+        working-directory: upstream
+        run: ./gradlew :src:zh:tencentcomics:assembleDebug :src:zh:tencentcomics:assembleRelease
+
+      - name: Lint release
+        working-directory: upstream
+        run: ./gradlew :src:zh:tencentcomics:lintRelease
