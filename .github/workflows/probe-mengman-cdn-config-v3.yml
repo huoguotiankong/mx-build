@@ -1,0 +1,39 @@
+name: Probe Mengman CDN config v3
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-mengman-cdn-config-v3.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Fetch live CDN auth config with encrypted values redacted
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, urllib.request
+          url='https://api.yisix.cn/api/v1/security/cdn-auth-config'
+          req=urllib.request.Request(url,headers={'Accept':'application/json','User-Agent':'okhttp/4.12.0'})
+          with urllib.request.urlopen(req,timeout=30) as r:
+              raw=r.read().decode('utf-8','replace')
+              print('status',r.status,'bytes',len(raw))
+          obj=json.loads(raw)
+          data=obj.get('data') or {}
+          safe={}
+          for k,v in data.items():
+              if 'key' in k.lower() and isinstance(v,str):
+                  safe[k]={'present':bool(v),'length':len(v)}
+              else:
+                  safe[k]=v
+          print('code',obj.get('code'),'message',obj.get('message'))
+          print(json.dumps(safe,ensure_ascii=False,sort_keys=True,indent=2))
+          PY
