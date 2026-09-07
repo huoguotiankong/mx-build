@@ -134,4 +134,4 @@ jobs:
           print('FUNCTION_DUMP_LINES='+str(printed))
           PY
 
-# rerun: 2026-09-07 v11 HTTP400 follow-up
+# rerun: 2026-09-07 v13 cache endpoint is level-gated; trace ordinary reading path
