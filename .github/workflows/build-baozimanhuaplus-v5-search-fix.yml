@@ -1,0 +1,232 @@
+name: Build Baozi Manhua Plus v5 search fix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/build-baozimanhuaplus-v5-search-fix.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-baozimanhuaplus-v5-search-fix
+  cancel-in-progress: false
+
+jobs:
+  build-stage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check required secrets
+        shell: bash
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]] || { echo "::error::Missing MX_PRIVATE_READ_TOKEN"; exit 1; }
+          [[ -n "$MANGA_SIGNING_BUNDLE" ]] || { echo "::error::Missing MANGA_SIGNING_BUNDLE"; exit 1; }
+
+      - name: Checkout MX development source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: dev
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify v5 search routing patch
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle='dev/src/zh/baozimanhuaplus/build.gradle.kts'
+          router='dev/src/zh/baozimanhuaplus/src/eu/kanade/tachiyomi/extension/zh/baozimanhuaplus/BaoziImageRetryInterceptor.kt'
+          grep -F 'versionCode = 5' "$gradle"
+          grep -F 'const val SEARCH_HOST = "www.baozimh.com"' "$router"
+          grep -F '.encodedPath("/search")' "$router"
+          grep -F 'request.url.queryParameter("q")' "$router"
+          python3 dev/scripts/validate_sources.py
+          git -C dev diff --check
+          echo 'version_name=1.6.5' >> "$GITHUB_OUTPUT"
+          echo 'android_code=106005' >> "$GITHUB_OUTPUT"
+
+      - name: Probe canonical Baozi search endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          url='https://www.baozimh.com/search?q=%E4%B8%80%E4%BA%BA%E4%B9%8B%E4%B8%8B'
+          ok=0
+          for attempt in 1 2 3; do
+            code="$(curl -L --compressed -A 'Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140.0 Mobile Safari/537.36' -sS -o /tmp/baozi-search.html -w '%{http_code}' --max-time 20 "$url" || true)"
+            if [[ "$code" == 200 ]] && grep -q 'yirenzhixia-dongmantang' /tmp/baozi-search.html; then
+              ok=1
+              break
+            fi
+            echo "Baozi canonical search probe attempt $attempt not ready: HTTP=$code"
+            sleep $((attempt * 2))
+          done
+          if [[ "$ok" -ne 1 ]]; then
+            echo '::warning::Canonical search endpoint probe was inconclusive; build validation will continue and device verification remains required.'
+          else
+            echo 'Canonical Baozi search endpoint returned the requested manga.'
+          fi
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Checkout current Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          ref: main
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Overlay complete module and format
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf upstream/src/zh/baozimanhuaplus
+          cp -a dev/src/zh/baozimanhuaplus upstream/src/zh/baozimanhuaplus
+          cd upstream
+          ./gradlew :src:zh:baozimanhuaplus:spotlessApply
+          ./gradlew :src:zh:baozimanhuaplus:spotlessCheck
+          cd ..
+          rm -rf dev/src/zh/baozimanhuaplus
+          cp -a upstream/src/zh/baozimanhuaplus dev/src/zh/baozimanhuaplus
+          rm -rf dev/src/zh/baozimanhuaplus/build
+          python3 dev/scripts/validate_sources.py
+          git -C dev diff --check
+
+      - name: Prepare stable signing key
+        shell: bash
+        env:
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, json, os
+          from pathlib import Path
+          b = json.loads(os.environ['MANGA_SIGNING_BUNDLE'])
+          required = ('signingKey', 'alias', 'storePassword', 'keyPassword')
+          missing = [k for k in required if not b.get(k)]
+          if missing:
+              raise SystemExit('Signing bundle missing: ' + ', '.join(missing))
+          Path('upstream/signingkey.jks').write_bytes(base64.b64decode(b['signingKey']))
+          with Path(os.environ['GITHUB_ENV']).open('a', encoding='utf-8') as f:
+              for env_name, key in (('ALIAS','alias'), ('KEY_STORE_PASSWORD','storePassword'), ('KEY_PASSWORD','keyPassword')):
+                  value = str(b[key])
+                  print(f'::add-mask::{value}')
+                  f.write(f'{env_name}<<EOF_SIGN\n{value}\nEOF_SIGN\n')
+          PY
+
+      - name: Build debug, signed release and lint
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew \
+            :src:zh:baozimanhuaplus:assembleDebug \
+            :src:zh:baozimanhuaplus:assembleRelease \
+            :src:zh:baozimanhuaplus:lintRelease
+
+      - name: Verify version and signing identity
+        id: signing
+        shell: bash
+        env:
+          EXPECTED_VERSION: ${{ steps.version.outputs.version_name }}
+          EXPECTED_ANDROID_CODE: ${{ steps.version.outputs.android_code }}
+        run: |
+          set -euo pipefail
+          designated='1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620'
+          actual="$(keytool -exportcert -alias "$ALIAS" -keystore upstream/signingkey.jks -storepass "$KEY_STORE_PASSWORD" | sha256sum | awk '{print $1}' | tr '[:upper:]' '[:lower:]')"
+          [[ "$actual" == "$designated" ]] || { echo '::error::Extension signing certificate mismatch'; exit 1; }
+          apk="$(find upstream/src/zh/baozimanhuaplus -path '*/build/outputs/apk/release/*.apk' -type f | sort | head -n1)"
+          test -f "$apk"
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n1)"
+          aapt="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n1)"
+          "$apksigner" verify "$apk"
+          badging="$("$aapt" dump badging "$apk")"
+          android_code="$(printf '%s\n' "$badging" | sed -n "s/.*versionCode='\([0-9][0-9]*\)'.*/\1/p" | head -n1)"
+          version_name="$(printf '%s\n' "$badging" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p" | head -n1)"
+          [[ "$android_code" == "$EXPECTED_ANDROID_CODE" ]] || { echo "::error::Unexpected Android versionCode $android_code"; exit 1; }
+          [[ "$version_name" == "$EXPECTED_VERSION" ]] || { echo "::error::Unexpected versionName $version_name"; exit 1; }
+          echo "fingerprint=$actual" >> "$GITHUB_OUTPUT"
+          echo "Baozi Plus v5 APK verified: versionName=$version_name androidVersionCode=$android_code"
+
+      - name: Checkout extension staging
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-build
+          ref: extension-staging
+          path: staging
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Generate isolated v5 test store
+        shell: bash
+        env:
+          SIGNING_FINGERPRINT: ${{ steps.signing.outputs.fingerprint }}
+        run: |
+          set -euo pipefail
+          printf 'zh/baozimanhuaplus\n' > "$RUNNER_TEMP/baozi-v5-target.txt"
+          python3 dev/scripts/publish_test_repo.py \
+            --targets "$RUNNER_TEMP/baozi-v5-target.txt" \
+            --upstream-root upstream \
+            --source-root dev \
+            --repo-dir staging/test \
+            --owner huoguotiankong \
+            --repository mx-repo \
+            --signing-key "$SIGNING_FINGERPRINT"
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          pkg = 'eu.kanade.tachiyomi.extension.zh.baozimanhuaplus'
+          data = json.loads(Path('staging/test/index.json').read_text('utf-8'))
+          items = [x for x in data['extensionList']['extensions'] if x.get('packageName') == pkg]
+          if len(items) != 1:
+              raise SystemExit(f'Expected one Baozi Plus entry, got {len(items)}')
+          actual = (items[0].get('versionName'), items[0].get('versionCode'))
+          expected = ('1.6.5', 106005)
+          if actual != expected:
+              raise SystemExit(f'Expected {expected}, got {actual}')
+          print('Staged Baozi Plus verified:', actual)
+          PY
+          test -f staging/test/apk/tachiyomi-zh.baozimanhuaplus-v1.6.5.apk
+
+      - name: Commit staged v5 test store
+        working-directory: staging
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add test
+          if git diff --cached --quiet; then
+            echo 'No Baozi Plus v5 staging changes'
+          else
+            git commit -m 'Stage Baozi Manhua Plus v1.6.5 search fix'
+            git pull --rebase origin extension-staging
+            git push origin HEAD:extension-staging
+          fi
+
+      - name: Upload signed APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: baozimanhuaplus-v5-search-fix-signed-apk
+          path: upstream/src/zh/baozimanhuaplus/**/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Cleanup signing material
+        if: always()
+        run: rm -f upstream/signingkey.jks
