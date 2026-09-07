@@ -1,0 +1,21 @@
+name: Trigger Qingman v1.6.7 signed staging build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/trigger-qingman-v7-release.yml"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  trigger:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Dispatch Qingman signed runtime build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run build-qingman-v4-runtime-test.yml --ref main
