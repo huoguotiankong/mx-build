@@ -1,0 +1,136 @@
+name: Trace Qingman Reward Entitlement
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-reward-entitlement.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools python3-capstone cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+      - name: Restore analyzer cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+      - name: Trace reward ad entitlement and unlock request
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/apk_url
+          import json,urllib.request
+          print(json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))['data']['datas']['android']['downloadUrl'])
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qingman.apk
+          rm -rf /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          mkdir -p /tmp/app-lib /tmp/blutter-out /tmp/apk-extract
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/apk-extract
+          cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter
+          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
+
+          python3 - <<'PY'
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
+          import bisect,re
+
+          sensitive=re.compile(r'(?i)(password|passwd|pwd|token|cookie|authorization|bearer|private|clientp12|certificate|proof|signature|p12|seed|k1a|k1b|k2a|k2b|k3a|k3b)')
+          def safe(s): return '<redacted-sensitive-line>' if sensitive.search(s) else s[:700]
+
+          pp={}
+          for line in Path('/tmp/blutter-out/pp.txt').read_text('utf-8',errors='replace').splitlines():
+              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s+(.*)$',line)
+              if m: pp[int(m.group(1),16)]=m.group(2)
+
+          needles={
+              'reward_verify':'阶段激励广告奖励: verify=',
+              'unlock_success':'解锁漫画广告时长成功',
+              'unlock_fail':'解锁广告时长失败:',
+              'reward_success_continue':'激励广告解锁成功，继续加载章节图片',
+              'vip0':'VIP status is 0, need to show reward ad',
+              'vip2':'VIP status is 2, already watched ad and in free period, no need to show ad',
+              'ad_unlock_path':'api/comic/buy/qmv1/adUnlockcomic',
+              'ad_unlock_minutes':'adUnlockMinutes',
+              'can_ad_unlock':'canAdUnlock',
+              'unlock_remaining':'unlockRemainingTime',
+              'member_id':'memberId',
+          }
+          targets={}
+          print('=== TARGET PP ===')
+          for label,needle in needles.items():
+              hits=[o for o,v in pp.items() if needle in v and not sensitive.search(v)]
+              print(label+'='+','.join(hex(x) for x in hits))
+              for x in hits: targets[x]=label
+
+          funcs=[]
+          for p in Path('/tmp/blutter-out/asm').rglob('*.dart'):
+              lines=p.read_text('utf-8',errors='replace').splitlines()
+              for i,s in enumerate(lines):
+                  m=re.search(r'\*\* addr: 0x([0-9a-fA-F]+), size: 0x([0-9a-fA-F]+)',s)
+                  if not m: continue
+                  st=int(m.group(1),16); sz=int(m.group(2),16); decl=''
+                  for j in range(i-1,max(-1,i-10),-1):
+                      z=lines[j].strip()
+                      if z and not z.startswith('//'):
+                          decl=z; break
+                  funcs.append((st,st+sz,p.name,decl,lines,i))
+          funcs.sort(key=lambda x:x[0]); starts=[x[0] for x in funcs]
+          def owner(addr):
+              k=bisect.bisect_right(starts,addr)-1
+              return funcs[k] if k>=0 and funcs[k][0] <= addr < funcs[k][1] else None
+
+          with open('/tmp/app-lib/libapp.so','rb') as f:
+              elf=ELFFile(f); sec=elf.get_section_by_name('.text'); base=int(sec['sh_addr']); data=sec.data()
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.skipdata=True
+
+          pending={}; refs=[]
+          for ins in md.disasm(data,base):
+              pending={r:(b,n-1) for r,(b,n) in pending.items() if n>1}
+              op=ins.op_str.lower()
+              m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
+              if ins.mnemonic=='add' and m:
+                  pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),20); continue
+              if ins.mnemonic in ('ldr','ldur','ldrsw'):
+                  m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
+                  if not m: continue
+                  br=m.group(2); disp=int(m.group(3),0) if m.group(3) else 0
+                  off=disp if br=='x27' else (pending[br][0]+disp if br in pending else None)
+                  if off in targets: refs.append((ins.address,off,targets[off]))
+
+          print('\n=== XREF OWNERS ===')
+          seen=set()
+          for addr,off,label in refs:
+              f=owner(addr); key=(f[0],label) if f else (addr,label)
+              if key in seen: continue
+              seen.add(key)
+              print(f'XREF {label} addr=0x{addr:x} pp=0x{off:x}')
+              if not f:
+                  print('  OWNER=<unmapped>'); continue
+              st,en,pn,decl,lines,mark=f
+              print(f'  OWNER=0x{st:x}-0x{en:x} file={pn} decl={safe(decl)}')
+              emitted=0
+              for z in lines[max(0,mark-10):min(len(lines),mark+220)]:
+                  if sensitive.search(z): continue
+                  if any(k in z for k in ('api/comic/','verify','unlock','vip','member','adUnlock','LoadField','StoreField','call 0x','Await','ReturnAsync','field_')):
+                      print('    '+safe(z)); emitted += 1
+                      if emitted>=130: break
+          PY
