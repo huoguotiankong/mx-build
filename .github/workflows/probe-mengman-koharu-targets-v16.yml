@@ -1,0 +1,54 @@
+name: Probe Mengman Koharu target functions v16
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-mengman-koharu-targets-v16.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 8
+    steps:
+      - name: Decrypt verified Koharu blob and inspect static target functions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,struct,subprocess,urllib.request
+          def chunks(png):
+              out=[];p=8
+              while p+12<=len(png):
+                  n=struct.unpack('>I',png[p:p+4])[0];t=png[p+4:p+8];s=p+8;e=s+n
+                  if t==b'tEXt':
+                      out.append(png[s:e])
+                      if len(out)==2:return out
+                  p=e+4
+              raise RuntimeError('missing tEXt')
+          png=urllib.request.urlopen(urllib.request.Request('https://static.yisix.cn/bootstrap/a2.png',headers={'User-Agent':'okhttp/4.12.0'}),timeout=30).read()
+          c=chunks(png);open('/tmp/in','wb').write(c[1]);key=c[0][83:99]
+          p=subprocess.run(['openssl','enc','-seed-ecb','-d','-provider','default','-provider','legacy','-K',key.hex(),'-in','/tmp/in','-out','/tmp/plain'],stderr=subprocess.PIPE)
+          if p.returncode:raise SystemExit(p.stderr.decode()[:300])
+          plain=open('/tmp/plain','rb').read();code=plain[:-32]
+          if hashlib.sha256(code).digest()!=plain[-32:]:raise SystemExit('sha mismatch')
+          open('/tmp/koharu.bin','wb').write(code)
+          alphabet=code[0x25eb8:0x25eb8+85]
+          print('SIZE',len(code),'SHA',hashlib.sha256(code).hexdigest())
+          print('BASE85_ALPHABET_LEN',len(alphabet),'HEX',alphabet.hex())
+          print('BASE85_ALPHABET_ASCII',repr(alphabet.decode('latin1')))
+          print('BASE85_UNIQUE',len(set(alphabet)))
+          PY
+
+          for spec in '0x3180 0x3400' '0x18e00 0x19080' '0x19260 0x19520'; do
+            set -- $spec
+            echo "=== disasm $1..$2 ==="
+            objdump -D -b binary -m aarch64 --start-address=$1 --stop-address=$2 /tmp/koharu.bin 2>&1 | head -n 900 || true
+          done
+
+          echo '=== nearby strings around target ranges ==='
+          strings -a -t x -n 3 /tmp/koharu.bin | awk '($1 >= "3000" && $1 <= "3600") || ($1 >= "18d00" && $1 <= "19600") {print}' | head -n 400 || true
