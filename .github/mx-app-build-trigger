@@ -1,1 +1,3 @@
-build mx-app main 43f7a397 phase-0 baseline verification
+ref=docs/phase0-baseline-freeze
+publish=false
+note=phase-0 baseline documentation branch verification
