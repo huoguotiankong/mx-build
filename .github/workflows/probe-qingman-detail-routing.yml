@@ -62,11 +62,10 @@ jobs:
               r=urllib.request.Request('http://'+host+'/'+path,headers=h,method=method,data=(b'{}' if method=='POST' else None))
               with urllib.request.urlopen(r,timeout=25) as x: return json.load(x)
           home=req('POST','api/comic/comics/v1/homeList?page=1&pageNum=1&pageSize=20')
-          comic=None
           def findcomic(x):
-              nonlocal_dummy=None
               if isinstance(x,dict):
-                  if x.get('comicId') and (x.get('comicTitle') or x.get('title')): return str(x['comicId'])
+                  cid=x.get('comicId') or x.get('id')
+                  if cid and (x.get('comicTitle') or x.get('comicName') or x.get('title') or x.get('name')): return str(cid)
                   for v in x.values():
                       z=findcomic(v)
                       if z:return z
@@ -99,8 +98,6 @@ jobs:
                   for v in x[:10]: walk(v,path+'[]')
           print('detail_code='+str(detail.get('code'))); walk(detail,'detail')
           print('chapters_code='+str(chapters.get('code'))); walk(chapters,'chapters')
-          # Select first chapter and record only the unauthenticated reader contract status.
-          chapter=None
           def findchapter(x):
               if isinstance(x,dict):
                   if x.get('chapterId'): return str(x['chapterId'])
