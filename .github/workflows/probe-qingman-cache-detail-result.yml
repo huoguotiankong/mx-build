@@ -70,17 +70,16 @@ jobs:
               elf=ELFFile(f); sec=elf.get_section_by_name('.text'); base=int(sec['sh_addr']); blob=sec.data()
           md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.skipdata=True
 
-          print('Qingman 4.4.5 cache/detail sanitized contract probe')
-          print('targets: cache request 0xacc934, response extraction 0xacc3e0')
-          print('\n[relevant literals]')
-          keys=('cache/detail','comicId','chapterId','type','deviceId','pageUrls','imageUrls','picList','referer','freeLine','line','POST','GET')
+          print('Qingman 4.4.5 cache/detail concise probe')
+          print('\n[exact string literals]')
+          wanted=('cache/detail','comicid','chapterid','deviceid','pageurls','imageurls','piclist','referer','freeline','imageurl')
           for off,val in sorted(pp.items()):
-              if deny.search(val): continue
-              if any(k.lower() in val.lower() for k in keys):
-                  print(f'PP+0x{off:x} {val[:240]}')
+              if deny.search(val) or not val.startswith('String:'): continue
+              low=val.lower()
+              if any(k in low for k in wanted): print(f'PP+0x{off:x} {val[:300]}')
 
           def dump(start,end,label):
-              print(f'\n[{label} 0x{start:x}-0x{end:x}]')
+              print(f'\n[{label}]')
               pending={}
               for ins in md.disasm(blob[start-base:end-base],start):
                   pending={r:(o,n-1) for r,(o,n) in pending.items() if n>1}
@@ -95,18 +94,16 @@ jobs:
                           off=disp if br=='x27' else (pending[br][0]+disp if br in pending else None)
                           if off in pp:
                               val=pp[off]
-                              anns.append('PP='+('<redacted>' if deny.search(val) else val[:220]))
+                              if not deny.search(val): anns.append('PP='+val[:220])
                   if ins.mnemonic=='bl' and ins.op_str.startswith('#'):
                       try: target=int(ins.op_str[1:],0)
                       except: target=None
                       if target is not None: anns.append('CALL='+syms.get(target,f'0x{target:x}'))
-                  if anns or ins.mnemonic in ('str','stur','stp','cbz','cbnz','tbz','tbnz'):
-                      text=f'0x{ins.address:x}: {ins.mnemonic} {ins.op_str}'
-                      if anns: text+=' ; '+' | '.join(anns)
-                      print(text[:700])
-          dump(0xacc180,0xacc500,'token refresh caller')
-          dump(0xacc934,0xaccb38,'cache/detail request helper')
-          dump(0xaccef0,0xacd400,'refreshed URL replacement')
+                  if anns:
+                      print(f'0x{ins.address:x}: {ins.mnemonic} {ins.op_str} ; '+ ' | '.join(anns))
+          dump(0xacc180,0xacc500,'token refresh caller 0xacc180-0xacc500')
+          dump(0xacc934,0xaccb38,'cache/detail request helper 0xacc934-0xaccb38')
+          dump(0xaccef0,0xacd400,'refreshed URL replacement 0xaccef0-0xacd400')
           PY
       - name: Persist sanitized result
         shell: bash
@@ -119,5 +116,5 @@ jobs:
             echo 'No probe result change'
             exit 0
           fi
-          git commit -m 'chore(qingman): record cache detail contract probe'
+          git commit -m 'chore(qingman): refine cache detail contract probe'
           git push
