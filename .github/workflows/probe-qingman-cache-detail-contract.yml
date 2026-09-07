@@ -29,7 +29,7 @@ jobs:
             /tmp/blutter/dartsdk
             /tmp/blutter/packages
           key: qingman-blutter-dart-3.12.2-arm64-v1
-      - name: Disassemble cache detail request/response contract
+      - name: Resolve request model and transport
         shell: bash
         run: |
           set -euo pipefail
@@ -58,7 +58,8 @@ jobs:
               m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s+(.*)$',line)
               if m: pp[int(m.group(1),16)]=m.group(2)
           syms={}
-          for line in Path('/tmp/out/ida_script/addNames.py').read_text('utf-8',errors='replace').splitlines():
+          names=Path('/tmp/out/ida_script/addNames.py').read_text('utf-8',errors='replace').splitlines()
+          for line in names:
               m=re.search(r'set_name\((0x[0-9a-fA-F]+|\d+),\s*[ru]?([\'\"])(.*?)\2',line)
               if m:
                   try: syms[int(m.group(1),0)]=m.group(3)
@@ -67,42 +68,53 @@ jobs:
               elf=ELFFile(f); sec=elf.get_section_by_name('.text'); base=int(sec['sh_addr']); blob=sec.data()
           md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.skipdata=True
 
-          # 0xacc934 is called by the official download-token refresh helper and is expected
-          # to issue cache/detail. 0xacc3e0 extracts the refreshed URL list from its response.
-          ranges=[
-              (0xacc8e0,0xaccd10,'cache-detail fetch'),
-              (0xacc3d0,0xacc8e0,'refreshed-url extraction'),
-          ]
-          interesting=('cache/detail','comicId','chapterId','type','pageUrls','imageUrls','picList','referer','data','result','code','msg','deviceId')
-          for start,end,label in ranges:
-              print(f'===== {label} 0x{start:x}-0x{end:x} =====')
-              pending={}
-              for ins in md.disasm(blob[start-base:end-base],start):
-                  pending={r:(o,n-1) for r,(o,n) in pending.items() if n>1}
-                  op=ins.op_str.lower(); ann=[]
-                  m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
-                  if ins.mnemonic=='add' and m:
-                      pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),36)
-                  if ins.mnemonic in ('ldr','ldur','ldrsw'):
-                      m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
-                      if m:
-                          br=m.group(2); disp=int(m.group(3),0) if m.group(3) else 0
-                          off=disp if br=='x27' else (pending[br][0]+disp if br in pending else None)
-                          if off in pp:
-                              val=pp[off]
-                              if deny.search(val): ann.append('PP=<redacted>')
-                              elif any(t.lower() in val.lower() for t in interesting) or 'List(' in val or 'Obj!' in val:
-                                  ann.append('PP='+val[:260])
-                  if ins.mnemonic=='bl' and ins.op_str.startswith('#'):
-                      try: t=int(ins.op_str[1:],0)
-                      except: t=None
-                      if t is not None: ann.append('CALL='+syms.get(t,f'0x{t:x}'))
-                  # Keep all instructions around request construction, but truncate annotation.
-                  text=f'0x{ins.address:x}: {ins.mnemonic:<7} {ins.op_str:<48}'
-                  if ann: text+=' ; '+' | '.join(ann)
-                  print(text[:900])
-          print('===== DIRECT PP MATCHES =====')
+          targets=[0xacc934,0x45b890,0x464410,0x4643b4,0xaa0250,0xaa1538,0xacc3e0]
+          print('===== SYMBOLS / DECLARATIONS =====')
+          for t in targets:
+              print(f'0x{t:x}: {syms.get(t,"<unnamed>")}')
+          for root in ('/tmp/out/asm','/tmp/out'):
+              p=Path(root)
+              if not p.exists(): continue
+              for f in p.rglob('*'):
+                  if not f.is_file() or f.name in ('pp.txt','addNames.py'): continue
+                  try: txt=f.read_text('utf-8',errors='replace')
+                  except: continue
+                  if any(f'0x{t:x}' in txt.lower() for t in targets):
+                      lines=txt.splitlines()
+                      for i,line in enumerate(lines):
+                          if any(f'0x{t:x}' in line.lower() for t in targets):
+                              print(f'--- {f.relative_to("/tmp/out")}:{i+1} ---')
+                              for s in lines[max(0,i-4):i+8]:
+                                  if not deny.search(s): print(s[:600])
+
+          print('===== CACHE DETAIL FUNCTION =====')
+          start,end=0xacc934,0xaccb38
+          pending={}
+          for ins in md.disasm(blob[start-base:end-base],start):
+              pending={r:(o,n-1) for r,(o,n) in pending.items() if n>1}
+              op=ins.op_str.lower(); ann=[]
+              m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
+              if ins.mnemonic=='add' and m:
+                  pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),40)
+              if ins.mnemonic in ('ldr','ldur','ldrsw'):
+                  m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
+                  if m:
+                      br=m.group(2); disp=int(m.group(3),0) if m.group(3) else 0
+                      off=disp if br=='x27' else (pending[br][0]+disp if br in pending else None)
+                      if off in pp:
+                          val=pp[off]
+                          ann.append('PP='+('<redacted>' if deny.search(val) else val[:300]))
+              if ins.mnemonic=='bl' and ins.op_str.startswith('#'):
+                  try: t=int(ins.op_str[1:],0)
+                  except: t=None
+                  if t is not None: ann.append('CALL='+syms.get(t,f'0x{t:x}'))
+              text=f'0x{ins.address:x}: {ins.mnemonic:<7} {ins.op_str:<48}'
+              if ann: text+=' ; '+' | '.join(ann)
+              print(text[:1000])
+
+          print('===== RELEVANT PP =====')
+          keys=('cache/detail','comicId','chapterId','type','deviceId','pageUrls','imageUrls','picList','referer','freeLine','line','method','POST')
           for off,val in sorted(pp.items()):
               if deny.search(val): continue
-              if any(t.lower() in val.lower() for t in interesting): print(f'PP+0x{off:x} {val[:500]}')
+              if any(k.lower() in val.lower() for k in keys): print(f'PP+0x{off:x} {val[:500]}')
           PY
