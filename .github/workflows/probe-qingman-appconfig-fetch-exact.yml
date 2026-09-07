@@ -30,7 +30,7 @@ jobs:
             /tmp/blutter/dartsdk
             /tmp/blutter/packages
           key: qingman-blutter-dart-3.12.2-arm64-v1
-      - name: Trace adapter, singleton, and request classes
+      - name: Trace exact AppConfig builder and callers
         shell: bash
         run: |
           set -euo pipefail
@@ -47,72 +47,57 @@ jobs:
           cp /tmp/apk-extract/lib/arm64-v8a/libapp.so /tmp/app-lib/
           cp /tmp/apk-extract/lib/arm64-v8a/libflutter.so /tmp/app-lib/
           cd /tmp/blutter
-          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
+          if ! python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1; then
+            echo 'blutter_failed=true'
+            tail -120 /tmp/blutter.log | grep -Eiv 'token|secret|password|cookie|authorization|bearer|private|clientp12|certificate|proof|signature|sign/key|seed' || true
+            exit 1
+          fi
 
           python3 - <<'PY'
           from pathlib import Path
-          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
-          from elftools.elf.elffile import ELFFile
           import re
           deny=re.compile(r'(?i)(password|token|authorization|bearer|cookie|secret|private|clientp12|certificate|keystore|proof|signature|sign/key|seed|k1a|k1b|k2a|k2b|k3a|k3b)')
-          pp={}
-          for line in Path('/tmp/blutter-out/pp.txt').read_text('utf-8',errors='replace').splitlines():
-              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s+(.*)$',line)
-              if m: pp[int(m.group(1),16)]=m.group(2)
-          with open('/tmp/app-lib/libapp.so','rb') as f:
-              elf=ELFFile(f); sec=elf.get_section_by_name('.text'); base=int(sec['sh_addr']); data=sec.data()
-          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.skipdata=True
-          ins=list(md.disasm(data,base)); idx={x.address:i for i,x in enumerate(ins)}
-          def is_prologue(x): return x.mnemonic=='stp' and x.op_str.replace(' ','').startswith('x29,x30,[x15,#-0x10]!')
-          def bounds(addr):
-              if addr not in idx:return None
-              k=idx[addr];s=k
-              while s>0 and not is_prologue(ins[s]):s-=1
-              e=k+1
-              while e<len(ins) and not is_prologue(ins[e]):e+=1
-              return ins[s].address,ins[e].address if e<len(ins) else ins[-1].address+4
-          def dump(addr,label,maxins=2400):
-              be=bounds(addr)
-              if not be: print('NO_BOUNDS',label,hex(addr)); return
-              st,en=be;print(f'\n=== {label} 0x{st:x}-0x{en:x} size=0x{en-st:x} ===')
-              pending={};n=0
-              for x in md.disasm(data[st-base:en-base],st):
-                  n+=1
-                  if n>maxins:break
-                  pending={r:(b,c-1) for r,(b,c) in pending.items() if c>1};op=x.op_str.lower();ann=''
-                  m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
-                  if x.mnemonic=='add' and m:pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),64)
-                  elif x.mnemonic in ('ldr','ldur','ldrsw'):
-                      m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
-                      if m:
-                          br=m.group(2);disp=int(m.group(3),0) if m.group(3) else 0;off=disp if br=='x27' else (pending[br][0]+disp if br in pending else None)
-                          if off is not None and off in pp and not deny.search(pp[off]):ann=f' ; PP+0x{off:x}={pp[off][:300]}'
-                  if ann or x.mnemonic in ('bl','blr','ret','b','b.eq','b.ne','b.lt','b.gt','b.le','b.ge','cbz','cbnz','tbz','tbnz'):print(f'0x{x.address:x} {x.mnemonic:<7} {x.op_str}{ann}')
-          for a,l in ((0xaa0250,'GENERIC NETWORK ADAPTER'),(0xb02b90,'APPCONFIG ALLOC STUB'),(0xb028d0,'CHAPING ALLOC STUB'),(0x3b6174,'UEB CLOSURE A'),(0x540ef8,'UEB CLOSURE B')):dump(a,l)
-          print('\n=== SOURCE OWNING aa0250 ===')
-          for p in Path('/tmp/blutter-out/asm').glob('*.dart'):
+          root=Path('/tmp/blutter-out')
+          asm=root/'asm'
+          pp=(root/'pp.txt').read_text('utf-8',errors='replace').splitlines()
+
+          print('=== APPCONFIG MODEL MARKERS ===')
+          for line in pp:
+              if any(x in line for x in ('baseImgUrl','freeUrl','customerUrl','officialUrl','promotionUrl','Get app config failed','TypeArguments: <uxb?>')) and not deny.search(line):
+                  print(line[:500])
+
+          print('=== EXACT BUILDER/CALLER SOURCE ===')
+          needles=('0x4cfcfc','0xb02b78','0xb02b60')
+          total=0
+          for p in asm.glob('*.dart'):
               lines=p.read_text('utf-8',errors='replace').splitlines()
               for i,line in enumerate(lines):
-                  if '0xaa0250' in line.lower():
-                      print('FILE',p.name,'LINE',i+1)
-                      for z in lines[max(0,i-40):min(len(lines),i+180)]:
-                          if not deny.search(z):print(z[:360])
-                      break
-          print('\n=== PIm uEb SOURCE ===')
-          p=Path('/tmp/blutter-out/asm/PIm.dart')
-          if p.exists():
-              for z in p.read_text('utf-8',errors='replace').splitlines()[:1800]:
-                  if not deny.search(z):print(z[:360])
-          print('\n=== REQUEST CLASS METADATA ===')
-          for needle in ('0x3e021c','0x45a21c','class id: 495','TypeArguments: <uxb?>','TypeArguments: <Bsb?>'):
-              print('NEEDLE',needle)
-              for p in [Path('/tmp/blutter-out/objs.txt'),Path('/tmp/blutter-out/pp.txt')]+list(Path('/tmp/blutter-out/asm').glob('*.dart')):
-                  try: lines=p.read_text('utf-8',errors='replace').splitlines()
-                  except Exception: continue
-                  for i,line in enumerate(lines):
-                      if needle.lower() in line.lower():
-                          print('FILE',p.name,'LINE',i+1)
-                          for z in lines[max(0,i-6):min(len(lines),i+16)]:
-                              if not deny.search(z):print(z[:360])
-                          break
+                  if not any(n in line.lower() for n in needles): continue
+                  total+=1
+                  print(f'--- FILE {p.name} LINE {i+1} ---')
+                  for z in lines[max(0,i-220):min(len(lines),i+360)]:
+                      if not deny.search(z): print(z[:700])
+          print('xref_blocks='+str(total))
+
+          print('=== FUNCTIONS AROUND APPCONFIG ERROR/MODEL ===')
+          for p in asm.glob('*.dart'):
+              lines=p.read_text('utf-8',errors='replace').splitlines()
+              hits=[]
+              for i,line in enumerate(lines):
+                  if ('1ec38' in line.lower() or '1eba0' in line.lower() or 'uxb' in line.lower()): hits.append(i)
+              for i in hits[:20]:
+                  block=lines[max(0,i-100):min(len(lines),i+220)]
+                  txt='\n'.join(block)
+                  if not any(x.lower() in txt.lower() for x in ('get app config','baseimgurl','typearguments: <uxb')): continue
+                  print(f'--- MODEL FILE {p.name} LINE {i+1} ---')
+                  for z in block:
+                      if not deny.search(z): print(z[:700])
+
+          print('=== NON-SENSITIVE CONFIG ROUTES ===')
+          seen=[]
+          for line in pp:
+              if deny.search(line): continue
+              for s in re.findall(r'api/[A-Za-z0-9_./{}-]+',line):
+                  if 'config' in s.lower() and s not in seen: seen.append(s)
+          for s in seen: print('route='+s)
           PY
