@@ -1,0 +1,89 @@
+name: Patch Qingman Reader v7
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/patch-qingman-reader-v7.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check private source token
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]]
+
+      - name: Checkout Qingman runtime branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: fix/qingman-v3-runtime-clean
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: dev
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Patch reader response parsing and bump version
+        working-directory: dev
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          q=Path('src/zh/qingman/src/eu/kanade/tachiyomi/extension/zh/qingman/Qingman.kt')
+          s=q.read_text('utf-8')
+          old='''        private val PAGE_URL_KEYS = setOf(\n            "pageUrls",\n            "pageUrl",\n            "imageUrl",\n            "picList",\n            "picUrl",\n            "page_url",\n            "image_url",\n        )'''
+          new='''        private val PAGE_URL_KEYS = setOf(\n            "pageUrls",\n            "pageUrl",\n            "imageUrls",\n            "imageUrl",\n            "picList",\n            "picUrl",\n            "page_urls",\n            "page_url",\n            "image_urls",\n            "image_url",\n        )'''
+          if old not in s:
+              raise SystemExit('PAGE_URL_KEYS block changed; aborting exact patch')
+          s=s.replace(old,new,1)
+
+          old2='''                    if (key in keys) {\n                        when (value) {\n                            is JsonPrimitive -> value.contentOrNull?.let(out::add)\n                            is JsonArray -> value.forEach { item ->\n                                when (item) {\n                                    is JsonPrimitive -> item.contentOrNull?.let(out::add)\n                                    is JsonObject -> string(item, "pageUrl", "imageUrl", "url", "picUrl")?.let(out::add)\n                                    else -> Unit\n                                }\n                            }\n                            else -> Unit\n                        }\n                    }\n                    walk(value)'''
+          new2='''                    if (key in keys) {\n                        collectStringLeaves(value, out)\n                    }\n                    walk(value)'''
+          if old2 not in s:
+              raise SystemExit('collectStrings block changed; aborting exact patch')
+          s=s.replace(old2,new2,1)
+
+          anchor='''        walk(element)\n        return out\n    }\n\n    private fun expandPageUrlValue(value: String): List<String> {'''
+          insert='''        walk(element)\n        return out\n    }\n\n    private fun collectStringLeaves(element: JsonElement, out: MutableList<String>) {\n        when (element) {\n            is JsonPrimitive -> element.contentOrNull?.let(out::add)\n            is JsonArray -> element.forEach { collectStringLeaves(it, out) }\n            is JsonObject -> {\n                val direct = string(\n                    element,\n                    "pageUrl",\n                    "imageUrl",\n                    "url",\n                    "picUrl",\n                    "src",\n                    "path",\n                    "originalUrl",\n                    "originUrl",\n                    "hdUrl",\n                )\n                if (direct != null) {\n                    out += direct\n                } else {\n                    element.values.forEach { collectStringLeaves(it, out) }\n                }\n            }\n        }\n    }\n\n    private fun expandPageUrlValue(value: String): List<String> {'''
+          if anchor not in s:
+              raise SystemExit('collectStrings anchor changed; aborting exact patch')
+          s=s.replace(anchor,insert,1)
+          q.write_text(s,'utf-8')
+
+          g=Path('src/zh/qingman/build.gradle.kts')
+          gs=g.read_text('utf-8')
+          if 'versionCode = 6' not in gs:
+              raise SystemExit('Expected Qingman versionCode 6')
+          g.write_text(gs.replace('versionCode = 6','versionCode = 7',1),'utf-8')
+
+          d=Path('docs/sources/qingman.md')
+          ds=d.read_text('utf-8')
+          note='''\n\n## 2026-09-07 v1.6.7 正文解析修复\n\n用户对公开测试版 `1.6.6` 实机确认：封面已恢复；填写官方账号后，正文不再提示“请先登录”，但报“正文接口未返回有效 pageUrls”。\n\n随后以当前官方 Android `4.4.5 / 445` APK 静态复核，确认阅读响应相关字符串同时存在 `pageUrls`、`imageUrls`、`imageUrl`、`picList`。`1.6.6` 解析器漏掉了复数键 `imageUrls`，与实机现象吻合。\n\n`1.6.7`：\n\n- 增加 `imageUrls`、`image_urls`、`page_urls` 正文图片键；\n- 对已识别的正文图片容器递归提取字符串叶子，兼容数组、对象和再嵌套结构；\n- 对对象项兼容 `pageUrl/imageUrl/url/picUrl/src/path/originalUrl/originUrl/hdUrl`；\n- 账号、Token、Cookie 等用户凭据仍只保存在用户本机扩展设置，不写入仓库或 CI 日志。\n'''
+          if '## 2026-09-07 v1.6.7 正文解析修复' not in ds:
+              d.write_text(ds.rstrip()+note+'\n','utf-8')
+          PY
+          git diff --check
+          git diff -- src/zh/qingman docs/sources/qingman.md
+
+      - name: Commit Qingman v7 source patch
+        working-directory: dev
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/zh/qingman docs/sources/qingman.md
+          git commit -m 'fix(qingman): parse official imageUrls reader field'
+          git push origin HEAD:fix/qingman-v3-runtime-clean
