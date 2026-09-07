@@ -18,4 +18,4 @@ jobs:
       - name: Dispatch Qingman signed runtime build
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run build-qingman-v4-runtime-test.yml --ref main
+        run: gh workflow run build-qingman-v4-runtime-test.yml --repo huoguotiankong/mx-build --ref main
