@@ -20,26 +20,27 @@ jobs:
         run: |
           set -uo pipefail
           python3 - <<'PY'
-          import urllib.request, urllib.parse, urllib.error, json, time, socket
+          import urllib.request, urllib.parse, urllib.error, socket
 
           targets = [
-              ('GET', 'http://121.11.204.141:8124/mw.json', None),
-              ('GET', 'http://121.11.204.141:1133/', None),
-              ('GET', 'http://121.11.204.141:1133/appv1/comic/hot_comics?page=1&limit=20&size=20', None),
-              ('GET', 'https://maowu.iqtao.cn/', None),
-              ('GET', 'https://maowu.iqtao.cn/appv1/comic/hot_comics?page=1&limit=20&size=20', None),
-              ('POST', 'https://maowu.iqtao.cn/appv1/bootstrap/start', {'package_name':'com.maofan.comic','app_version':'1.0.0','platform':'android','os':'android'}),
+              ('GET', 'http://121.11.204.141:8124/mw.json', None, 4096),
+              ('GET', 'http://121.11.204.141:1133/', None, 4096),
+              ('GET', 'https://maowu.iqtao.cn/appv1/comic/hot_comics?page=1&limit=20&size=20', None, 4096),
+              ('POST', 'https://maowu.iqtao.cn/appv1/bootstrap/start', {'package_name':'com.maofan.comic','app_version':'1.0.0','platform':'android','os':'android'}, 4096),
+              ('GET', 'https://mh.iqtao.cn/', None, 16000),
+              ('GET', 'https://mh.iqtao.cn/128.html', None, 20000),
           ]
           headers={
-              'Accept':'application/json, text/plain, */*',
-              'User-Agent':'com.maofan.comic/1.0.0 (Android)',
+              'Accept':'text/html,application/json,text/plain,*/*',
+              'User-Agent':'Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140.0 Mobile Safari/537.36',
           }
           try:
-              print('DNS maowu.iqtao.cn=', socket.gethostbyname_ex('maowu.iqtao.cn'))
+              print('DNS maowu=', socket.gethostbyname_ex('maowu.iqtao.cn'))
+              print('DNS mh=', socket.gethostbyname_ex('mh.iqtao.cn'))
           except Exception as e:
               print('DNS failed:', repr(e))
 
-          for method,url,data in targets:
+          for method,url,data,limit in targets:
               print('\n===',method,url,'===')
               payload=None
               h=dict(headers)
@@ -48,14 +49,16 @@ jobs:
                   h['Content-Type']='application/x-www-form-urlencoded'
               req=urllib.request.Request(url, data=payload, headers=h, method=method)
               try:
-                  with urllib.request.urlopen(req, timeout=12) as r:
-                      body=r.read(2048)
-                      print('STATUS',r.status)
+                  with urllib.request.urlopen(req, timeout=15) as r:
+                      body=r.read(limit)
+                      print('STATUS',r.status,'FINAL',r.geturl())
                       print('HEADERS',dict(r.headers))
-                      print('BODY',body.decode('utf-8','replace'))
+                      print('BODY_START')
+                      print(body.decode('utf-8','replace'))
+                      print('BODY_END')
               except urllib.error.HTTPError as e:
-                  body=e.read(2048)
-                  print('HTTPERROR',e.code)
+                  body=e.read(limit)
+                  print('HTTPERROR',e.code,'FINAL',e.geturl())
                   print('HEADERS',dict(e.headers))
                   print('BODY',body.decode('utf-8','replace'))
               except Exception as e:
