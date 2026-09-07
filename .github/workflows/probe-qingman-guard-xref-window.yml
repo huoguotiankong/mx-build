@@ -31,21 +31,75 @@ jobs:
           PY
           curl -fsSL --retry 3 --connect-timeout 20 --max-time 240 "$(cat /tmp/url)" -o /tmp/qm.apk
           unzip -p /tmp/qm.apk lib/arm64-v8a/libapp.so >/tmp/libapp.so
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq binutils-aarch64-linux-gnu >/dev/null
+          python3 -m pip install --disable-pip-version-check -q capstone pyelftools
 
-      - name: Dump focused AOT windows
+      - name: Decode focused AOT windows
         shell: bash
         run: |
           set -euo pipefail
-          for spec in \
-            'guard:0xaa0a80:0xaa1250' \
-            'signinit:0xaa18a0:0xaa1f40' \
-            'baseheaders:0xaacf80:0xaad200' \
-            'readerroute:0xa8cce0:0xa8d020' \
-            'readerfactory:0x7e2600:0x7e2a80'; do
-            IFS=: read -r name start stop <<<"$spec"
-            echo "=== $name $start $stop ==="
-            aarch64-linux-gnu-objdump -d --start-address="$start" --stop-address="$stop" /tmp/libapp.so \
-              | sed -n '1,700p'
-          done
+          python3 - <<'PY'
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
+          import re
+
+          windows=[
+              ('guard',0xaa0a80,0xaa1250),
+              ('signinit',0xaa18a0,0xaa1f40),
+              ('baseheaders',0xaacf80,0xaad200),
+              ('readerroute',0xa8cce0,0xa8d020),
+              ('readerfactory',0x7e2600,0x7e2a80),
+          ]
+          pool={
+              0x7080:'reader_path',
+              0x8e00:'X-Api-Guard',
+              0x8e18:'apiGuard',
+              0x8e30:'canonicalRequest',
+              0x8e48:'buildHeaders',
+              0x8fe0:'seed',
+              0x8fe8:'k1a',0x8ff0:'k1b',0x8ff8:'k2a',0x9000:'k2b',0x9008:'k3a',0x9010:'k3b',
+              0x9018:'detailPath',0x9028:'chapterListPath',0x9038:'readPath',0x9040:'cachePath',
+              0x9050:'initializeSignKeys',
+              0x9098:'X-Device-Id',0x90a0:'X-QM-App-Access',
+          }
+          with open('/tmp/libapp.so','rb') as f:
+              elf=ELFFile(f)
+              sec=elf.get_section_by_name('.text')
+              if sec is None:
+                  sec=max((s for s in elf.iter_sections() if int(s['sh_flags'])&0x4),key=lambda s:int(s['sh_size']))
+              base=int(sec['sh_addr']); data=sec.data()
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.skipdata=True
+
+          for name,start,stop in windows:
+              print(f'=== {name} 0x{start:x}-0x{stop:x} ===')
+              if not (base<=start<stop<=base+len(data)):
+                  print('WINDOW_OUTSIDE_TEXT')
+                  continue
+              chunk=data[start-base:stop-base]
+              pending={}
+              count=0
+              for ins in md.disasm(chunk,start):
+                  if ins.mnemonic.startswith('.'):
+                      continue
+                  # Track temporary PP base formed by add xN,x27,#imm[,lsl].
+                  pending={r:(off,ttl-1) for r,(off,ttl) in pending.items() if ttl>1}
+                  op=ins.op_str.lower()
+                  ann=[]
+                  m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
+                  if ins.mnemonic=='add' and m:
+                      pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),10)
+                  if ins.mnemonic in ('ldr','ldur','ldrsw'):
+                      m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
+                      if m:
+                          br=m.group(2); disp=int(m.group(3),0) if m.group(3) else 0
+                          off=disp if br=='x27' else (pending[br][0]+disp if br in pending else None)
+                          if off in pool:
+                              ann.append('PP='+pool[off]+f'(0x{off:x})')
+                  if ins.mnemonic in ('bl','b') and ins.op_str.startswith('#'):
+                      ann.append('target='+ins.op_str)
+                  print(f'0x{ins.address:08x}: {ins.mnemonic:<7} {ins.op_str:<46}' + ((' ; '+' | '.join(ann)) if ann else ''))
+                  count+=1
+                  if count>=800:
+                      print('WINDOW_TRUNCATED')
+                      break
+              print('INSTRUCTION_COUNT='+str(count))
+          PY
