@@ -1,0 +1,26 @@
+===== pageUrls parser xref A target=0x45f368 =====
+NO_BLUTTER_FUNCTION
+===== pageUrls parser xref B target=0x460080 =====
+NO_BLUTTER_FUNCTION
+===== freeLine reader selector target=0x489d3c =====
+NO_BLUTTER_FUNCTION
+===== selected image line target=0x48f000 =====
+NO_BLUTTER_FUNCTION
+===== baseImgUrl consumer A target=0x4cfec8 =====
+NO_BLUTTER_FUNCTION
+===== baseImgUrl consumer B target=0x4d0434 =====
+NO_BLUTTER_FUNCTION
+===== reader/download Referer xref target=0xaccfbc =====
+NO_BLUTTER_FUNCTION
+===== image request construction target=0xacd0ac =====
+NO_BLUTTER_FUNCTION
+===== download status log target=0xacd2ac =====
+NO_BLUTTER_FUNCTION
+===== download failure log target=0xacd328 =====
+NO_BLUTTER_FUNCTION
+===== decryptImage target=0xb072b0 =====
+NO_BLUTTER_FUNCTION
+===== proof header set xref target=0x3b6158 =====
+NO_BLUTTER_FUNCTION
+===== cache image provider target=0x8a2b10 =====
+NO_BLUTTER_FUNCTION
