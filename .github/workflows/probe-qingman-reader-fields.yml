@@ -34,20 +34,22 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           lines=Path('/tmp/strings.txt').read_text('utf-8',errors='replace').splitlines()
-          wanted=['pageUrls','pageUrl','imageUrls','imageUrl','picList','picUrl','freeLine','freeUrl','ComicReadSelectedImageLine','api/comic/chapter/ie84hfh8/detail']
+          wanted=['pageUrls','pageUrl','imageUrls','imageUrl','imageList','images','picList','picUrl','freeLine','freeUrl','ComicReadSelectedImageLine','api/comic/chapter/ie84hfh8/detail']
           print('=== PRESENCE ===')
           for key in wanted:
               hits=[i for i,s in enumerate(lines) if s==key]
               print(f'{key}={len(hits)}')
           print('=== CONTEXT ===')
           seen=set()
-          for key in ('pageUrls','imageUrls','picList','freeLine','ComicReadSelectedImageLine'):
+          for key in ('pageUrls','imageUrls','imageList','images','picList','freeLine','ComicReadSelectedImageLine'):
               for i,s in enumerate(lines):
                   if s!=key or (key,i) in seen: continue
                   seen.add((key,i))
                   print(f'--- {key} @ strings[{i}] ---')
-                  for z in lines[max(0,i-12):min(len(lines),i+13)]:
+                  for z in lines[max(0,i-14):min(len(lines),i+15)]:
                       if len(z)<=120:
                           print(z)
                   break
           PY
+
+# trigger: v1.6.7 authenticated-reader parser investigation
