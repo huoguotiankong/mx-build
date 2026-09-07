@@ -1,0 +1,113 @@
+name: Probe Mengman native bootstrap cipher v5
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-mengman-native-seed-v5.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify exact native bootstrap transform against signed static ZIPs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, os, re, struct, subprocess, tempfile, time, urllib.request
+
+          text=open('.github/workflows/probe-mengman-native-seed-v4.yml','r',encoding='utf-8').read()
+          m=re.search(r"SS0_HEX='([0-9a-f]+)'",text)
+          if not m: raise SystemExit('SS0 table not found')
+          SS0=list(struct.unpack('<256I',bytes.fromhex(m.group(1))))
+          KC=[0x9e3779b9,0x3c6ef373,0x78dde6e6,0xf1bbcdcc,0xe3779b99,0xc6ef3733,0x8dde6e67,0x1bbcdccf,0x3779b99e,0x6ef3733c,0xdde6e678,0xbbcdccf1,0x779b99e3,0xef3733c6,0xde6e678d,0xbcdccf1b]
+          MASK=0xffffffff
+          A5=[x>>24 for x in SS0]; A6=[(x>>16)&255 for x in SS0]; A7=[(x>>8)&255 for x in SS0]; A8=[x&255 for x in SS0]
+
+          def G(x):
+              x &= MASK
+              b3=(x>>24)&255; b2=(x>>16)&255; b1=(x>>8)&255; b0=x&255
+              o3=A6[b2]^A5[b3]^A7[b1]^A8[b0]
+              o2=A6[b1]^A5[b2]^A7[b0]^A8[b3]
+              o1=A6[b0]^A5[b1]^A7[b3]^A8[b2]
+              o0=A6[b3]^A5[b0]^A7[b2]^A8[b1]
+              return ((o3<<24)|(o2<<16)|(o1<<8)|o0)&MASK
+
+          def schedule(key):
+              a,b,c,d=struct.unpack('>4I',key); rk=[]
+              for i,kc in enumerate(KC):
+                  rk += [G(c+a-kc),G(b-d+kc)]
+                  if i%2==0:
+                      a,b=((a>>8)|(b<<24))&MASK,((b>>8)|(a<<24))&MASK
+                  else:
+                      c,d=((c<<8)|(d>>24))&MASK,((d<<8)|(c>>24))&MASK
+              return rk
+
+          def block(key,src):
+              rk=schedule(key)
+              w24,w23,w9,w8=struct.unpack('>4I',src)
+              for rr in range(15,-1,-1):
+                  old0,old1=w24,w23
+                  t0=rk[2*rr]^w9; t1=rk[2*rr+1]^w8
+                  x=G(t0^t1); y=G(x+t0); z=G(y+x)
+                  n0=((z+y)&MASK)^old0; n1=z^old1
+                  w24,w23,w9,w8=w9,w8,n0&MASK,n1&MASK
+              return struct.pack('>4I',w9,w24,w8,w23)
+
+          def transform(key,data):
+              return b''.join(block(key,data[i:i+16]) for i in range(0,len(data),16))
+
+          def fetch(url):
+              req=urllib.request.Request(url,headers={'User-Agent':'okhttp/4.12.0'})
+              with urllib.request.urlopen(req,timeout=30) as r:
+                  b=r.read(); print('GET',url.split('?',1)[0],'status',r.status,'bytes',len(b)); return b
+
+          def signed(path):
+              ts=int(time.time()); seed='94e890e3a45ba392c0c519ed45190a4c'
+              sign=hashlib.md5((seed+path+str(ts)).encode()).hexdigest()
+              return f'https://static.yisix.cn{path}?ts={ts}&sign={sign}'
+
+          def chunks(png):
+              out=[]; p=8
+              while p+12<=len(png):
+                  n=struct.unpack('>I',png[p:p+4])[0]; typ=png[p+4:p+8]; s=p+8; e=s+n
+                  if typ==b'tEXt':
+                      out.append(png[s:e])
+                      if len(out)==2:return out
+                  p=e+4
+              raise RuntimeError('missing tEXt')
+
+          def aes(ct,key,iv):
+              with tempfile.TemporaryDirectory() as td:
+                  fi=td+'/i'; fo=td+'/o'; open(fi,'wb').write(ct)
+                  p=subprocess.run(['openssl','enc','-aes-128-cbc','-d','-K',key.hex(),'-iv',iv.hex(),'-in',fi,'-out',fo,'-nopad'],stderr=subprocess.PIPE)
+                  if p.returncode: raise RuntimeError(p.stderr.decode())
+                  return open(fo,'rb').read()
+
+          paths=['/static/category/list.zip','/static/search/hot_comic.zip','/static/ranking/new.zip']
+          resources={p:fetch(signed(p)) for p in paths}
+          verified=[]
+          for boot in ('a1','a2'):
+              print('\n===',boot,'===')
+              c=chunks(fetch(f'https://static.yisix.cn/bootstrap/{boot}.png'))
+              plain=transform(c[0][83:99],c[1])
+              print('native plaintext',len(plain),hashlib.sha256(plain).hexdigest()[:16],plain[:16].hex())
+              sk=plain[1194:1210]; iv=plain[1210:1226]
+              print('static key/iv hashes',hashlib.sha256(sk).hexdigest()[:16],hashlib.sha256(iv).hexdigest()[:16])
+              for path,ct in resources.items():
+                  out=aes(ct,sk,iv)
+                  pad=out[-1] if out else 0
+                  pad_ok=1<=pad<=16 and out[-pad:]==bytes([pad])*pad
+                  zip_ok=out.startswith(b'PK\x03\x04')
+                  print(path,'prefix',out[:16].hex(),'zip_magic',zip_ok,'pkcs7',pad_ok)
+                  if zip_ok and pad_ok: verified.append((boot,path))
+          print('VERIFIED',verified)
+          if not verified: raise SystemExit('No static ZIP verified')
+          PY
