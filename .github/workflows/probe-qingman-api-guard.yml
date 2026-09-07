@@ -1,0 +1,250 @@
+name: Trace Qingman Current API Guard Contract
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-api-guard.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trace:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Resolve and download current official APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/qingman_url
+          import json, urllib.request, sys
+          u='https://bass8ycl.zermh.com/api/radio/api/config/version'
+          req=urllib.request.Request(u,headers={'User-Agent':'mx-dev-qingman-guard-probe/1.0'})
+          with urllib.request.urlopen(req,timeout=30) as r:
+              o=json.load(r)
+          a=o['data']['datas']['android']
+          version=str(a.get('version',''))
+          code=str(a.get('versionCode',''))
+          print(str(a.get('downloadUrl','')))
+          print('OFFICIAL_VERSION='+version,file=sys.stderr)
+          print('OFFICIAL_VERSION_CODE='+code,file=sys.stderr)
+          if (version,code) != ('4.4.5','445'):
+              raise SystemExit(f'Unexpected official version {version}/{code}')
+          PY
+          curl -fsSL --retry 3 --connect-timeout 20 --max-time 240 "$(head -1 /tmp/qingman_url)" -o /tmp/qingman.apk
+          unzip -tq /tmp/qingman.apk >/dev/null
+          rm -rf /tmp/qm-guard && mkdir -p /tmp/qm-guard
+          unzip -q /tmp/qingman.apk \
+            'lib/arm64-v8a/libqx_security.so' \
+            'lib/arm64-v8a/libapp.so' \
+            'lib/arm64-v8a/libflutter.so' \
+            -d /tmp/qm-guard
+
+      - name: Map native apiGuard registration and body
+        shell: bash
+        run: |
+          set -euo pipefail
+          SO=/tmp/qm-guard/lib/arm64-v8a/libqx_security.so
+          strings -a -t x "$SO" >/tmp/qm-guard/strings.txt
+          readelf -rW "$SO" >/tmp/qm-guard/rela.txt
+          readelf -SW "$SO" >/tmp/qm-guard/sections.txt
+          llvm-objdump -d --no-show-raw-insn "$SO" >/tmp/qm-guard/disasm.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,re,struct
+          so=Path('/tmp/qm-guard/lib/arm64-v8a/libqx_security.so')
+          raw=so.read_bytes()
+          strings=Path('/tmp/qm-guard/strings.txt').read_text('utf-8',errors='replace').splitlines()
+          rels=Path('/tmp/qm-guard/rela.txt').read_text('utf-8',errors='replace').splitlines()
+          secs=Path('/tmp/qm-guard/sections.txt').read_text('utf-8',errors='replace').splitlines()
+
+          def str_off(value):
+              for line in strings:
+                  m=re.match(r'\s*([0-9a-fA-F]+)\s+(.*)$',line)
+                  if m and m.group(2)==value:
+                      return int(m.group(1),16)
+              raise SystemExit(f'missing native string {value}')
+
+          api_name=str_off('apiGuard')
+          by_slot={}
+          for line in rels:
+              m=re.match(r'([0-9a-fA-F]{16})\s+[0-9a-fA-F]{16}\s+R_AARCH64_RELATIVE\s+([0-9a-fA-F]+)\s*$',line)
+              if m:
+                  by_slot[int(m.group(1),16)]=int(m.group(2),16)
+          slots=[slot for slot,val in by_slot.items() if val==api_name]
+          if len(slots)!=1:
+              raise SystemExit(f'apiGuard registration slot count={len(slots)}')
+          slot=slots[0]
+          sig_ptr=by_slot.get(slot+8)
+          fn=by_slot.get(slot+16)
+          if sig_ptr is None or fn is None:
+              raise SystemExit('apiGuard registration triple incomplete')
+
+          def cstr(addr):
+              end=raw.find(b'\0',addr)
+              if end<0: return '<unterminated>'
+              return raw[addr:end].decode('utf-8','replace')
+          sig=cstr(sig_ptr)
+          print(f'APIGUARD_NAME_VA=0x{api_name:x}')
+          print(f'APIGUARD_SLOT_VA=0x{slot:x}')
+          print(f'APIGUARD_SIGNATURE={sig}')
+          print(f'APIGUARD_FUNCTION_VA=0x{fn:x}')
+
+          # Native registration table uses triples; collect candidate JNI function addresses and
+          # pick the nearest greater one as a conservative body boundary.
+          fn_candidates=[]
+          for s in sorted(by_slot):
+              if s>=slot-0x300 and s<=slot+0x300 and (s-slot)%24==16:
+                  v=by_slot[s]
+                  if v>=0x20000:
+                      fn_candidates.append(v)
+          greater=sorted(v for v in set(fn_candidates) if v>fn)
+          end=greater[0] if greater else fn+0x600
+
+          text=None
+          for line in secs:
+              m=re.search(r'\[\s*\d+\]\s+\.text\s+PROGBITS\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)',line)
+              if m:
+                  text=tuple(int(x,16) for x in m.groups()); break
+          if text is None:
+              raise SystemExit('missing .text mapping')
+          text_va,text_off,text_size=text
+          if not (text_va<=fn<end<=text_va+text_size):
+              raise SystemExit(f'apiGuard body outside .text fn=0x{fn:x} end=0x{end:x}')
+          body=raw[text_off+(fn-text_va):text_off+(end-text_va)]
+          print(f'APIGUARD_BODY_SIZE={len(body)}')
+          print(f'APIGUARD_BODY_SHA256={hashlib.sha256(body).hexdigest()}')
+          print('LEGACY_443_BODY_MATCH=' + str(hashlib.sha256(body).hexdigest()=='0aadb977eb5846592d2c2fb490712986be9c9bed9640fa26905fcfcb73f56a52').lower())
+
+          # Print only the small apiGuard disassembly window for contract analysis.
+          dis=Path('/tmp/qm-guard/disasm.txt').read_text('utf-8',errors='replace').splitlines()
+          started=False; count=0
+          print('=== APIGUARD_DISASM ===')
+          for line in dis:
+              m=re.match(r'\s*([0-9a-fA-F]+):',line)
+              if not m: continue
+              a=int(m.group(1),16)
+              if fn<=a<end:
+                  started=True
+                  print(line[:260])
+                  count+=1
+                  if count>=260: break
+              elif started and a>=end:
+                  break
+          print(f'APIGUARD_DISASM_LINES={count}')
+          PY
+
+      - name: Prepare current AOT analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev python3-pyelftools python3-capstone >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+          rm -rf /tmp/qm-app-lib /tmp/qm-aot
+          mkdir -p /tmp/qm-app-lib /tmp/qm-aot
+          cp /tmp/qm-guard/lib/arm64-v8a/libapp.so /tmp/qm-app-lib/
+          cp /tmp/qm-guard/lib/arm64-v8a/libflutter.so /tmp/qm-app-lib/
+          cd /tmp/blutter
+          python3 blutter.py /tmp/qm-app-lib /tmp/qm-aot >/tmp/qm-blutter.log 2>&1
+          tail -20 /tmp/qm-blutter.log
+
+      - name: Trace X-Api-Guard AOT usage
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          from elftools.elf.elffile import ELFFile
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+
+          pp_lines=Path('/tmp/qm-aot/pp.txt').read_text('utf-8',errors='replace').splitlines()
+          pp={}
+          for line in pp_lines:
+              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s+(.*)$',line)
+              if m: pp[int(m.group(1),16)]=m.group(2)
+          needles={'header':'X-Api-Guard','method':'apiGuard','channel':'qx/security','reader':'api/comic/chapter/ie84hfh8/detail','app_access':'X-QM-App-Access','device':'X-Device-Id'}
+          offsets={}
+          for label,needle in needles.items():
+              hits=[o for o,v in pp.items() if needle.lower() in v.lower()]
+              if hits:
+                  offsets[label]=hits[0]
+                  print(f'POOL {label}=0x{hits[0]:x} {pp[hits[0]][:180]}')
+              else:
+                  print(f'POOL {label}=MISSING')
+
+          lib='/tmp/qm-app-lib/libapp.so'
+          with open(lib,'rb') as f:
+              elf=ELFFile(f)
+              sec=elf.get_section_by_name('.text')
+              if sec is None:
+                  sec=max((s for s in elf.iter_sections() if int(s['sh_flags'])&0x4),key=lambda s:int(s['sh_size']))
+              base=int(sec['sh_addr']); data=sec.data()
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.skipdata=True
+          targets=set(offsets.values()); target_to_label={v:k for k,v in offsets.items()}
+          pending={}; hits=[]
+          for ins in md.disasm(data,base):
+              if ins.mnemonic.startswith('.'):
+                  pending.clear(); continue
+              pending={r:(b,n-1) for r,(b,n) in pending.items() if n>1}
+              op=ins.op_str.lower()
+              m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
+              if ins.mnemonic=='add' and m:
+                  pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),12)
+              if ins.mnemonic in ('ldr','ldur','ldrsw'):
+                  m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
+                  if m:
+                      br=m.group(2); disp=int(m.group(3),0) if m.group(3) else 0
+                      off=disp if br=='x27' else (pending[br][0]+disp if br in pending else None)
+                      if off in targets:
+                          hits.append((int(ins.address),off,target_to_label[off]))
+          print('XREF_TOTAL='+str(len(hits)))
+          for a,o,l in hits[:300]: print(f'XREF {l} addr=0x{a:x} pp=0x{o:x}')
+
+          asm=[]
+          for p in Path('/tmp/qm-aot/asm').rglob('*.dart'):
+              lines=p.read_text('utf-8',errors='replace').splitlines()
+              ads=[]
+              for i,line in enumerate(lines):
+                  m=re.search(r'//\s+0x([0-9a-fA-F]+):',line)
+                  if m: ads.append((int(m.group(1),16),i))
+              if ads: asm.append((p,lines,ads))
+          def locate(addr):
+              out=[]
+              for p,lines,ads in asm:
+                  for a,i in ads:
+                      if a==addr:
+                          out.append((p,lines,i)); break
+              return out
+
+          emitted=set(); printed=0
+          focus={'header','method','channel','reader'}
+          print('=== FOCUSED_FUNCTIONS ===')
+          for addr,off,label in hits:
+              if label not in focus: continue
+              for p,lines,i in locate(addr):
+                  start=i
+                  while start>0 and '** addr:' not in lines[start]: start-=1
+                  end=len(lines)
+                  for j in range(start+1,len(lines)):
+                      if '** addr:' in lines[j]: end=j; break
+                  key=(str(p),start,end)
+                  if key in emitted: continue
+                  emitted.add(key)
+                  print(f'FUNCTION trigger={label} xref=0x{addr:x} file={p.name} lines={start+1}-{end}')
+                  lo=max(start,i-100); hi=min(end,i+180)
+                  for n in range(lo,hi):
+                      line=lines[n]
+                      if re.search(r'(?i)(password|authorization|bearer|cookie|clientp12|privatekey|certificate|secret)',line):
+                          line=re.sub(r'"[^"]*"','"<redacted>"',line)
+                      print(line[:420])
+                      printed+=1
+                      if printed>=2200: break
+                  if printed>=2200: break
+              if printed>=2200: break
+          print('FUNCTION_DUMP_LINES='+str(printed))
+          PY
