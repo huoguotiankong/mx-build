@@ -1,0 +1,99 @@
+name: Resolve Qingman Reader Detail Type Selection
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-reader-type-selection.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Prepare analyzer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev python3-pyelftools python3-capstone >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+      - uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+      - name: Trace HD preference and reader detail request
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/url
+          import json,urllib.request
+          a=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=30))['data']['datas']['android']
+          if (str(a.get('version','')),str(a.get('versionCode',''))) != ('4.4.5','445'): raise SystemExit('official version changed')
+          print(a['downloadUrl'])
+          PY
+          curl -fsSL --retry 2 --max-time 180 "$(cat /tmp/url)" -o /tmp/a.apk
+          rm -rf /tmp/lib /tmp/out /tmp/x; mkdir -p /tmp/lib /tmp/out /tmp/x
+          unzip -q /tmp/a.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/x
+          cp /tmp/x/lib/arm64-v8a/libapp.so /tmp/lib/; cp /tmp/x/lib/arm64-v8a/libflutter.so /tmp/lib/
+          cd /tmp/blutter && python3 blutter.py /tmp/lib /tmp/out >/tmp/b.log 2>&1
+          python3 - <<'PY'
+          from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
+          import re
+          pp={}
+          for l in Path('/tmp/out/pp.txt').read_text('utf-8',errors='replace').splitlines():
+              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s+(.*)$',l)
+              if m: pp[int(m.group(1),16)]=m.group(2)
+          sensitive=re.compile(r'(?i)(password|authorization|bearer|cookie|private.?key|certificate|secret)')
+          def safe(v): return '<redacted>' if sensitive.search(v) else v[:240]
+          # Identify pool offsets for reader path + ComicReaderHD + type + query field names.
+          print('=== relevant pool ===')
+          terms=('ComicReaderHD','api/comic/chapter/ie84hfh8/detail','chapterId','comicId','"type"','freeLine','ComicReadSelectedImageLine')
+          for o,v in sorted(pp.items()):
+              if sensitive.search(v): continue
+              if any(t.lower() in v.lower() for t in terms): print(f'PP+0x{o:x} {v[:300]}')
+          with open('/tmp/lib/libapp.so','rb') as f:
+              e=ELFFile(f); s=e.get_section_by_name('.text'); base=int(s['sh_addr']); data=s.data()
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.skipdata=True
+          # Xrefs to exact reader-detail literal and HD preference.
+          target_offsets={o:v for o,v in pp.items() if ('ComicReaderHD' in v or 'api/comic/chapter/ie84hfh8/detail' in v)}
+          pending={}; refs=[]
+          for ins in md.disasm(data,base):
+              pending={r:(b,n-1) for r,(b,n) in pending.items() if n>1}; op=ins.op_str.lower()
+              m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
+              if ins.mnemonic=='add' and m: pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),36)
+              if ins.mnemonic in ('ldr','ldur','ldrsw'):
+                  m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
+                  if not m: continue
+                  br=m.group(2); d=int(m.group(3),0) if m.group(3) else 0; off=d if br=='x27' else (pending[br][0]+d if br in pending else None)
+                  if off in target_offsets: refs.append((int(ins.address),off,target_offsets[off]))
+          print('=== xrefs ===')
+          for a,o,v in refs: print(f'0x{a:x} PP+0x{o:x} {safe(v)}')
+          # Wide windows around each xref, but only important instructions and annotated pool loads.
+          for idx,(addr,_,_) in enumerate(refs[:20]):
+              start=max(base,addr-0x500); end=min(base+len(data),addr+0x900)
+              print(f'=== XREF_WINDOW_{idx} center=0x{addr:x} ==='); pending={}; count=0
+              for ins in md.disasm(data[start-base:end-base],start):
+                  pending={r:(b,n-1) for r,(b,n) in pending.items() if n>1}; op=ins.op_str.lower(); anns=[]
+                  m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
+                  if ins.mnemonic=='add' and m: pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),36)
+                  if ins.mnemonic in ('ldr','ldur','ldrsw'):
+                      m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
+                      if m:
+                          br=m.group(2); d=int(m.group(3),0) if m.group(3) else 0; off=d if br=='x27' else (pending[br][0]+d if br in pending else None)
+                          if off in pp: anns.append(f'PP+0x{off:x}={safe(pp[off])}')
+                  ctrl=ins.mnemonic in ('bl','blr','b','ret','cbz','cbnz','tbz','tbnz') or ins.mnemonic.startswith('b.')
+                  imm=ins.mnemonic in ('mov','movz') and re.search(r'#(?:0x)?[0-9a-f]+',op)
+                  if anns or ctrl or imm:
+                      print((f'0x{ins.address:x}: {ins.mnemonic:<7} {ins.op_str:<46}'+((' ; '+' | '.join(anns)) if anns else ''))[:700]); count+=1
+                      if count>700: print('TRUNCATED'); break
+          PY
