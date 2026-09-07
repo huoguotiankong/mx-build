@@ -15,65 +15,40 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     steps:
-      - name: Complete web fallback validation
+      - name: Inspect web list routes
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import urllib.request, urllib.error, re, hashlib
-          UA='Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140.0 Mobile Safari/537.36'
-          H={'User-Agent':UA,'Accept':'text/html,application/xhtml+xml,*/*'}
-          def get(url, limit=500000, referer=None):
-              h=dict(H)
-              if referer: h['Referer']=referer
-              req=urllib.request.Request(url,headers=h)
+          import urllib.request, urllib.error, re
+          H={'User-Agent':'Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140.0 Mobile Safari/537.36','Accept':'text/html,application/xhtml+xml,*/*'}
+          def get(url):
               try:
-                  with urllib.request.urlopen(req,timeout=20) as r:
-                      b=r.read(limit)
-                      print('\nURL',url,'STATUS',r.status,'FINAL',r.geturl(),'LEN',len(b))
-                      return b
+                  with urllib.request.urlopen(urllib.request.Request(url,headers=H),timeout=20) as r:
+                      t=r.read(500000).decode('utf-8','replace'); print('\nURL',url,'STATUS',r.status,'LEN',len(t)); return t
               except urllib.error.HTTPError as e:
-                  b=e.read(4000); print('\nURL',url,'HTTP',e.code,'BODY',b.decode('utf-8','replace')[:400]); return b''
-              except Exception as e:
-                  print('\nURL',url,'ERR',repr(e)); return b''
-          def text(url): return get(url).decode('utf-8','replace')
-          def summary(label,t):
-              print('\n--',label,'--')
-              print('TITLE',re.findall(r'<title>(.*?)</title>',t,re.I|re.S)[:1])
+                  print('\nURL',url,'HTTP',e.code); return ''
+          def dump(label,t):
+              print('\n###',label,'TITLE',re.findall(r'<title>(.*?)</title>',t,re.I|re.S)[:1])
+              for mark in ['今日推荐','最新漫画','最近更新','热门','排行','漫画分类','全部','热血','完结']:
+                  p=t.find(mark)
+                  if p>=0: print('MARK',mark, re.sub(r'\s+',' ',t[max(0,p-700):p+2200])[:3000])
               links=re.findall(r'href=["\']([^"\']+)["\']',t,re.I)
-              print('COMIC LINKS', [x for x in links if re.fullmatch(r'/\d+\.html',x)][:15])
-              print('PAGE LINKS', [x for x in links if any(k in x for k in ['rank/','category/','search'])][-60:])
-              for cls in ['comic-list-item','comic-item','m-up-item1','pagination','page']:
-                  if cls in t: print('HAS CLASS',cls)
-              # short snippets around first comic item
-              for marker in ['comic-list-item','comic-item','m-up-item1']:
-                  p=t.find(marker)
-                  if p>=0: print('SNIP',marker,t[max(0,p-250):p+1600].replace('\n',' ')[:1800]); break
+              print('LINKS', [x for x in links if re.search(r'(custom|rank|category|search|/\d+\.html)',x)][:100])
+          for label,url in [
+              ('home','https://mh.iqtao.cn/'),
+              ('top','https://mh.iqtao.cn/custom/top'),
+              ('ticket','https://mh.iqtao.cn/custom/ticket'),
+              ('categoryroot','https://mh.iqtao.cn/category'),
+              ('categorytags9','https://mh.iqtao.cn/category/tags/9'),
+              ('categoryfinish1','https://mh.iqtao.cn/category/finish/1'),
+          ]:
+              dump(label,get(url))
 
-          urls=[
-              ('rank_index_1','https://mh.iqtao.cn/index.php/rank/1-1.html'),
-              ('rank_index_5','https://mh.iqtao.cn/index.php/rank/5-1.html'),
-              ('category','https://mh.iqtao.cn/category/tags/642'),
-              ('category_index','https://mh.iqtao.cn/index.php/category/tags/642'),
-              ('category_p2a','https://mh.iqtao.cn/category/tags/642/2'),
-              ('category_p2b','https://mh.iqtao.cn/category/tags/642/2.html'),
-              ('search19','https://mh.iqtao.cn/search?key=19%E5%A4%A9'),
-              ('searchdouluo','https://mh.iqtao.cn/search?key=%E6%96%97%E7%BD%97'),
-              ('searchdouluo_p2','https://mh.iqtao.cn/search?key=%E6%96%97%E7%BD%97&page=2'),
-          ]
-          for label,url in urls: summary(label,text(url))
-
-          reader=text('https://mh.iqtao.cn/128/221583.html')
-          imgs=[]
-          for u in re.findall(r'(?:data-src|src)=["\']((?:https?:)?//[^"\']+\.(?:jpg|jpeg|png|webp|avif)(?:\?[^"\']*)?)["\']',reader,re.I):
-              if '/scomic/' in u and u not in imgs: imgs.append(u)
-          print('\nREADER ENCRYPTED IMAGES',len(imgs),imgs[:12])
-          if imgs:
-              u='https:'+imgs[0] if imgs[0].startswith('//') else imgs[0]
-              for ref in [None,'https://mh.iqtao.cn/128/221583.html']:
-                  b=get(u,500000,ref)
-                  print('IMAGE REF',ref,'PREFIX',b[:16].hex(),'SHA',hashlib.sha256(b).hexdigest() if b else '')
-                  if b:
-                      dec=bytes((((x-47)&255)^0xAB) for x in b)
-                      print('DECRYPT PREFIX',dec[:16].hex(),'MAGIC JPEG/PNG/WEBP',dec[:3]==b'\xff\xd8\xff',dec[:4]==b'\x89PNG',dec[:4]==b'RIFF' and dec[8:12]==b'WEBP')
+          # Extract the exact search getmore AJAX block from core.js.
+          js=get('https://npm.elemecdn.com/banwl/maocdn/template/wap/default/js/core.js')
+          p=js.find('search : function')
+          if p<0: p=js.find('search:function')
+          print('\nSEARCH_FUNCTION_START',p)
+          if p>=0: print(js[p:p+10000])
           PY
