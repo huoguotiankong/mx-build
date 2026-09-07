@@ -43,8 +43,8 @@ jobs:
           ref: source/mengman-v1
           token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
           path: dev
-          fetch-depth: 1
-          persist-credentials: false
+          fetch-depth: 0
+          persist-credentials: true
 
       - name: Overlay Mengman module
         shell: bash
@@ -80,15 +80,25 @@ jobs:
           set -euo pipefail
           ./gradlew :src:zh:mengman:assembleDebug --stacktrace
 
-      - name: Upload formatted source
-        uses: actions/upload-artifact@v4
-        with:
-          name: mengman-v1-formatted-source
-          path: |
-            upstream/src/zh/mengman/src/eu/kanade/tachiyomi/extension/zh/mengman/Mengman.kt
-            upstream/src/zh/mengman/src/eu/kanade/tachiyomi/extension/zh/mengman/MengmanBootstrapCipher.kt
-          if-no-files-found: error
-          retention-days: 14
+      - name: Sync validated formatting to development branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp upstream/src/zh/mengman/src/eu/kanade/tachiyomi/extension/zh/mengman/Mengman.kt \
+             dev/src/zh/mengman/src/eu/kanade/tachiyomi/extension/zh/mengman/Mengman.kt
+          cp upstream/src/zh/mengman/src/eu/kanade/tachiyomi/extension/zh/mengman/MengmanBootstrapCipher.kt \
+             dev/src/zh/mengman/src/eu/kanade/tachiyomi/extension/zh/mengman/MengmanBootstrapCipher.kt
+          cd dev
+          changed="$(git status --short -- src/zh/mengman)"
+          if [[ -z "$changed" ]]; then
+            echo "No formatting changes to sync"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/zh/mengman
+          git commit -m "style(mengman): apply Keiyoushi formatting"
+          git push origin HEAD:source/mengman-v1
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
