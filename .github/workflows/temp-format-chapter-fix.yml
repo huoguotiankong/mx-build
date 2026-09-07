@@ -1,0 +1,52 @@
+name: TEMP format chapter fix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/temp-format-chapter-fix.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout private MX App fix branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-app
+          ref: fix/chapter-content-safe-whole-manga
+          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Apply Spotless
+        run: ./gradlew spotlessApply
+
+      - name: Commit formatting only
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed="$(git diff --name-only)"
+          if [[ -z "$changed" ]]; then
+            echo "No formatting changes needed."
+            exit 0
+          fi
+          while IFS= read -r path; do
+            case "$path" in
+              app/src/main/java/eu/kanade/tachiyomi/ui/manga/MangaScreen.kt|app/src/main/java/eu/kanade/tachiyomi/ui/reader/ChapterContentMatcher.kt|app/src/test/java/eu/kanade/tachiyomi/ui/reader/ChapterContentMatcherTest.kt) ;;
+              *) echo "Unexpected Spotless change: $path"; exit 1 ;;
+            esac
+          done <<< "$changed"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add $changed
+          git commit -m "style: apply Spotless to chapter replacement fix"
+          git push origin HEAD:fix/chapter-content-safe-whole-manga
