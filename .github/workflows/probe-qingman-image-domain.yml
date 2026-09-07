@@ -1,0 +1,135 @@
+name: Resolve Qingman Live Image Domain
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-image-domain.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Bootstrap and inspect public image routing config
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools python3-cryptography >/dev/null
+          python3 - <<'PY'
+          import base64,hashlib,json,os,tempfile,time,urllib.error,urllib.parse,urllib.request,uuid,zipfile
+          from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+          from elftools.elf.elffile import ELFFile
+
+          UA='qingman/4.4.5 (Android)'
+          vr=json.load(urllib.request.urlopen(urllib.request.Request('https://bass8ycl.zermh.com/api/radio/api/config/version',headers={'User-Agent':'mx-qingman-probe/1.0'}),timeout=20))['data']['datas']['android']
+          if str(vr.get('version'))!='4.4.5' or str(vr.get('versionCode'))!='445': raise SystemExit('Unexpected Qingman version')
+          with tempfile.TemporaryDirectory() as td:
+              apk=os.path.join(td,'q.apk'); so=os.path.join(td,'libqx_security.so')
+              with urllib.request.urlopen(urllib.request.Request(vr['downloadUrl'],headers={'User-Agent':'mx-qingman-probe/1.0'}),timeout=60) as r, open(apk,'wb') as f:
+                  while True:
+                      b=r.read(1024*1024)
+                      if not b: break
+                      f.write(b)
+              with zipfile.ZipFile(apk) as z, z.open('lib/arm64-v8a/libqx_security.so') as src, open(so,'wb') as dst:
+                  while True:
+                      b=src.read(1024*1024)
+                      if not b: break
+                      dst.write(b)
+              with open(so,'rb') as f:
+                  elf=ELFFile(f)
+                  def rv(va,n):
+                      for seg in elf.iter_segments():
+                          if seg['p_type']!='PT_LOAD': continue
+                          s=int(seg['p_vaddr']); e=s+int(seg['p_filesz'])
+                          if s<=va and va+n<=e:
+                              f.seek(int(seg['p_offset'])+va-s); return f.read(n)
+                      raise RuntimeError('VA not backed')
+                  seed=rv(0x14a40,16)+rv(0x14af0,16); sc=rv(0x17d1f,33); ac=rv(0x17d40,32)
+          base=hashlib.sha256(seed).digest()
+          def deob(c,k):
+              out=b''; i=0
+              while len(out)<len(c): out+=hashlib.sha256(base+bytes([k])+i.to_bytes(4,'big')).digest(); i+=1
+              return bytes(a^b for a,b in zip(c,out))
+          sm=deob(sc,1); aes=deob(ac,2)
+          ts=str(int(time.time()*1000)); did=uuid.uuid4().hex; nonce=uuid.uuid4().hex
+          sig=hashlib.sha256(ts.encode()+nonce.encode()+did.encode()+sm).hexdigest()
+          body=json.dumps({'timestamp':ts,'nonce':nonce,'sign':sig,'deviceId':did},separators=(',',':')).encode()
+          bh={'Content-Type':'application/json','Accept':'application/json, text/plain, */*','User-Agent':UA,'appVersion':'4.4.5','platform':'android','X-Device-Id':did}
+          br=json.load(urllib.request.urlopen(urllib.request.Request('https://mu8xm4cx.zermh.com/bootstrap/domain',data=body,headers=bh,method='POST'),timeout=20))
+          enc=br['data']; blob=base64.urlsafe_b64decode(enc+'='*((4-len(enc)%4)%4)); cfg=json.loads(AESGCM(aes).decrypt(blob[:12],blob[12:],(ts+'|'+nonce).encode()))
+          api=urllib.parse.urlsplit(cfg['apiDomain']); host=api.hostname; access=cfg['appAccessToken']
+          if not host or not access: raise SystemExit('bootstrap missing fields')
+          print('bootstrap_config_keys='+','.join(sorted(cfg.keys())))
+
+          hdr={'Accept':'application/json, text/plain, */*','User-Agent':UA,'appVersion':'4.4.5','platform':'android','X-Device-Id':did,'X-QM-App-Access':access,'Content-Type':'application/json'}
+          endpoints=[
+              ('home','POST','api/comic/comics/v1/homeList?page=1&pageNum=1&pageSize=20'),
+              ('adConfig','GET','api/radio/api/config/getAdConfig'),
+              ('interstitial','GET','api/radio/api/config/homepage/interstitial'),
+              ('signKey','GET','api/comic/comics/sign/key'),
+              ('categories','POST','api/comic/categories/list'),
+          ]
+          domainish=('domain','host','url','line','cdn','server','oss','image','img','pic','cover')
+          def public_value(v):
+              if not isinstance(v,str): return None
+              s=v.strip()
+              if not s: return None
+              p=urllib.parse.urlsplit(s if '://' in s else ('https:'+s if s.startswith('//') else s))
+              if p.scheme in ('http','https') and p.hostname:
+                  return 'absolute scheme='+p.scheme+' host='+p.hostname+' path_prefix='+'/'.join(p.path.split('/')[:3])
+              if s.startswith('/'):
+                  return 'relative path_prefix='+'/'.join(s.split('/')[:3])+' ext='+os.path.splitext(urllib.parse.urlsplit(s).path)[1].lower()
+              if '.' in s and len(s)<180 and ' ' not in s:
+                  return 'literal='+s[:160]
+              return None
+          def walk(x,path=''):
+              if isinstance(x,dict):
+                  for k,v in x.items():
+                      kp=(path+'.'+k).strip('.')
+                      if any(t in k.lower() for t in domainish):
+                          pv=public_value(v)
+                          if pv: print('field='+kp+' '+pv)
+                          elif isinstance(v,(list,dict)): print('field='+kp+' type='+type(v).__name__)
+                      walk(v,kp)
+              elif isinstance(x,list):
+                  for i,v in enumerate(x[:40]): walk(v,path+'[]')
+          for name,method,path in endpoints:
+              url=f'http://{host}/'+path
+              req=urllib.request.Request(url,headers=hdr,method=method,data=(b'{}' if method=='POST' else None))
+              try:
+                  with urllib.request.urlopen(req,timeout=25) as r:
+                      raw=r.read().decode('utf-8','replace')
+                      obj=json.loads(raw)
+                      print(f'endpoint={name} http={r.status} code={obj.get("code") if isinstance(obj,dict) else "?"}')
+                      walk(obj,name)
+              except urllib.error.HTTPError as e:
+                  print(f'endpoint={name} http={e.code}')
+              except Exception as e:
+                  print(f'endpoint={name} error={type(e).__name__}:{str(e)[:120]}')
+          PY
+
+      - name: Check public DNS for embedded image host
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,urllib.parse,urllib.request
+          name='img-qingman.dmzj.com'
+          for provider,url in (
+              ('google','https://dns.google/resolve?name='+urllib.parse.quote(name)+'&type=A'),
+              ('cloudflare','https://cloudflare-dns.com/dns-query?name='+urllib.parse.quote(name)+'&type=A'),
+          ):
+              try:
+                  req=urllib.request.Request(url,headers={'Accept':'application/dns-json','User-Agent':'mx-qingman-dns-check/1.0'})
+                  with urllib.request.urlopen(req,timeout=15) as r:
+                      o=json.load(r); answers=o.get('Answer') or []
+                      vals=[a.get('data','') for a in answers if a.get('type') in (1,5)]
+                      print(f'dns_provider={provider} status={o.get("Status")} answer_count={len(vals)} values='+','.join(vals[:6]))
+              except Exception as e:
+                  print(f'dns_provider={provider} error={type(e).__name__}:{str(e)[:100]}')
+          PY
