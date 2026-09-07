@@ -1,0 +1,101 @@
+name: Validate Miaowu v1 Current
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/validate-miaowu-v1-current.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-miaowu-v1-current
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check private source token
+        shell: bash
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]] || { echo "::error::MX_PRIVATE_READ_TOKEN missing"; exit 1; }
+
+      - name: Checkout current Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          ref: main
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout Miaowu development branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: source/miaowumanhua-v1
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: dev
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Validate private source layout
+        working-directory: dev
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/validate_sources.py
+          test -f src/zh/miaowumanhua/build.gradle.kts
+          test -f src/zh/miaowumanhua/src/eu/kanade/tachiyomi/extension/zh/miaowumanhua/MiaowuManhua.kt
+
+      - name: Overlay Miaowu module
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf upstream/src/zh/miaowumanhua
+          cp -a dev/src/zh/miaowumanhua upstream/src/zh/miaowumanhua
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          build-root-directory: upstream
+
+      - name: Check formatting
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:miaowumanhua:spotlessCheck --stacktrace
+
+      - name: Build debug APK
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:miaowumanhua:assembleDebug --stacktrace
+
+      - name: Record result
+        shell: bash
+        run: |
+          {
+            echo "### Miaowu v1 validation"
+            echo
+            echo "- Private source layout: passed"
+            echo "- Keiyoushi formatting: passed"
+            echo "- Debug APK compilation: passed"
+            echo "- No source or APK artifact was uploaded from this workflow"
+            echo "- Android device functionality remains a separate validation step"
+          } >> "$GITHUB_STEP_SUMMARY"
