@@ -1,0 +1,69 @@
+name: Probe Mengman static search fallback v14
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-mengman-static-search-v14.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Benchmark bounded static-title search
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,time
+          wf=open('.github/workflows/probe-mengman-json-schema-v6.yml','r',encoding='utf-8').read()
+          marker="python3 - <<'PY'\n"; start=wf.index(marker)+len(marker); end=wf.rindex('\n          PY')
+          code=wf[start:end]; code='\n'.join(line[10:] if line.startswith('          ') else line for line in code.splitlines())
+          prefix=code.split('test_paths=[',1)[0]
+          ns={}; exec(prefix,ns,ns)
+          ub=ns['unzip_bundle']
+          cats=json.loads(ub('/static/category/list.zip')['data.json'].decode())['data']
+
+          def items_from(path):
+              root=json.loads(ub(path)['data.json'].decode())
+              data=root.get('data') or {}
+              return data.get('list') or []
+
+          def search(q,limit=20,max_requests=40):
+              q=q.strip().lower(); found={}; requests=0; started=time.time()
+              # Fast path: rankings first; these three cover many likely searches.
+              for typ in ['hot','new','favorite']:
+                  if requests>=max_requests:break
+                  requests+=1
+                  try: arr=items_from('/static/ranking/'+typ+'.zip')
+                  except Exception: arr=[]
+                  for x in arr:
+                      title=str(x.get('title') or '').lower(); author=str(x.get('author') or '').lower()
+                      if q in title or q in author: found[str(x.get('id'))]=x
+                  if len(found)>=limit: break
+              # Then category pages, bounded and deduplicated.
+              if len(found)<limit:
+                  for c in cats:
+                      count=int(c.get('comic_count') or 0); pages=(count+19)//20
+                      for p in range(1,pages+1):
+                          if requests>=max_requests or len(found)>=limit: break
+                          requests+=1
+                          try: arr=items_from(f"/static/category/{c['id']}/{p}.zip")
+                          except Exception: arr=[]
+                          for x in arr:
+                              title=str(x.get('title') or '').lower(); author=str(x.get('author') or '').lower()
+                              if q in title or q in author: found[str(x.get('id'))]=x
+                      if requests>=max_requests or len(found)>=limit: break
+              elapsed=time.time()-started
+              print('SEARCH',repr(q),'REQUESTS',requests,'MATCHES',len(found),'ELAPSED_SEC',round(elapsed,2),'BOUNDED',requests>=max_requests)
+              for x in list(found.values())[:10]: print('MATCH',x.get('id'),x.get('title'))
+
+          search('仙帝归来',20,40)
+          search('仙',20,40)
+          PY
