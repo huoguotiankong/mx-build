@@ -1,4 +1,4 @@
-name: Probe Qingman Runtime Public Hosts ARM64
+name: Probe Qingman Runtime Public Hosts x86_64
 
 on:
   push:
@@ -12,9 +12,18 @@ permissions:
 
 jobs:
   runtime:
-    runs-on: macos-14
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
+      - name: Enable KVM
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules >/dev/null
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm || true
+          ls -l /dev/kvm || true
+
       - name: Resolve current official APK
         shell: bash
         run: |
@@ -35,12 +44,13 @@ jobs:
           echo "QM_PKG=$QM_PKG" >> "$GITHUB_ENV"
           echo '=== APK ABIs ==='
           unzip -Z1 /tmp/qingman.apk | sed -n 's#^lib/\([^/]*\)/.*#\1#p' | sort -u
+          unzip -Z1 /tmp/qingman.apk | grep -q '^lib/x86_64/'
 
       - name: Run official app and capture only public host/config clues
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
-          arch: arm64-v8a
+          arch: x86_64
           profile: pixel_6
           disable-animations: true
           emulator-boot-timeout: 600
@@ -53,7 +63,7 @@ jobs:
             adb install -r /tmp/qingman.apk
             adb logcat -c
             rm -f /tmp/qm_dns.log
-            sudo tcpdump -i pktap,all -nn -l '(udp port 53 or tcp port 53)' > /tmp/qm_dns.log 2>&1 &
+            sudo tcpdump -i any -nn -l '(udp port 53 or tcp port 53)' > /tmp/qm_dns.log 2>&1 &
             TCPPID=$!
             adb shell am force-stop "$QM_PKG" || true
             adb shell monkey -p "$QM_PKG" -c android.intent.category.LAUNCHER 1 >/tmp/monkey.log 2>&1 || true
