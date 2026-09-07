@@ -1,0 +1,116 @@
+name: Probe Mengman native bootstrap cipher v4
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-mengman-native-seed-v4.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Emulate native n0 bootstrap transform and verify static AES
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, os, struct, subprocess, tempfile, urllib.request
+
+          MASK=0xffffffff
+          # Exact 256-word table read by libnativecrypto.so at 0x18c4.
+          SS0_HEX='a8a1892984818505d4d2c616d0d1c313545044141c110d1daca08c2c242105255c514d1d40434303181008181c120e1e50514111fcf0cc3cc8c2ca0a606343232820082844404404202000209c918d1de0e0c020e0e2c222c8c0c80814130717a4a185258c838f0f0003030378734b3bb8b38b3b10110313d0d0c212ece2ce2e707040308c808c0c3c330f3fa8a0882830320232dcd1cd1df4f2c63674704434ece0cc2c9491851508030b0b545347175c504c1c58534b1bbcb18d3d00010101242004241c100c1c707343339890881810100010ccc0cc0cf0f0c232d8d1c9192c200c2ce4e3c727707242328083830398938b1bd0d1c11184828606c8c1c9096060402050504010a0a38323e8e3cb2b0c010d0db4b286369c928e1e4c434f0fb4b3873758524a1ac4c2c60678704838a4a2862610120212aca38f2fd4d1c51560614121c0c3c303b4b0843440414101505242127c714d3d8c818d0d080008081c130f1f9891891900000000181109190400040450534313f4f3c737e0e1c121fcf1cd3d747246362c230f2f24230727b0b0803088838b0b0c020e0ea8a38b2ba0a282226c624e2e909383134c414d0d686149297c704c3c0801090908020a0abcb38f3fece3cf2ff0f3c333c4c1c5058483870714100414fcf2ce3e64604424dcd2ce1e2c220e2e48434b0b18120a1a040206062021012168634b2b6462462600020202f4f1c5359092821288828a0a0c000c0cb0b383337c724e3ed0d0c01078724a3a4443470794928616e4e1c5252422062680808000aca18d2ddcd3cf1fa0a181213030003034330737aca28e2e34320636141105152022022238300838f4f0c434a4a38727444145054c404c0c80818101e8e1c929848084049493871734310535c8c3cb0bccc2ce0e3c300c3c7071413110110111c4c3c7078881890974714535f8f3cb3bd8d2ca1af8f0c838949084145851491980828202c4c0c404fcf3cf3f484149093831093964634727c0c0c000ccc3cf0fd4d3c717b8b088380c030f0f8c828e0e4042420220230323909181116c604c2cd8d3cb1ba4a0842434300434f0f1c13148404808c0c2c2026c634f2f3c310d3d2c210d2d40404000bcb28e3e3c320e3ebcb08c3cc0c1c101a8a28a2ab8b28a3a4c424e0e5451451538330b3bdcd0cc1c686048287c734f3f9c908c1cd8d0c81848424a0a5452461674734737a0a08020ece1cd2d44424606b4b1853528230b2b64614525f8f2ca3ae0e3c323b8b18939b0b181319c938f1f5c524e1ef8f1c939e4e2c626b0b2823230310131e8e2ca2a6c614d2d5c534f1fe4e0c424f0f0c0304c414d0d38330b339472863698928a1a0c020606b4b18535b0b28232606343232c230f2f24230727787048388c818d0d7c724e3e3c300c3c00000000000000000000000000000000'
+          SS0=list(struct.unpack('<256I',bytes.fromhex(SS0_HEX)))
+          KC=[0x9e3779b9,0x3c6ef373,0x78dde6e6,0xf1bbcdcc,0xe3779b99,0xc6ef3733,0x8dde6e67,0x1bbcdccf,0x3779b99e,0x6ef3733c,0xdde6e678,0xbbcdccf1,0x779b99e3,0xef3733c6,0xde6e678d,0xbcdccf1b]
+          A5=[x>>24 for x in SS0]; A6=[(x>>16)&255 for x in SS0]; A7=[(x>>8)&255 for x in SS0]; A8=[x&255 for x in SS0]
+
+          def G(x):
+              x &= MASK
+              b3=(x>>24)&255; b2=(x>>16)&255; b1=(x>>8)&255; b0=x&255
+              o3=A6[b2]^A5[b3]^A7[b1]^A8[b0]
+              o2=A6[b1]^A5[b2]^A7[b0]^A8[b3]
+              o1=A6[b0]^A5[b1]^A7[b3]^A8[b2]
+              o0=A6[b3]^A5[b0]^A7[b2]^A8[b1]
+              return ((o3<<24)|(o2<<16)|(o1<<8)|o0)&MASK
+
+          def schedule(key):
+              a,b,c,d=struct.unpack('>4I',key)
+              rk=[]
+              for i,kc in enumerate(KC):
+                  rk += [G(c+a-kc), G(b-d+kc)]
+                  if i%2==0:
+                      a,b=((a>>8)|(b<<24))&MASK,((b>>8)|(a<<24))&MASK
+                  else:
+                      c,d=((c<<8)|(d>>24))&MASK,((d<<8)|(c>>24))&MASK
+              return rk
+
+          def block_native(key,block):
+              rk=schedule(key)
+              w24,w23,w9,w8=struct.unpack('>4I',block)
+              for rr in range(15,-1,-1):
+                  old_l0,old_l1=w24,w23
+                  t0=rk[2*rr]^w9
+                  t1=rk[2*rr+1]^w8
+                  x=G(t0^t1)
+                  y=G(x+t0)
+                  z=G(y+x)
+                  n0=((z+y)&MASK)^old_l0
+                  n1=z^old_l1
+                  w24,w23,w9,w8=w9,w8,n0&MASK,n1&MASK
+              return struct.pack('>4I',w9,w24,w8,w23)
+
+          def transform(key,data):
+              if len(data)%16: raise RuntimeError('bootstrap payload not block aligned')
+              return b''.join(block_native(key,data[i:i+16]) for i in range(0,len(data),16))
+
+          def fetch(url):
+              req=urllib.request.Request(url,headers={'User-Agent':'okhttp/4.12.0'})
+              with urllib.request.urlopen(req,timeout=30) as r:
+                  data=r.read(); print('GET',url,'status',r.status,'bytes',len(data)); return data
+
+          def text_chunks(png):
+              if not png.startswith(b'\x89PNG\r\n\x1a\n'): raise RuntimeError('not png')
+              out=[]; p=8
+              while p+12<=len(png):
+                  n=struct.unpack('>I',png[p:p+4])[0]; typ=png[p+4:p+8]; s=p+8; e=s+n
+                  if typ==b'tEXt':
+                      out.append(png[s:e])
+                      if len(out)==2:return out
+                  p=e+4
+              raise RuntimeError('missing tEXt')
+
+          def aes_cbc(ciphertext,key,iv):
+              with tempfile.TemporaryDirectory() as td:
+                  fi=td+'/i'; fo=td+'/o'; open(fi,'wb').write(ciphertext)
+                  cmd=['openssl','enc','-aes-128-cbc','-d','-K',key.hex(),'-iv',iv.hex(),'-in',fi,'-out',fo,'-nopad']
+                  p=subprocess.run(cmd,stderr=subprocess.PIPE)
+                  if p.returncode: raise RuntimeError(p.stderr.decode())
+                  return open(fo,'rb').read()
+
+          resources={p:fetch('https://static.yisix.cn'+p) for p in ['/static/category/list.zip','/static/search/hot_comic.zip','/static/ranking/new.zip']}
+          ok=0
+          for boot in ('a1','a2'):
+              print('\n===',boot,'===')
+              c=text_chunks(fetch('https://static.yisix.cn/bootstrap/'+boot+'.png'))
+              key=c[0][83:99]
+              plain=transform(key,c[1])
+              print('native_plain_len',len(plain),'sha256',hashlib.sha256(plain).hexdigest()[:16],'first',plain[:16].hex())
+              if len(plain)<1226: continue
+              sk=plain[1194:1210]; iv=plain[1210:1226]
+              print('static key/iv hashes',hashlib.sha256(sk).hexdigest()[:16],hashlib.sha256(iv).hexdigest()[:16])
+              for path,ct in resources.items():
+                  out=aes_cbc(ct,sk,iv)
+                  pad=out[-1] if out else -1
+                  pad_ok=bool(out) and 1<=pad<=16 and out[-pad:]==bytes([pad])*pad
+                  zip_ok=out.startswith(b'PK\x03\x04')
+                  print(path,'prefix',out[:16].hex(),'zip_magic',zip_ok,'pkcs7',pad_ok)
+                  if zip_ok and pad_ok: ok+=1
+          if ok==0:
+              raise SystemExit('Native bootstrap emulation did not unlock any static ZIP')
+          print('VERIFIED_STATIC_ZIPS',ok)
+          PY
