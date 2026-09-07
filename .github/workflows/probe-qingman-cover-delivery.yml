@@ -1,3 +1,4 @@
+# Rerun after Qingman real-device cover feedback; public-host probe only.
 name: Probe Qingman Cover Delivery
 
 on:
