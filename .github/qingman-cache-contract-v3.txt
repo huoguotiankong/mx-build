@@ -1,0 +1,1493 @@
+Qingman 4.4.5 exact cache/detail source contexts
+
+===== TARGET 0xacc05c =====
+<no source hit>
+
+===== TARGET 0xacc358 =====
+<no source hit>
+
+===== TARGET 0xacc58c =====
+<no source hit>
+
+===== TARGET 0xacc934 =====
+<no source hit>
+
+===== TARGET 0xaccb5c =====
+--- iCm.dart:63 ---
+    //     0xae19e8: bl              #0xbb602c  ; StackOverflowSharedWithoutFPURegsStub
+    // 0xae19ec: b               #0xae19d4
+  }
+}
+
+// class id: 871, size: 0x14, field offset: 0x8
+class pub extends Object {
+
+  Map<String, dynamic> YDc(pub) {
+    // ** addr: 0xae1978, size: 0x48
+    // 0xae1978: EnterFrame
+    //     0xae1978: stp             fp, lr, [SP, #-0x10]!
+    //     0xae197c: mov             fp, SP
+    // 0xae1980: CheckStackOverflow
+    //     0xae1980: ldr             x16, [THR, #0x48]  ; THR::stack_limit
+    //     0xae1984: cmp             SP, x16
+    //     0xae1988: b.ls            #0xae19a0
+    // 0xae198c: ldr             x1, [fp, #0x10]
+    // 0xae1990: r0 = call 0x488bfc
+    //     0xae1990: bl              #0x488bfc
+    // 0xae1994: LeaveFrame
+    //     0xae1994: mov             SP, fp
+    //     0xae1998: ldp             fp, lr, [SP], #0x10
+    // 0xae199c: ret
+    //     0xae199c: ret             
+    // 0xae19a0: r0 = StackOverflowSharedWithoutFPURegs()
+    //     0xae19a0: bl              #0xbb602c  ; StackOverflowSharedWithoutFPURegsStub
+    // 0xae19a4: b               #0xae198c
+  }
+}
+
+// class id: 872, size: 0x44, field offset: 0x8
+class oub extends Object {
+
+  Map<String, dynamic> YDc(oub) {
+    // ** addr: 0xaccb5c, size: 0x48
+    // 0xaccb5c: EnterFrame
+    //     0xaccb5c: stp             fp, lr, [SP, #-0x10]!
+    //     0xaccb60: mov             fp, SP
+    // 0xaccb64: CheckStackOverflow
+    //     0xaccb64: ldr             x16, [THR, #0x48]  ; THR::stack_limit
+    //     0xaccb68: cmp             SP, x16
+    //     0xaccb6c: b.ls            #0xaccb84
+    // 0xaccb70: ldr             x1, [fp, #0x10]
+    // 0xaccb74: r0 = call 0x461f94
+    //     0xaccb74: bl              #0x461f94
+    // 0xaccb78: LeaveFrame
+    //     0xaccb78: mov             SP, fp
+    //     0xaccb7c: ldp             fp, lr, [SP], #0x10
+    // 0xaccb80: ret
+    //     0xaccb80: ret             
+    // 0xaccb84: r0 = StackOverflowSharedWithoutFPURegs()
+    //     0xaccb84: bl              #0xbb602c  ; StackOverflowSharedWithoutFPURegsStub
+    // 0xaccb88: b               #0xaccb70
+  }
+}
+
+// class id: 1073, size: 0x18, field offset: 0x18
+class nub extends fPa {
+}
+--- iCm.dart:64 ---
+    // 0xae19ec: b               #0xae19d4
+  }
+}
+
+// class id: 871, size: 0x14, field offset: 0x8
+class pub extends Object {
+
+  Map<String, dynamic> YDc(pub) {
+    // ** addr: 0xae1978, size: 0x48
+    // 0xae1978: EnterFrame
+    //     0xae1978: stp             fp, lr, [SP, #-0x10]!
+    //     0xae197c: mov             fp, SP
+    // 0xae1980: CheckStackOverflow
+    //     0xae1980: ldr             x16, [THR, #0x48]  ; THR::stack_limit
+    //     0xae1984: cmp             SP, x16
+    //     0xae1988: b.ls            #0xae19a0
+    // 0xae198c: ldr             x1, [fp, #0x10]
+    // 0xae1990: r0 = call 0x488bfc
+    //     0xae1990: bl              #0x488bfc
+    // 0xae1994: LeaveFrame
+    //     0xae1994: mov             SP, fp
+    //     0xae1998: ldp             fp, lr, [SP], #0x10
+    // 0xae199c: ret
+    //     0xae199c: ret             
+    // 0xae19a0: r0 = StackOverflowSharedWithoutFPURegs()
+    //     0xae19a0: bl              #0xbb602c  ; StackOverflowSharedWithoutFPURegsStub
+    // 0xae19a4: b               #0xae198c
+  }
+}
+
+// class id: 872, size: 0x44, field offset: 0x8
+class oub extends Object {
+
+  Map<String, dynamic> YDc(oub) {
+    // ** addr: 0xaccb5c, size: 0x48
+    // 0xaccb5c: EnterFrame
+    //     0xaccb5c: stp             fp, lr, [SP, #-0x10]!
+    //     0xaccb60: mov             fp, SP
+    // 0xaccb64: CheckStackOverflow
+    //     0xaccb64: ldr             x16, [THR, #0x48]  ; THR::stack_limit
+    //     0xaccb68: cmp             SP, x16
+    //     0xaccb6c: b.ls            #0xaccb84
+    // 0xaccb70: ldr             x1, [fp, #0x10]
+    // 0xaccb74: r0 = call 0x461f94
+    //     0xaccb74: bl              #0x461f94
+    // 0xaccb78: LeaveFrame
+    //     0xaccb78: mov             SP, fp
+    //     0xaccb7c: ldp             fp, lr, [SP], #0x10
+    // 0xaccb80: ret
+    //     0xaccb80: ret             
+    // 0xaccb84: r0 = StackOverflowSharedWithoutFPURegs()
+    //     0xaccb84: bl              #0xbb602c  ; StackOverflowSharedWithoutFPURegsStub
+    // 0xaccb88: b               #0xaccb70
+  }
+}
+
+// class id: 1073, size: 0x18, field offset: 0x18
+class nub extends fPa {
+}
+--- iCm.dart:65 ---
+  }
+}
+
+// class id: 871, size: 0x14, field offset: 0x8
+class pub extends Object {
+
+  Map<String, dynamic> YDc(pub) {
+    // ** addr: 0xae1978, size: 0x48
+    // 0xae1978: EnterFrame
+    //     0xae1978: stp             fp, lr, [SP, #-0x10]!
+    //     0xae197c: mov             fp, SP
+    // 0xae1980: CheckStackOverflow
+    //     0xae1980: ldr             x16, [THR, #0x48]  ; THR::stack_limit
+    //     0xae1984: cmp             SP, x16
+    //     0xae1988: b.ls            #0xae19a0
+    // 0xae198c: ldr             x1, [fp, #0x10]
+    // 0xae1990: r0 = call 0x488bfc
+    //     0xae1990: bl              #0x488bfc
+    // 0xae1994: LeaveFrame
+    //     0xae1994: mov             SP, fp
+    //     0xae1998: ldp             fp, lr, [SP], #0x10
+    // 0xae199c: ret
+    //     0xae199c: ret             
+    // 0xae19a0: r0 = StackOverflowSharedWithoutFPURegs()
+    //     0xae19a0: bl              #0xbb602c  ; StackOverflowSharedWithoutFPURegsStub
+    // 0xae19a4: b               #0xae198c
+  }
+}
+
+// class id: 872, size: 0x44, field offset: 0x8
+class oub extends Object {
+
+  Map<String, dynamic> YDc(oub) {
+    // ** addr: 0xaccb5c, size: 0x48
+    // 0xaccb5c: EnterFrame
+    //     0xaccb5c: stp             fp, lr, [SP, #-0x10]!
+    //     0xaccb60: mov             fp, SP
+    // 0xaccb64: CheckStackOverflow
+    //     0xaccb64: ldr             x16, [THR, #0x48]  ; THR::stack_limit
+    //     0xaccb68: cmp             SP, x16
+    //     0xaccb6c: b.ls            #0xaccb84
+    // 0xaccb70: ldr             x1, [fp, #0x10]
+    // 0xaccb74: r0 = call 0x461f94
+    //     0xaccb74: bl              #0x461f94
+    // 0xaccb78: LeaveFrame
+    //     0xaccb78: mov             SP, fp
+    //     0xaccb7c: ldp             fp, lr, [SP], #0x10
+    // 0xaccb80: ret
+    //     0xaccb80: ret             
+    // 0xaccb84: r0 = StackOverflowSharedWithoutFPURegs()
+    //     0xaccb84: bl              #0xbb602c  ; StackOverflowSharedWithoutFPURegsStub
+    // 0xaccb88: b               #0xaccb70
+  }
+}
+
+// class id: 1073, size: 0x18, field offset: 0x18
+class nub extends fPa {
+}
+
+===== TARGET 0x461f94 =====
+--- iCm.dart:72 ---
+    // ** addr: 0xae1978, size: 0x48
+    // 0xae1978: EnterFrame
+    //     0xae1978: stp             fp, lr, [SP, #-0x10]!
+    //     0xae197c: mov             fp, SP
+    // 0xae1980: CheckStackOverflow
+    //     0xae1980: ldr             x16, [THR, #0x48]  ; THR::stack_limit
+    //     0xae1984: cmp             SP, x16
+    //     0xae1988: b.ls            #0xae19a0
+    // 0xae198c: ldr             x1, [fp, #0x10]
+    // 0xae1990: r0 = call 0x488bfc
+    //     0xae1990: bl              #0x488bfc
+    // 0xae1994: LeaveFrame
+    //     0xae1994: mov             SP, fp
+    //     0xae1998: ldp             fp, lr, [SP], #0x10
+    // 0xae199c: ret
+    //     0xae199c: ret             
+    // 0xae19a0: r0 = StackOverflowSharedWithoutFPURegs()
+    //     0xae19a0: bl              #0xbb602c  ; StackOverflowSharedWithoutFPURegsStub
+    // 0xae19a4: b               #0xae198c
+  }
+}
+
+// class id: 872, size: 0x44, field offset: 0x8
+class oub extends Object {
+
+  Map<String, dynamic> YDc(oub) {
+    // ** addr: 0xaccb5c, size: 0x48
+    // 0xaccb5c: EnterFrame
+    //     0xaccb5c: stp             fp, lr, [SP, #-0x10]!
+    //     0xaccb60: mov             fp, SP
+    // 0xaccb64: CheckStackOverflow
+    //     0xaccb64: ldr             x16, [THR, #0x48]  ; THR::stack_limit
+    //     0xaccb68: cmp             SP, x16
+    //     0xaccb6c: b.ls            #0xaccb84
+    // 0xaccb70: ldr             x1, [fp, #0x10]
+    // 0xaccb74: r0 = call 0x461f94
+    //     0xaccb74: bl              #0x461f94
+    // 0xaccb78: LeaveFrame
+    //     0xaccb78: mov             SP, fp
+    //     0xaccb7c: ldp             fp, lr, [SP], #0x10
+    // 0xaccb80: ret
+    //     0xaccb80: ret             
+    // 0xaccb84: r0 = StackOverflowSharedWithoutFPURegs()
+    //     0xaccb84: bl              #0xbb602c  ; StackOverflowSharedWithoutFPURegsStub
+    // 0xaccb88: b               #0xaccb70
+  }
+}
+
+// class id: 1073, size: 0x18, field offset: 0x18
+class nub extends fPa {
+}
+--- iCm.dart:73 ---
+    // 0xae1978: EnterFrame
+    //     0xae1978: stp             fp, lr, [SP, #-0x10]!
+    //     0xae197c: mov             fp, SP
+    // 0xae1980: CheckStackOverflow
+    //     0xae1980: ldr             x16, [THR, #0x48]  ; THR::stack_limit
+    //     0xae1984: cmp             SP, x16
+    //     0xae1988: b.ls            #0xae19a0
+    // 0xae198c: ldr             x1, [fp, #0x10]
+    // 0xae1990: r0 = call 0x488bfc
+    //     0xae1990: bl              #0x488bfc
+    // 0xae1994: LeaveFrame
+    //     0xae1994: mov             SP, fp
+    //     0xae1998: ldp             fp, lr, [SP], #0x10
+    // 0xae199c: ret
+    //     0xae199c: ret             
+    // 0xae19a0: r0 = StackOverflowSharedWithoutFPURegs()
+    //     0xae19a0: bl              #0xbb602c  ; StackOverflowSharedWithoutFPURegsStub
+    // 0xae19a4: b               #0xae198c
+  }
+}
+
+// class id: 872, size: 0x44, field offset: 0x8
+class oub extends Object {
+
+  Map<String, dynamic> YDc(oub) {
+    // ** addr: 0xaccb5c, size: 0x48
+    // 0xaccb5c: EnterFrame
+    //     0xaccb5c: stp             fp, lr, [SP, #-0x10]!
+    //     0xaccb60: mov             fp, SP
+    // 0xaccb64: CheckStackOverflow
+    //     0xaccb64: ldr             x16, [THR, #0x48]  ; THR::stack_limit
+    //     0xaccb68: cmp             SP, x16
+    //     0xaccb6c: b.ls            #0xaccb84
+    // 0xaccb70: ldr             x1, [fp, #0x10]
+    // 0xaccb74: r0 = call 0x461f94
+    //     0xaccb74: bl              #0x461f94
+    // 0xaccb78: LeaveFrame
+    //     0xaccb78: mov             SP, fp
+    //     0xaccb7c: ldp             fp, lr, [SP], #0x10
+    // 0xaccb80: ret
+    //     0xaccb80: ret             
+    // 0xaccb84: r0 = StackOverflowSharedWithoutFPURegs()
+    //     0xaccb84: bl              #0xbb602c  ; StackOverflowSharedWithoutFPURegsStub
+    // 0xaccb88: b               #0xaccb70
+  }
+}
+
+// class id: 1073, size: 0x18, field offset: 0x18
+class nub extends fPa {
+}
+
+===== TARGET 0x4619ec =====
+<no source hit>
+
+===== TARGET 0x3b3984 =====
+<no source hit>
+
+===== TARGET 0x45b890 =====
+--- VRl.dart:402 ---
+    //     0xae2914: stur            NULL, [fp, #-8]
+    //     0xae2918: movz            x0, #0
+    //     0xae291c: add             x1, fp, w0, sxtw #2
+    //     0xae2920: ldr             x1, [x1, #0x18]
+    //     0xae2924: add             x2, fp, w0, sxtw #2
+    //     0xae2928: ldr             x2, [x2, #0x10]
+    //     0xae292c: stur            x2, [fp, #-0x18]
+    //     0xae2930: ldur            w3, [x1, #0x17]
+    //     0xae2934: add             x3, x3, HEAP, lsl #32
+    //     0xae2938: stur            x3, [fp, #-0x10]
+    // 0xae293c: CheckStackOverflow
+    //     0xae293c: ldr             x16, [THR, #0x48]  ; THR::stack_limit
+    //     0xae2940: cmp             SP, x16
+    //     0xae2944: b.ls            #0xae2a2c
+    // 0xae2948: InitAsync() -> Future<Map<String, dynamic>>
+    //     0xae2948: ldr             x0, [PP, #0x5ba8]  ; [pp+0x5ba8] TypeArguments: <Map<String, dynamic>>
+    //     0xae294c: bl              #0xa93d80  ; InitAsyncStub
+    // 0xae2950: r0 = nub()
+    //     0xae2950: bl              #0xae2a38  ; AllocatenubStub -> nub (size=0x18)
+    // 0xae2954: mov             x1, x0
+    // 0xae2958: stur            x0, [fp, #-0x20]
+    // 0xae295c: r0 = call 0x3ea090
+    //     0xae295c: bl              #0x3ea090
+    // 0xae2960: ldur            x0, [fp, #-0x10]
+    // 0xae2964: LoadField: r1 = r0->field_f
+    //     0xae2964: ldur            w1, [x0, #0xf]
+    // 0xae2968: DecompressPointer r1
+    //     0xae2968: add             x1, x1, HEAP, lsl #32
+    // 0xae296c: LoadField: r2 = r1->field_ab
+    //     0xae296c: ldur            w2, [x1, #0xab]
+    // 0xae2970: DecompressPointer r2
+    //     0xae2970: add             x2, x2, HEAP, lsl #32
+    // 0xae2974: cmp             w2, NULL
+    // 0xae2978: b.eq            #0xae2a34
+    // 0xae297c: ldur            x1, [fp, #-0x20]
+    // 0xae2980: r0 = call 0x45b890
+    //     0xae2980: bl              #0x45b890
+    // 0xae2984: mov             x1, x0
+    // 0xae2988: ldur            x0, [fp, #-0x10]
+    // 0xae298c: LoadField: r2 = r0->field_13
+    //     0xae298c: ldur            w2, [x0, #0x13]
+    // 0xae2990: DecompressPointer r2
+    //     0xae2990: add             x2, x2, HEAP, lsl #32
+    // 0xae2994: r0 = call 0x464410
+    //     0xae2994: bl              #0x464410
+    // 0xae2998: mov             x1, x0
+    // 0xae299c: ldur            x0, [fp, #-0x18]
+    // 0xae29a0: r2 = LoadInt32Instr(r0)
+    //     0xae29a0: sbfx            x2, x0, #1, #0x1f
+    //     0xae29a4: tbz             w0, #0, #0xae29ac
+    //     0xae29a8: ldur            x2, [x0, #7]
+    // 0xae29ac: r0 = call 0x4643b4
+    //     0xae29ac: bl              #0x4643b4
+    // 0xae29b0: mov             x1, x0
+    // 0xae29b4: ldur            x0, [fp, #-0x10]
+    // 0xae29b8: ArrayLoad: r2 = r0[0]  ; List_4
+    //     0xae29b8: ldur            w2, [x0, #0x17]
+    // 0xae29bc: r3 = LoadInt32Instr(r2)
+    //     0xae29bc: sbfx            x3, x2, #1, #0x1f
+    // 0xae29c0: mov             x2, x3
+    // 0xae29c4: r0 = call 0x489d10
+    //     0xae29c4: bl              #0x489d10
+    // 0xae29c8: stur            x0, [fp, #-0x18]
+    // 0xae29cc: r0 = LoadStaticField(0x12e0)
+    //     0xae29cc: ldr             x0, [THR, #0x78]  ; THR::field_table_values
+    //     0xae29d0: ldr             x0, [x0, #0x25c0]
+    // 0xae29d4: ldr             x16, [THR, #0x90]  ; THR::object_sentinel
+    // 0xae29d8: cmp             w0, w16
+    // 0xae29dc: b.ne            #0xae29e8
+    // 0xae29e0: r2 = _nGd
+    //     0xae29e0: ldr             x2, [PP, #0x7018]  ; [pp+0x7018] Field <uEb._nGd@1482465995>: static late final (offset: 0x12e0)
+    // 0xae29e4: r0 = InitLateFinalStaticField()
+    //     0xae29e4: bl              #0xbb3fe4  ; InitLateFinalStaticFieldStub
+    // 0xae29e8: mov             x1, x0
+    // 0xae29ec: ldur            x2, [fp, #-0x18]
+    // 0xae29f0: r0 = __unknown_function__()
+    //     0xae29f0: bl              #0xaa0250  ; [] ::__unknown_function__
+    // 0xae29f4: mov             x1, x0
+    // 0xae29f8: stur            x1, [fp, #-0x18]
+    // 0xae29fc: r0 = Await()
+    //     0xae29fc: bl              #0xa93b3c  ; AwaitStub
+    // 0xae2a00: mov             x3, x0
+    // 0xae2a04: r2 = Null
+    //     0xae2a04: mov             x2, NULL
+    // 0xae2a08: r1 = Null
+    //     0xae2a08: mov             x1, NULL
+    // 0xae2a0c: stur            x3, [fp, #-0x10]
+    // 0xae2a10: r8 = Map<String, dynamic>
+    //     0xae2a10: add             x8, PP, #0xb, lsl #12  ; [pp+0xba98] Type: Map<String, dynamic>
+    //     0xae2a14: ldr             x8, [x8, #0xa98]
+    // 0xae2a18: r3 = Null
+    //     0xae2a18: add             x3, PP, #0x2a, lsl #12  ; [pp+0x2a448] Null
+    //     0xae2a1c: ldr             x3, [x3, #0x448]
+    // 0xae2a20: r0 = Map<String, dynamic>()
+    //     0xae2a20: bl              #0xa9c29c  ; IsType_Map<String, dynamic>_Stub
+    // 0xae2a24: ldur            x0, [fp, #-0x10]
+    // 0xae2a28: r0 = ReturnAsyncNotFuture()
+    //     0xae2a28: b               #0xa9192c  ; ReturnAsyncNotFutureStub
+    // 0xae2a2c: r0 = StackOverflowSharedWithoutFPURegs()
+    //     0xae2a2c: bl              #0xbb602c  ; StackOverflowSharedWithoutFPURegsStub
+    // 0xae2a30: b               #0xae2948
+    // 0xae2a34: r0 = NullCastErrorSharedWithoutFPURegs()
+    //     0xae2a34: bl              #0xbb66bc  ; NullCastErrorSharedWithoutFPURegsStub
+  }
+  [closure] Future<void> <anonymous closure>(dynamic, int) async {
+    // ** addr: 0xae6788, size: 0xd0
+    // 0xae6788: EnterFrame
+    //     0xae6788: stp             fp, lr, [SP, #-0x10]!
+    //     0xae678c: mov             fp, SP
+    // 0xae6790: AllocStack(0x28)
+    //     0xae6790: sub             SP, SP, #0x28
+    // 0xae6794: SetupParameters(cfb this /* r1 */, dynamic _ /* r2, fp-0x18 */)
+    //     0xae6794: stur            NULL, [fp, #-8]
+    //     0xae6798: movz            x0, #0
+    //     0xae679c: add             x1, fp, w0, sxtw #2
+    //     0xae67a0: ldr             x1, [x1, #0x18]
+    //     0xae67a4: add             x2, fp, w0, sxtw #2
+    //     0xae67a8: ldr             x2, [x2, #0x10]
+    //     0xae67ac: stur            x2, [fp, #-0x18]
+    //     0xae67b0: ldur            w3, [x1, #0x17]
+    //     0xae67b4: add             x3, x3, HEAP, lsl #32
+    //     0xae67b8: stur            x3, [fp, #-0x10]
+    // 0xae67bc: CheckStackOverflow
+    //     0xae67bc: ldr             x16, [THR, #0x48]  ; THR::stack_limit
+    //     0xae67c0: cmp             SP, x16
+--- VRl.dart:403 ---
+    //     0xae2918: movz            x0, #0
+    //     0xae291c: add             x1, fp, w0, sxtw #2
+    //     0xae2920: ldr             x1, [x1, #0x18]
+    //     0xae2924: add             x2, fp, w0, sxtw #2
+    //     0xae2928: ldr             x2, [x2, #0x10]
+    //     0xae292c: stur            x2, [fp, #-0x18]
+    //     0xae2930: ldur            w3, [x1, #0x17]
+    //     0xae2934: add             x3, x3, HEAP, lsl #32
+    //     0xae2938: stur            x3, [fp, #-0x10]
+    // 0xae293c: CheckStackOverflow
+    //     0xae293c: ldr             x16, [THR, #0x48]  ; THR::stack_limit
+    //     0xae2940: cmp             SP, x16
+    //     0xae2944: b.ls            #0xae2a2c
+    // 0xae2948: InitAsync() -> Future<Map<String, dynamic>>
+    //     0xae2948: ldr             x0, [PP, #0x5ba8]  ; [pp+0x5ba8] TypeArguments: <Map<String, dynamic>>
+    //     0xae294c: bl              #0xa93d80  ; InitAsyncStub
+    // 0xae2950: r0 = nub()
+    //     0xae2950: bl              #0xae2a38  ; AllocatenubStub -> nub (size=0x18)
+    // 0xae2954: mov             x1, x0
+    // 0xae2958: stur            x0, [fp, #-0x20]
+    // 0xae295c: r0 = call 0x3ea090
+    //     0xae295c: bl              #0x3ea090
+    // 0xae2960: ldur            x0, [fp, #-0x10]
+    // 0xae2964: LoadField: r1 = r0->field_f
+    //     0xae2964: ldur            w1, [x0, #0xf]
+    // 0xae2968: DecompressPointer r1
+    //     0xae2968: add             x1, x1, HEAP, lsl #32
+    // 0xae296c: LoadField: r2 = r1->field_ab
+    //     0xae296c: ldur            w2, [x1, #0xab]
+    // 0xae2970: DecompressPointer r2
+    //     0xae2970: add             x2, x2, HEAP, lsl #32
+    // 0xae2974: cmp             w2, NULL
+    // 0xae2978: b.eq            #0xae2a34
+    // 0xae297c: ldur            x1, [fp, #-0x20]
+    // 0xae2980: r0 = call 0x45b890
+    //     0xae2980: bl              #0x45b890
+    // 0xae2984: mov             x1, x0
+    // 0xae2988: ldur            x0, [fp, #-0x10]
+    // 0xae298c: LoadField: r2 = r0->field_13
+    //     0xae298c: ldur            w2, [x0, #0x13]
+    // 0xae2990: DecompressPointer r2
+    //     0xae2990: add             x2, x2, HEAP, lsl #32
+    // 0xae2994: r0 = call 0x464410
+    //     0xae2994: bl              #0x464410
+    // 0xae2998: mov             x1, x0
+    // 0xae299c: ldur            x0, [fp, #-0x18]
+    // 0xae29a0: r2 = LoadInt32Instr(r0)
+    //     0xae29a0: sbfx            x2, x0, #1, #0x1f
+    //     0xae29a4: tbz             w0, #0, #0xae29ac
+    //     0xae29a8: ldur            x2, [x0, #7]
+    // 0xae29ac: r0 = call 0x4643b4
+    //     0xae29ac: bl              #0x4643b4
+    // 0xae29b0: mov             x1, x0
+    // 0xae29b4: ldur            x0, [fp, #-0x10]
+    // 0xae29b8: ArrayLoad: r2 = r0[0]  ; List_4
+    //     0xae29b8: ldur            w2, [x0, #0x17]
+    // 0xae29bc: r3 = LoadInt32Instr(r2)
+    //     0xae29bc: sbfx            x3, x2, #1, #0x1f
+    // 0xae29c0: mov             x2, x3
+    // 0xae29c4: r0 = call 0x489d10
+    //     0xae29c4: bl              #0x489d10
+    // 0xae29c8: stur            x0, [fp, #-0x18]
+    // 0xae29cc: r0 = LoadStaticField(0x12e0)
+    //     0xae29cc: ldr             x0, [THR, #0x78]  ; THR::field_table_values
+    //     0xae29d0: ldr             x0, [x0, #0x25c0]
+    // 0xae29d4: ldr             x16, [THR, #0x90]  ; THR::object_sentinel
+    // 0xae29d8: cmp             w0, w16
+    // 0xae29dc: b.ne            #0xae29e8
+    // 0xae29e0: r2 = _nGd
+    //     0xae29e0: ldr             x2, [PP, #0x7018]  ; [pp+0x7018] Field <uEb._nGd@1482465995>: static late final (offset: 0x12e0)
+    // 0xae29e4: r0 = InitLateFinalStaticField()
+    //     0xae29e4: bl              #0xbb3fe4  ; InitLateFinalStaticFieldStub
+    // 0xae29e8: mov             x1, x0
+    // 0xae29ec: ldur            x2, [fp, #-0x18]
+    // 0xae29f0: r0 = __unknown_function__()
+    //     0xae29f0: bl              #0xaa0250  ; [] ::__unknown_function__
+    // 0xae29f4: mov             x1, x0
+    // 0xae29f8: stur            x1, [fp, #-0x18]
+    // 0xae29fc: r0 = Await()
+    //     0xae29fc: bl              #0xa93b3c  ; AwaitStub
+    // 0xae2a00: mov             x3, x0
+    // 0xae2a04: r2 = Null
+    //     0xae2a04: mov             x2, NULL
+    // 0xae2a08: r1 = Null
+    //     0xae2a08: mov             x1, NULL
+    // 0xae2a0c: stur            x3, [fp, #-0x10]
+    // 0xae2a10: r8 = Map<String, dynamic>
+    //     0xae2a10: add             x8, PP, #0xb, lsl #12  ; [pp+0xba98] Type: Map<String, dynamic>
+    //     0xae2a14: ldr             x8, [x8, #0xa98]
+    // 0xae2a18: r3 = Null
+    //     0xae2a18: add             x3, PP, #0x2a, lsl #12  ; [pp+0x2a448] Null
+    //     0xae2a1c: ldr             x3, [x3, #0x448]
+    // 0xae2a20: r0 = Map<String, dynamic>()
+    //     0xae2a20: bl              #0xa9c29c  ; IsType_Map<String, dynamic>_Stub
+    // 0xae2a24: ldur            x0, [fp, #-0x10]
+    // 0xae2a28: r0 = ReturnAsyncNotFuture()
+    //     0xae2a28: b               #0xa9192c  ; ReturnAsyncNotFutureStub
+    // 0xae2a2c: r0 = StackOverflowSharedWithoutFPURegs()
+    //     0xae2a2c: bl              #0xbb602c  ; StackOverflowSharedWithoutFPURegsStub
+    // 0xae2a30: b               #0xae2948
+    // 0xae2a34: r0 = NullCastErrorSharedWithoutFPURegs()
+    //     0xae2a34: bl              #0xbb66bc  ; NullCastErrorSharedWithoutFPURegsStub
+  }
+  [closure] Future<void> <anonymous closure>(dynamic, int) async {
+    // ** addr: 0xae6788, size: 0xd0
+    // 0xae6788: EnterFrame
+    //     0xae6788: stp             fp, lr, [SP, #-0x10]!
+    //     0xae678c: mov             fp, SP
+    // 0xae6790: AllocStack(0x28)
+    //     0xae6790: sub             SP, SP, #0x28
+    // 0xae6794: SetupParameters(cfb this /* r1 */, dynamic _ /* r2, fp-0x18 */)
+    //     0xae6794: stur            NULL, [fp, #-8]
+    //     0xae6798: movz            x0, #0
+    //     0xae679c: add             x1, fp, w0, sxtw #2
+    //     0xae67a0: ldr             x1, [x1, #0x18]
+    //     0xae67a4: add             x2, fp, w0, sxtw #2
+    //     0xae67a8: ldr             x2, [x2, #0x10]
+    //     0xae67ac: stur            x2, [fp, #-0x18]
+    //     0xae67b0: ldur            w3, [x1, #0x17]
+    //     0xae67b4: add             x3, x3, HEAP, lsl #32
+    //     0xae67b8: stur            x3, [fp, #-0x10]
+    // 0xae67bc: CheckStackOverflow
+    //     0xae67bc: ldr             x16, [THR, #0x48]  ; THR::stack_limit
+    //     0xae67c0: cmp             SP, x16
+    //     0xae67c4: b.ls            #0xae6850
+
+===== TARGET 0x464410 =====
+--- VRl.dart:410 ---
+    //     0xae2934: add             x3, x3, HEAP, lsl #32
+    //     0xae2938: stur            x3, [fp, #-0x10]
+    // 0xae293c: CheckStackOverflow
+    //     0xae293c: ldr             x16, [THR, #0x48]  ; THR::stack_limit
+    //     0xae2940: cmp             SP, x16
+    //     0xae2944: b.ls            #0xae2a2c
+    // 0xae2948: InitAsync() -> Future<Map<String, dynamic>>
+    //     0xae2948: ldr             x0, [PP, #0x5ba8]  ; [pp+0x5ba8] TypeArguments: <Map<String, dynamic>>
+    //     0xae294c: bl              #0xa93d80  ; InitAsyncStub
+    // 0xae2950: r0 = nub()
+    //     0xae2950: bl              #0xae2a38  ; AllocatenubStub -> nub (size=0x18)
+    // 0xae2954: mov             x1, x0
+    // 0xae2958: stur            x0, [fp, #-0x20]
+    // 0xae295c: r0 = call 0x3ea090
+    //     0xae295c: bl              #0x3ea090
+    // 0xae2960: ldur            x0, [fp, #-0x10]
+    // 0xae2964: LoadField: r1 = r0->field_f
+    //     0xae2964: ldur            w1, [x0, #0xf]
+    // 0xae2968: DecompressPointer r1
+    //     0xae2968: add             x1, x1, HEAP, lsl #32
+    // 0xae296c: LoadField: r2 = r1->field_ab
+    //     0xae296c: ldur            w2, [x1, #0xab]
+    // 0xae2970: DecompressPointer r2
+    //     0xae2970: add             x2, x2, HEAP, lsl #32
+    // 0xae2974: cmp             w2, NULL
+    // 0xae2978: b.eq            #0xae2a34
+    // 0xae297c: ldur            x1, [fp, #-0x20]
+    // 0xae2980: r0 = call 0x45b890
+    //     0xae2980: bl              #0x45b890
+    // 0xae2984: mov             x1, x0
+    // 0xae2988: ldur            x0, [fp, #-0x10]
+    // 0xae298c: LoadField: r2 = r0->field_13
+    //     0xae298c: ldur            w2, [x0, #0x13]
+    // 0xae2990: DecompressPointer r2
+    //     0xae2990: add             x2, x2, HEAP, lsl #32
+    // 0xae2994: r0 = call 0x464410
+    //     0xae2994: bl              #0x464410
+    // 0xae2998: mov             x1, x0
+    // 0xae299c: ldur            x0, [fp, #-0x18]
+    // 0xae29a0: r2 = LoadInt32Instr(r0)
+    //     0xae29a0: sbfx            x2, x0, #1, #0x1f
+    //     0xae29a4: tbz             w0, #0, #0xae29ac
+    //     0xae29a8: ldur            x2, [x0, #7]
+    // 0xae29ac: r0 = call 0x4643b4
+    //     0xae29ac: bl              #0x4643b4
+    // 0xae29b0: mov             x1, x0
+    // 0xae29b4: ldur            x0, [fp, #-0x10]
+    // 0xae29b8: ArrayLoad: r2 = r0[0]  ; List_4
+    //     0xae29b8: ldur            w2, [x0, #0x17]
+    // 0xae29bc: r3 = LoadInt32Instr(r2)
+    //     0xae29bc: sbfx            x3, x2, #1, #0x1f
+    // 0xae29c0: mov             x2, x3
+    // 0xae29c4: r0 = call 0x489d10
+    //     0xae29c4: bl              #0x489d10
+    // 0xae29c8: stur            x0, [fp, #-0x18]
+    // 0xae29cc: r0 = LoadStaticField(0x12e0)
+    //     0xae29cc: ldr             x0, [THR, #0x78]  ; THR::field_table_values
+    //     0xae29d0: ldr             x0, [x0, #0x25c0]
+    // 0xae29d4: ldr             x16, [THR, #0x90]  ; THR::object_sentinel
+    // 0xae29d8: cmp             w0, w16
+    // 0xae29dc: b.ne            #0xae29e8
+    // 0xae29e0: r2 = _nGd
+    //     0xae29e0: ldr             x2, [PP, #0x7018]  ; [pp+0x7018] Field <uEb._nGd@1482465995>: static late final (offset: 0x12e0)
+    // 0xae29e4: r0 = InitLateFinalStaticField()
+    //     0xae29e4: bl              #0xbb3fe4  ; InitLateFinalStaticFieldStub
+    // 0xae29e8: mov             x1, x0
+    // 0xae29ec: ldur            x2, [fp, #-0x18]
+    // 0xae29f0: r0 = __unknown_function__()
+    //     0xae29f0: bl              #0xaa0250  ; [] ::__unknown_function__
+    // 0xae29f4: mov             x1, x0
+    // 0xae29f8: stur            x1, [fp, #-0x18]
+    // 0xae29fc: r0 = Await()
+    //     0xae29fc: bl              #0xa93b3c  ; AwaitStub
+    // 0xae2a00: mov             x3, x0
+    // 0xae2a04: r2 = Null
+    //     0xae2a04: mov             x2, NULL
+    // 0xae2a08: r1 = Null
+    //     0xae2a08: mov             x1, NULL
+    // 0xae2a0c: stur            x3, [fp, #-0x10]
+    // 0xae2a10: r8 = Map<String, dynamic>
+    //     0xae2a10: add             x8, PP, #0xb, lsl #12  ; [pp+0xba98] Type: Map<String, dynamic>
+    //     0xae2a14: ldr             x8, [x8, #0xa98]
+    // 0xae2a18: r3 = Null
+    //     0xae2a18: add             x3, PP, #0x2a, lsl #12  ; [pp+0x2a448] Null
+    //     0xae2a1c: ldr             x3, [x3, #0x448]
+    // 0xae2a20: r0 = Map<String, dynamic>()
+    //     0xae2a20: bl              #0xa9c29c  ; IsType_Map<String, dynamic>_Stub
+    // 0xae2a24: ldur            x0, [fp, #-0x10]
+    // 0xae2a28: r0 = ReturnAsyncNotFuture()
+    //     0xae2a28: b               #0xa9192c  ; ReturnAsyncNotFutureStub
+    // 0xae2a2c: r0 = StackOverflowSharedWithoutFPURegs()
+    //     0xae2a2c: bl              #0xbb602c  ; StackOverflowSharedWithoutFPURegsStub
+    // 0xae2a30: b               #0xae2948
+    // 0xae2a34: r0 = NullCastErrorSharedWithoutFPURegs()
+    //     0xae2a34: bl              #0xbb66bc  ; NullCastErrorSharedWithoutFPURegsStub
+  }
+  [closure] Future<void> <anonymous closure>(dynamic, int) async {
+    // ** addr: 0xae6788, size: 0xd0
+    // 0xae6788: EnterFrame
+    //     0xae6788: stp             fp, lr, [SP, #-0x10]!
+    //     0xae678c: mov             fp, SP
+    // 0xae6790: AllocStack(0x28)
+    //     0xae6790: sub             SP, SP, #0x28
+    // 0xae6794: SetupParameters(cfb this /* r1 */, dynamic _ /* r2, fp-0x18 */)
+    //     0xae6794: stur            NULL, [fp, #-8]
+    //     0xae6798: movz            x0, #0
+    //     0xae679c: add             x1, fp, w0, sxtw #2
+    //     0xae67a0: ldr             x1, [x1, #0x18]
+    //     0xae67a4: add             x2, fp, w0, sxtw #2
+    //     0xae67a8: ldr             x2, [x2, #0x10]
+    //     0xae67ac: stur            x2, [fp, #-0x18]
+    //     0xae67b0: ldur            w3, [x1, #0x17]
+    //     0xae67b4: add             x3, x3, HEAP, lsl #32
+    //     0xae67b8: stur            x3, [fp, #-0x10]
+    // 0xae67bc: CheckStackOverflow
+    //     0xae67bc: ldr             x16, [THR, #0x48]  ; THR::stack_limit
+    //     0xae67c0: cmp             SP, x16
+    //     0xae67c4: b.ls            #0xae6850
+    // 0xae67c8: InitAsync() -> Future<void?>
+    //     0xae67c8: ldr             x0, [PP, #0x1b0]  ; [pp+0x1b0] TypeArguments: <void?>
+    //     0xae67cc: bl              #0xa93d80  ; InitAsyncStub
+    // 0xae67d0: ldur            x0, [fp, #-0x10]
+    // 0xae67d4: LoadField: r1 = r0->field_f
+    //     0xae67d4: ldur            w1, [x0, #0xf]
+    // 0xae67d8: DecompressPointer r1
+--- VRl.dart:411 ---
+    //     0xae2938: stur            x3, [fp, #-0x10]
+    // 0xae293c: CheckStackOverflow
+    //     0xae293c: ldr             x16, [THR, #0x48]  ; THR::stack_limit
+    //     0xae2940: cmp             SP, x16
+    //     0xae2944: b.ls            #0xae2a2c
+    // 0xae2948: InitAsync() -> Future<Map<String, dynamic>>
+    //     0xae2948: ldr             x0, [PP, #0x5ba8]  ; [pp+0x5ba8] TypeArguments: <Map<String, dynamic>>
+    //     0xae294c: bl              #0xa93d80  ; InitAsyncStub
+    // 0xae2950: r0 = nub()
+    //     0xae2950: bl              #0xae2a38  ; AllocatenubStub -> nub (size=0x18)
+    // 0xae2954: mov             x1, x0
+    // 0xae2958: stur            x0, [fp, #-0x20]
+    // 0xae295c: r0 = call 0x3ea090
+    //     0xae295c: bl              #0x3ea090
+    // 0xae2960: ldur            x0, [fp, #-0x10]
+    // 0xae2964: LoadField: r1 = r0->field_f
+    //     0xae2964: ldur            w1, [x0, #0xf]
+    // 0xae2968: DecompressPointer r1
+    //     0xae2968: add             x1, x1, HEAP, lsl #32
+    // 0xae296c: LoadField: r2 = r1->field_ab
+    //     0xae296c: ldur            w2, [x1, #0xab]
+    // 0xae2970: DecompressPointer r2
+    //     0xae2970: add             x2, x2, HEAP, lsl #32
+    // 0xae2974: cmp             w2, NULL
+    // 0xae2978: b.eq            #0xae2a34
+    // 0xae297c: ldur            x1, [fp, #-0x20]
+    // 0xae2980: r0 = call 0x45b890
+    //     0xae2980: bl              #0x45b890
+    // 0xae2984: mov             x1, x0
+    // 0xae2988: ldur            x0, [fp, #-0x10]
+    // 0xae298c: LoadField: r2 = r0->field_13
+    //     0xae298c: ldur            w2, [x0, #0x13]
+    // 0xae2990: DecompressPointer r2
+    //     0xae2990: add             x2, x2, HEAP, lsl #32
+    // 0xae2994: r0 = call 0x464410
+    //     0xae2994: bl              #0x464410
+    // 0xae2998: mov             x1, x0
+    // 0xae299c: ldur            x0, [fp, #-0x18]
+    // 0xae29a0: r2 = LoadInt32Instr(r0)
+    //     0xae29a0: sbfx            x2, x0, #1, #0x1f
+    //     0xae29a4: tbz             w0, #0, #0xae29ac
+    //     0xae29a8: ldur            x2, [x0, #7]
+    // 0xae29ac: r0 = call 0x4643b4
+    //     0xae29ac: bl              #0x4643b4
+    // 0xae29b0: mov             x1, x0
+    // 0xae29b4: ldur            x0, [fp, #-0x10]
+    // 0xae29b8: ArrayLoad: r2 = r0[0]  ; List_4
+    //     0xae29b8: ldur            w2, [x0, #0x17]
+    // 0xae29bc: r3 = LoadInt32Instr(r2)
+    //     0xae29bc: sbfx            x3, x2, #1, #0x1f
+    // 0xae29c0: mov             x2, x3
+    // 0xae29c4: r0 = call 0x489d10
+    //     0xae29c4: bl              #0x489d10
+    // 0xae29c8: stur            x0, [fp, #-0x18]
+    // 0xae29cc: r0 = LoadStaticField(0x12e0)
+    //     0xae29cc: ldr             x0, [THR, #0x78]  ; THR::field_table_values
+    //     0xae29d0: ldr             x0, [x0, #0x25c0]
+    // 0xae29d4: ldr             x16, [THR, #0x90]  ; THR::object_sentinel
+    // 0xae29d8: cmp             w0, w16
+    // 0xae29dc: b.ne            #0xae29e8
+    // 0xae29e0: r2 = _nGd
+    //     0xae29e0: ldr             x2, [PP, #0x7018]  ; [pp+0x7018] Field <uEb._nGd@1482465995>: static late final (offset: 0x12e0)
+    // 0xae29e4: r0 = InitLateFinalStaticField()
+    //     0xae29e4: bl              #0xbb3fe4  ; InitLateFinalStaticFieldStub
+    // 0xae29e8: mov             x1, x0
+    // 0xae29ec: ldur            x2, [fp, #-0x18]
+    // 0xae29f0: r0 = __unknown_function__()
+    //     0xae29f0: bl              #0xaa0250  ; [] ::__unknown_function__
+    // 0xae29f4: mov             x1, x0
+    // 0xae29f8: stur            x1, [fp, #-0x18]
+    // 0xae29fc: r0 = Await()
+    //     0xae29fc: bl              #0xa93b3c  ; AwaitStub
+    // 0xae2a00: mov             x3, x0
+    // 0xae2a04: r2 = Null
+    //     0xae2a04: mov             x2, NULL
+    // 0xae2a08: r1 = Null
+    //     0xae2a08: mov             x1, NULL
+    // 0xae2a0c: stur            x3, [fp, #-0x10]
+    // 0xae2a10: r8 = Map<String, dynamic>
+    //     0xae2a10: add             x8, PP, #0xb, lsl #12  ; [pp+0xba98] Type: Map<String, dynamic>
+    //     0xae2a14: ldr             x8, [x8, #0xa98]
+    // 0xae2a18: r3 = Null
+    //     0xae2a18: add             x3, PP, #0x2a, lsl #12  ; [pp+0x2a448] Null
+    //     0xae2a1c: ldr             x3, [x3, #0x448]
+    // 0xae2a20: r0 = Map<String, dynamic>()
+    //     0xae2a20: bl              #0xa9c29c  ; IsType_Map<String, dynamic>_Stub
+    // 0xae2a24: ldur            x0, [fp, #-0x10]
+    // 0xae2a28: r0 = ReturnAsyncNotFuture()
+    //     0xae2a28: b               #0xa9192c  ; ReturnAsyncNotFutureStub
+    // 0xae2a2c: r0 = StackOverflowSharedWithoutFPURegs()
+    //     0xae2a2c: bl              #0xbb602c  ; StackOverflowSharedWithoutFPURegsStub
+    // 0xae2a30: b               #0xae2948
+    // 0xae2a34: r0 = NullCastErrorSharedWithoutFPURegs()
+    //     0xae2a34: bl              #0xbb66bc  ; NullCastErrorSharedWithoutFPURegsStub
+  }
+  [closure] Future<void> <anonymous closure>(dynamic, int) async {
+    // ** addr: 0xae6788, size: 0xd0
+    // 0xae6788: EnterFrame
+    //     0xae6788: stp             fp, lr, [SP, #-0x10]!
+    //     0xae678c: mov             fp, SP
+    // 0xae6790: AllocStack(0x28)
+    //     0xae6790: sub             SP, SP, #0x28
+    // 0xae6794: SetupParameters(cfb this /* r1 */, dynamic _ /* r2, fp-0x18 */)
+    //     0xae6794: stur            NULL, [fp, #-8]
+    //     0xae6798: movz            x0, #0
+    //     0xae679c: add             x1, fp, w0, sxtw #2
+    //     0xae67a0: ldr             x1, [x1, #0x18]
+    //     0xae67a4: add             x2, fp, w0, sxtw #2
+    //     0xae67a8: ldr             x2, [x2, #0x10]
+    //     0xae67ac: stur            x2, [fp, #-0x18]
+    //     0xae67b0: ldur            w3, [x1, #0x17]
+    //     0xae67b4: add             x3, x3, HEAP, lsl #32
+    //     0xae67b8: stur            x3, [fp, #-0x10]
+    // 0xae67bc: CheckStackOverflow
+    //     0xae67bc: ldr             x16, [THR, #0x48]  ; THR::stack_limit
+    //     0xae67c0: cmp             SP, x16
+    //     0xae67c4: b.ls            #0xae6850
+    // 0xae67c8: InitAsync() -> Future<void?>
+    //     0xae67c8: ldr             x0, [PP, #0x1b0]  ; [pp+0x1b0] TypeArguments: <void?>
+    //     0xae67cc: bl              #0xa93d80  ; InitAsyncStub
+    // 0xae67d0: ldur            x0, [fp, #-0x10]
+    // 0xae67d4: LoadField: r1 = r0->field_f
+    //     0xae67d4: ldur            w1, [x0, #0xf]
+    // 0xae67d8: DecompressPointer r1
+    //     0xae67d8: add             x1, x1, HEAP, lsl #32
+
+===== TARGET 0x4643b4 =====
+--- VRl.dart:418 ---
+    //     0xae294c: bl              #0xa93d80  ; InitAsyncStub
+    // 0xae2950: r0 = nub()
+    //     0xae2950: bl              #0xae2a38  ; AllocatenubStub -> nub (size=0x18)
+    // 0xae2954: mov             x1, x0
+    // 0xae2958: stur            x0, [fp, #-0x20]
+    // 0xae295c: r0 = call 0x3ea090
+    //     0xae295c: bl              #0x3ea090
+    // 0xae2960: ldur            x0, [fp, #-0x10]
+    // 0xae2964: LoadField: r1 = r0->field_f
+    //     0xae2964: ldur            w1, [x0, #0xf]
+    // 0xae2968: DecompressPointer r1
+    //     0xae2968: add             x1, x1, HEAP, lsl #32
+    // 0xae296c: LoadField: r2 = r1->field_ab
+    //     0xae296c: ldur            w2, [x1, #0xab]
+    // 0xae2970: DecompressPointer r2
+    //     0xae2970: add             x2, x2, HEAP, lsl #32
+    // 0xae2974: cmp             w2, NULL
+    // 0xae2978: b.eq            #0xae2a34
+    // 0xae297c: ldur            x1, [fp, #-0x20]
+    // 0xae2980: r0 = call 0x45b890
+    //     0xae2980: bl              #0x45b890
+    // 0xae2984: mov             x1, x0
+    // 0xae2988: ldur            x0, [fp, #-0x10]
+    // 0xae298c: LoadField: r2 = r0->field_13
+    //     0xae298c: ldur            w2, [x0, #0x13]
+    // 0xae2990: DecompressPointer r2
+    //     0xae2990: add             x2, x2, HEAP, lsl #32
+    // 0xae2994: r0 = call 0x464410
+    //     0xae2994: bl              #0x464410
+    // 0xae2998: mov             x1, x0
+    // 0xae299c: ldur            x0, [fp, #-0x18]
+    // 0xae29a0: r2 = LoadInt32Instr(r0)
+    //     0xae29a0: sbfx            x2, x0, #1, #0x1f
+    //     0xae29a4: tbz             w0, #0, #0xae29ac
+    //     0xae29a8: ldur            x2, [x0, #7]
+    // 0xae29ac: r0 = call 0x4643b4
+    //     0xae29ac: bl              #0x4643b4
+    // 0xae29b0: mov             x1, x0
+    // 0xae29b4: ldur            x0, [fp, #-0x10]
+    // 0xae29b8: ArrayLoad: r2 = r0[0]  ; List_4
+    //     0xae29b8: ldur            w2, [x0, #0x17]
+    // 0xae29bc: r3 = LoadInt32Instr(r2)
+    //     0xae29bc: sbfx            x3, x2, #1, #0x1f
+    // 0xae29c0: mov             x2, x3
+    // 0xae29c4: r0 = call 0x489d10
+    //     0xae29c4: bl              #0x489d10
+    // 0xae29c8: stur            x0, [fp, #-0x18]
+    // 0xae29cc: r0 = LoadStaticField(0x12e0)
+    //     0xae29cc: ldr             x0, [THR, #0x78]  ; THR::field_table_values
+    //     0xae29d0: ldr             x0, [x0, #0x25c0]
+    // 0xae29d4: ldr             x16, [THR, #0x90]  ; THR::object_sentinel
+    // 0xae29d8: cmp             w0, w16
+    // 0xae29dc: b.ne            #0xae29e8
+    // 0xae29e0: r2 = _nGd
+    //     0xae29e0: ldr             x2, [PP, #0x7018]  ; [pp+0x7018] Field <uEb._nGd@1482465995>: static late final (offset: 0x12e0)
+    // 0xae29e4: r0 = InitLateFinalStaticField()
+    //     0xae29e4: bl              #0xbb3fe4  ; InitLateFinalStaticFieldStub
+    // 0xae29e8: mov             x1, x0
+    // 0xae29ec: ldur            x2, [fp, #-0x18]
+    // 0xae29f0: r0 = __unknown_function__()
+    //     0xae29f0: bl              #0xaa0250  ; [] ::__unknown_function__
+    // 0xae29f4: mov             x1, x0
+    // 0xae29f8: stur            x1, [fp, #-0x18]
+    // 0xae29fc: r0 = Await()
+    //     0xae29fc: bl              #0xa93b3c  ; AwaitStub
+    // 0xae2a00: mov             x3, x0
+    // 0xae2a04: r2 = Null
+    //     0xae2a04: mov             x2, NULL
+    // 0xae2a08: r1 = Null
+    //     0xae2a08: mov             x1, NULL
+    // 0xae2a0c: stur            x3, [fp, #-0x10]
+    // 0xae2a10: r8 = Map<String, dynamic>
+    //     0xae2a10: add             x8, PP, #0xb, lsl #12  ; [pp+0xba98] Type: Map<String, dynamic>
+    //     0xae2a14: ldr             x8, [x8, #0xa98]
+    // 0xae2a18: r3 = Null
+    //     0xae2a18: add             x3, PP, #0x2a, lsl #12  ; [pp+0x2a448] Null
+    //     0xae2a1c: ldr             x3, [x3, #0x448]
+    // 0xae2a20: r0 = Map<String, dynamic>()
+    //     0xae2a20: bl              #0xa9c29c  ; IsType_Map<String, dynamic>_Stub
+    // 0xae2a24: ldur            x0, [fp, #-0x10]
+    // 0xae2a28: r0 = ReturnAsyncNotFuture()
+    //     0xae2a28: b               #0xa9192c  ; ReturnAsyncNotFutureStub
+    // 0xae2a2c: r0 = StackOverflowSharedWithoutFPURegs()
+    //     0xae2a2c: bl              #0xbb602c  ; StackOverflowSharedWithoutFPURegsStub
+    // 0xae2a30: b               #0xae2948
+    // 0xae2a34: r0 = NullCastErrorSharedWithoutFPURegs()
+    //     0xae2a34: bl              #0xbb66bc  ; NullCastErrorSharedWithoutFPURegsStub
+  }
+  [closure] Future<void> <anonymous closure>(dynamic, int) async {
+    // ** addr: 0xae6788, size: 0xd0
+    // 0xae6788: EnterFrame
+    //     0xae6788: stp             fp, lr, [SP, #-0x10]!
+    //     0xae678c: mov             fp, SP
+    // 0xae6790: AllocStack(0x28)
+    //     0xae6790: sub             SP, SP, #0x28
+    // 0xae6794: SetupParameters(cfb this /* r1 */, dynamic _ /* r2, fp-0x18 */)
+    //     0xae6794: stur            NULL, [fp, #-8]
+    //     0xae6798: movz            x0, #0
+    //     0xae679c: add             x1, fp, w0, sxtw #2
+    //     0xae67a0: ldr             x1, [x1, #0x18]
+    //     0xae67a4: add             x2, fp, w0, sxtw #2
+    //     0xae67a8: ldr             x2, [x2, #0x10]
+    //     0xae67ac: stur            x2, [fp, #-0x18]
+    //     0xae67b0: ldur            w3, [x1, #0x17]
+    //     0xae67b4: add             x3, x3, HEAP, lsl #32
+    //     0xae67b8: stur            x3, [fp, #-0x10]
+    // 0xae67bc: CheckStackOverflow
+    //     0xae67bc: ldr             x16, [THR, #0x48]  ; THR::stack_limit
+    //     0xae67c0: cmp             SP, x16
+    //     0xae67c4: b.ls            #0xae6850
+    // 0xae67c8: InitAsync() -> Future<void?>
+    //     0xae67c8: ldr             x0, [PP, #0x1b0]  ; [pp+0x1b0] TypeArguments: <void?>
+    //     0xae67cc: bl              #0xa93d80  ; InitAsyncStub
+    // 0xae67d0: ldur            x0, [fp, #-0x10]
+    // 0xae67d4: LoadField: r1 = r0->field_f
+    //     0xae67d4: ldur            w1, [x0, #0xf]
+    // 0xae67d8: DecompressPointer r1
+    //     0xae67d8: add             x1, x1, HEAP, lsl #32
+    // 0xae67dc: ldur            x3, [fp, #-0x18]
+    // 0xae67e0: r4 = LoadInt32Instr(r3)
+    //     0xae67e0: sbfx            x4, x3, #1, #0x1f
+    //     0xae67e4: tbz             w3, #0, #0xae67ec
+    //     0xae67e8: ldur            x4, [x3, #7]
+    // 0xae67ec: mov             x2, x4
+    // 0xae67f0: stur            x4, [fp, #-0x20]
+--- VRl.dart:419 ---
+    // 0xae2950: r0 = nub()
+    //     0xae2950: bl              #0xae2a38  ; AllocatenubStub -> nub (size=0x18)
+    // 0xae2954: mov             x1, x0
+    // 0xae2958: stur            x0, [fp, #-0x20]
+    // 0xae295c: r0 = call 0x3ea090
+    //     0xae295c: bl              #0x3ea090
+    // 0xae2960: ldur            x0, [fp, #-0x10]
+    // 0xae2964: LoadField: r1 = r0->field_f
+    //     0xae2964: ldur            w1, [x0, #0xf]
+    // 0xae2968: DecompressPointer r1
+    //     0xae2968: add             x1, x1, HEAP, lsl #32
+    // 0xae296c: LoadField: r2 = r1->field_ab
+    //     0xae296c: ldur            w2, [x1, #0xab]
+    // 0xae2970: DecompressPointer r2
+    //     0xae2970: add             x2, x2, HEAP, lsl #32
+    // 0xae2974: cmp             w2, NULL
+    // 0xae2978: b.eq            #0xae2a34
+    // 0xae297c: ldur            x1, [fp, #-0x20]
+    // 0xae2980: r0 = call 0x45b890
+    //     0xae2980: bl              #0x45b890
+    // 0xae2984: mov             x1, x0
+    // 0xae2988: ldur            x0, [fp, #-0x10]
+    // 0xae298c: LoadField: r2 = r0->field_13
+    //     0xae298c: ldur            w2, [x0, #0x13]
+    // 0xae2990: DecompressPointer r2
+    //     0xae2990: add             x2, x2, HEAP, lsl #32
+    // 0xae2994: r0 = call 0x464410
+    //     0xae2994: bl              #0x464410
+    // 0xae2998: mov             x1, x0
+    // 0xae299c: ldur            x0, [fp, #-0x18]
+    // 0xae29a0: r2 = LoadInt32Instr(r0)
+    //     0xae29a0: sbfx            x2, x0, #1, #0x1f
+    //     0xae29a4: tbz             w0, #0, #0xae29ac
+    //     0xae29a8: ldur            x2, [x0, #7]
+    // 0xae29ac: r0 = call 0x4643b4
+    //     0xae29ac: bl              #0x4643b4
+    // 0xae29b0: mov             x1, x0
+    // 0xae29b4: ldur            x0, [fp, #-0x10]
+    // 0xae29b8: ArrayLoad: r2 = r0[0]  ; List_4
+    //     0xae29b8: ldur            w2, [x0, #0x17]
+    // 0xae29bc: r3 = LoadInt32Instr(r2)
+    //     0xae29bc: sbfx            x3, x2, #1, #0x1f
+    // 0xae29c0: mov             x2, x3
+    // 0xae29c4: r0 = call 0x489d10
+    //     0xae29c4: bl              #0x489d10
+    // 0xae29c8: stur            x0, [fp, #-0x18]
+    // 0xae29cc: r0 = LoadStaticField(0x12e0)
+    //     0xae29cc: ldr             x0, [THR, #0x78]  ; THR::field_table_values
+    //     0xae29d0: ldr             x0, [x0, #0x25c0]
+    // 0xae29d4: ldr             x16, [THR, #0x90]  ; THR::object_sentinel
+    // 0xae29d8: cmp             w0, w16
+    // 0xae29dc: b.ne            #0xae29e8
+    // 0xae29e0: r2 = _nGd
+    //     0xae29e0: ldr             x2, [PP, #0x7018]  ; [pp+0x7018] Field <uEb._nGd@1482465995>: static late final (offset: 0x12e0)
+    // 0xae29e4: r0 = InitLateFinalStaticField()
+    //     0xae29e4: bl              #0xbb3fe4  ; InitLateFinalStaticFieldStub
+    // 0xae29e8: mov             x1, x0
+    // 0xae29ec: ldur            x2, [fp, #-0x18]
+    // 0xae29f0: r0 = __unknown_function__()
+    //     0xae29f0: bl              #0xaa0250  ; [] ::__unknown_function__
+    // 0xae29f4: mov             x1, x0
+    // 0xae29f8: stur            x1, [fp, #-0x18]
+    // 0xae29fc: r0 = Await()
+    //     0xae29fc: bl              #0xa93b3c  ; AwaitStub
+    // 0xae2a00: mov             x3, x0
+    // 0xae2a04: r2 = Null
+    //     0xae2a04: mov             x2, NULL
+    // 0xae2a08: r1 = Null
+    //     0xae2a08: mov             x1, NULL
+    // 0xae2a0c: stur            x3, [fp, #-0x10]
+    // 0xae2a10: r8 = Map<String, dynamic>
+    //     0xae2a10: add             x8, PP, #0xb, lsl #12  ; [pp+0xba98] Type: Map<String, dynamic>
+    //     0xae2a14: ldr             x8, [x8, #0xa98]
+    // 0xae2a18: r3 = Null
+    //     0xae2a18: add             x3, PP, #0x2a, lsl #12  ; [pp+0x2a448] Null
+    //     0xae2a1c: ldr             x3, [x3, #0x448]
+    // 0xae2a20: r0 = Map<String, dynamic>()
+    //     0xae2a20: bl              #0xa9c29c  ; IsType_Map<String, dynamic>_Stub
+    // 0xae2a24: ldur            x0, [fp, #-0x10]
+    // 0xae2a28: r0 = ReturnAsyncNotFuture()
+    //     0xae2a28: b               #0xa9192c  ; ReturnAsyncNotFutureStub
+    // 0xae2a2c: r0 = StackOverflowSharedWithoutFPURegs()
+    //     0xae2a2c: bl              #0xbb602c  ; StackOverflowSharedWithoutFPURegsStub
+    // 0xae2a30: b               #0xae2948
+    // 0xae2a34: r0 = NullCastErrorSharedWithoutFPURegs()
+    //     0xae2a34: bl              #0xbb66bc  ; NullCastErrorSharedWithoutFPURegsStub
+  }
+  [closure] Future<void> <anonymous closure>(dynamic, int) async {
+    // ** addr: 0xae6788, size: 0xd0
+    // 0xae6788: EnterFrame
+    //     0xae6788: stp             fp, lr, [SP, #-0x10]!
+    //     0xae678c: mov             fp, SP
+    // 0xae6790: AllocStack(0x28)
+    //     0xae6790: sub             SP, SP, #0x28
+    // 0xae6794: SetupParameters(cfb this /* r1 */, dynamic _ /* r2, fp-0x18 */)
+    //     0xae6794: stur            NULL, [fp, #-8]
+    //     0xae6798: movz            x0, #0
+    //     0xae679c: add             x1, fp, w0, sxtw #2
+    //     0xae67a0: ldr             x1, [x1, #0x18]
+    //     0xae67a4: add             x2, fp, w0, sxtw #2
+    //     0xae67a8: ldr             x2, [x2, #0x10]
+    //     0xae67ac: stur            x2, [fp, #-0x18]
+    //     0xae67b0: ldur            w3, [x1, #0x17]
+    //     0xae67b4: add             x3, x3, HEAP, lsl #32
+    //     0xae67b8: stur            x3, [fp, #-0x10]
+    // 0xae67bc: CheckStackOverflow
+    //     0xae67bc: ldr             x16, [THR, #0x48]  ; THR::stack_limit
+    //     0xae67c0: cmp             SP, x16
+    //     0xae67c4: b.ls            #0xae6850
+    // 0xae67c8: InitAsync() -> Future<void?>
+    //     0xae67c8: ldr             x0, [PP, #0x1b0]  ; [pp+0x1b0] TypeArguments: <void?>
+    //     0xae67cc: bl              #0xa93d80  ; InitAsyncStub
+    // 0xae67d0: ldur            x0, [fp, #-0x10]
+    // 0xae67d4: LoadField: r1 = r0->field_f
+    //     0xae67d4: ldur            w1, [x0, #0xf]
+    // 0xae67d8: DecompressPointer r1
+    //     0xae67d8: add             x1, x1, HEAP, lsl #32
+    // 0xae67dc: ldur            x3, [fp, #-0x18]
+    // 0xae67e0: r4 = LoadInt32Instr(r3)
+    //     0xae67e0: sbfx            x4, x3, #1, #0x1f
+    //     0xae67e4: tbz             w3, #0, #0xae67ec
+    //     0xae67e8: ldur            x4, [x3, #7]
+    // 0xae67ec: mov             x2, x4
+    // 0xae67f0: stur            x4, [fp, #-0x20]
+    // 0xae67f4: r0 = __unknown_function__()
+
+===== TARGET 0xac8ff8 =====
+<no source hit>
+
+===== CLASS/FIELD LINES IN iCm.dart =====
+    //     0xae197c: mov             fp, SP
+    // 0xae1980: CheckStackOverflow
+    //     0xae1980: ldr             x16, [THR, #0x48]  ; THR::stack_limit
+    //     0xae1984: cmp             SP, x16
+    //     0xae1988: b.ls            #0xae19a0
+    // 0xae198c: ldr             x1, [fp, #0x10]
+    // 0xae1990: r0 = call 0x488bfc
+    //     0xae1990: bl              #0x488bfc
+    // 0xae1994: LeaveFrame
+    //     0xae1994: mov             SP, fp
+    //     0xae1998: ldp             fp, lr, [SP], #0x10
+    // 0xae199c: ret
+    //     0xae199c: ret             
+    // 0xae19a0: r0 = StackOverflowSharedWithoutFPURegs()
+    //     0xae19a0: bl              #0xbb602c  ; StackOverflowSharedWithoutFPURegsStub
+    // 0xae19a4: b               #0xae198c
+  }
+}
+
+// class id: 872, size: 0x44, field offset: 0x8
+class oub extends Object {
+
+  Map<String, dynamic> YDc(oub) {
+    // ** addr: 0xaccb5c, size: 0x48
+    // 0xaccb5c: EnterFrame
+    //     0xaccb5c: stp             fp, lr, [SP, #-0x10]!
+    //     0xaccb60: mov             fp, SP
+    // 0xaccb64: CheckStackOverflow
+    //     0xaccb64: ldr             x16, [THR, #0x48]  ; THR::stack_limit
+    //     0xaccb68: cmp             SP, x16
+    //     0xaccb6c: b.ls            #0xaccb84
+    // 0xaccb70: ldr             x1, [fp, #0x10]
+    // 0xaccb74: r0 = call 0x461f94
+    //     0xaccb74: bl              #0x461f94
+    // 0xaccb78: LeaveFrame
+    //     0xaccb78: mov             SP, fp
+    //     0xaccb7c: ldp             fp, lr, [SP], #0x10
+    // 0xaccb80: ret
+    //     0xaccb80: ret             
+    // 0xaccb84: r0 = StackOverflowSharedWithoutFPURegs()
+    //     0xaccb84: bl              #0xbb602c  ; StackOverflowSharedWithoutFPURegsStub
+    // 0xaccb88: b               #0xaccb70
+  }
+}
+
+// class id: 1073, size: 0x18, field offset: 0x18
+class nub extends fPa {
+}
+
+===== PP CACHE REFRESH CLUSTER =====
+[pp+0x8dc0] String: "未知错误"
+[pp+0x8dc8] String: "hi_net["
+[pp+0x8dd0] String: "]: request failed"
+[pp+0x8dd8] String: "REQ#"
+[pp+0x8de0] Set<String>(4) { "api/comic/chapter/ie84hfh8/detail", "api/comic/comics/ie84hfh8/detail", "api/comic/chapter/ie84hfh8/homelist/", "api/comic/chapter/ie84hfh8/cache/detail" }
+[pp+0x8de8] AnonymousClosure: static (0x3b613c), of [XIm] 
+[pp+0x8df0] Field <xEb.ORc>: static late final (offset: 0x1388)
+[pp+0x8df8] Obj!_TL@576031 : {
+}
+---
+[pp+0x9028] String: "chapterListPath"
+[pp+0x9030] String: "api/comic/chapter/ie84hfh8/homelist/"
+[pp+0x9038] String: "readPath"
+[pp+0x9040] String: "cachePath"
+[pp+0x9048] String: "api/comic/chapter/ie84hfh8/cache/detail"
+[pp+0x9050] String: "initializeSignKeys"
+[pp+0x9058] Null
+[pp+0x9060] String: " in type cast"
+[pp+0x9068] Null
+---
+[pp+0xfb78] String: "tai"
+[pp+0xfb80] List(13) [0, 0x8, 0x4, 0x4, "dwf", 0x4, "rai", 0x6, "sai", 0x7, "tai", 0x5, Null]
+[pp+0xfb88] String: "广播剧ID不能为空"
+[pp+0xfb90] String: "dramaId"
+[pp+0xfb98] String: "chapterId"
+[pp+0xfba0] String: "chapterTitle"
+[pp+0xfba8] String: "audioUrl"
+[pp+0xfbb0] String: "获取广播剧用户信息失败"
+[pp+0xfbb8] String: "/drama/see_ad"
+---
+[pp+0x18820] String: "author"
+[pp+0x18828] String: "userPhone"
+[pp+0x18830] AnonymousClosure: static (0x44d7a0), of [gCm] kub
+[pp+0x18838] String: "lastChapterTime"
+[pp+0x18840] String: "lastChapterId"
+[pp+0x18848] String: "chapterCount"
+[pp+0x18850] String: "updateTitle"
+[pp+0x18858] String: "lastChapterTitle"
+[pp+0x18860] String: "readIndex"
+---
+[pp+0x18c50] TypeArguments: <Ksb>
+[pp+0x18c58] AnonymousClosure: (0x4a1a64), of [Crm] wgb
+[pp+0x18c60] TypeArguments: <Map<String, Object?>>
+[pp+0x18c68] String: "加载轮播图数据失败: "
+[pp+0x18c70] String: "comicId"
+[pp+0x18c78] String: "imageUrl"
+[pp+0x18c80] SubtypeTestCache
+[pp+0x18c88] Type: Map
+[pp+0x18c90] SubtypeTestCache
+---
+[pp+0x19e90] SubtypeTestCache
+[pp+0x19e98] String: "Create shudan failed: "
+[pp+0x19ea0] String: "booklistName"
+[pp+0x19ea8] String: "categoriesIds"
+[pp+0x19eb0] String: "comicIds"
+[pp+0x19eb8] String: "上传文件失败"
+[pp+0x19ec0] false
+[pp+0x19ec8] String: "开始获取上传 token: type="
+[pp+0x19ed0] String: "获取上传 token 成功: token="
+---
+[pp+0x1fe10] String: "recommendList"
+[pp+0x1fe18] String: "list"
+[pp+0x1fe20] String: "imageList"
+[pp+0x1fe28] String: "userList"
+[pp+0x1fe30] String: "topicList"
+[pp+0x1fe38] String: "bookList"
+[pp+0x1fe40] String: "likeNum"
+[pp+0x1fe48] String: "like"
+[pp+0x1fe50] String: "isLike"
+---
+[pp+0x225a8] List(7) [0, 0x4, 0x1, 0x3, "fQi", 0x3, Null]
+[pp+0x225b0] TypeArguments: <eqb>
+[pp+0x225b8] String: "completed"
+[pp+0x225c0] String: "radio"
+[pp+0x225c8] String: "解析本地广播剧缓存失败: chapterId="
+[pp+0x225d0] Obj!_RL@576041 : {
+}
+[pp+0x225d8] String: "解密缓存广播剧音频失败: comicId="
+[pp+0x225e0] String: " chapterId="
+---
+[pp+0x225c0] String: "radio"
+[pp+0x225c8] String: "解析本地广播剧缓存失败: chapterId="
+[pp+0x225d0] Obj!_RL@576041 : {
+}
+[pp+0x225d8] String: "解密缓存广播剧音频失败: comicId="
+[pp+0x225e0] String: " chapterId="
+[pp+0x225e8] String: " error="
+[pp+0x225f0] String: "srcPath"
+[pp+0x225f8] String: "dstPath"
+---
+[pp+0x225c8] String: "解析本地广播剧缓存失败: chapterId="
+[pp+0x225d0] Obj!_RL@576041 : {
+}
+[pp+0x225d8] String: "解密缓存广播剧音频失败: comicId="
+[pp+0x225e0] String: " chapterId="
+[pp+0x225e8] String: " error="
+[pp+0x225f0] String: "srcPath"
+[pp+0x225f8] String: "dstPath"
+[pp+0x22600] String: "decryptCacheFileToPath"
+---
+[pp+0x227b0] String: " in type cast"
+[pp+0x227b8] String: "_chapter_"
+[pp+0x227c0] String: "广播剧章节列表存在空播放地址: missing="
+[pp+0x227c8] String: ", total="
+[pp+0x227d0] String: "广播剧章节缺少播放地址（cover 字段为空）: chapterId="
+[pp+0x227d8] String: "上传广播剧播放进度失败: "
+[pp+0x227e0] TypeArguments: <vyb?>
+[pp+0x227e8] SubtypeTestCache
+[pp+0x227f0] Type: Map<String, dynamic>
+---
+[pp+0x24240] String: "读取本地阅读进度失败: "
+[pp+0x24248] AnonymousClosure: (0x495524), of [srm] ggb
+[pp+0x24250] String: "Cannot get read progress: identity unavailable"
+[pp+0x24258] String: "imageIndex"
+[pp+0x24260] String: "Read progress loaded: comicId="
+[pp+0x24268] String: ", chapterIndex="
+[pp+0x24270] String: ", imageIndex="
+[pp+0x24278] String: "Failed to get read progress: "
+[pp+0x24280] String: "comic_read_progress"
+---
+[pp+0x24ef8] Type: Future<void?>
+[pp+0x24f00] Null
+[pp+0x24f08] String: "value"
+[pp+0x24f10] String: "[漫画缓存] 章节完成但有 "
+[pp+0x24f18] String: " 张图片下载失败被跳过 chapterId="
+[pp+0x24f20] List(13) [0, 0x8, 0x4, 0x4, "Dli", 0x4, "Fli", 0x5, "Hli", 0x6, "Zii", 0x7, Null]
+[pp+0x24f28] AnonymousClosure: (0x464d44), in [hAm] aqb::rxk (0xacb36c)
+[pp+0x24f30] List(15) [0, 0x9, 0x5, 0x4, "Dli", 0x4, "Fli", 0x5, "Hli", 0x7, "Tli", 0x6, "Zii", 0x8, Null]
+[pp+0x24f38] String: "[漫画缓存] 图片下载失败已跳过 chapterId="
+---
+[pp+0x24f18] String: " 张图片下载失败被跳过 chapterId="
+[pp+0x24f20] List(13) [0, 0x8, 0x4, 0x4, "Dli", 0x4, "Fli", 0x5, "Hli", 0x6, "Zii", 0x7, Null]
+[pp+0x24f28] AnonymousClosure: (0x464d44), in [hAm] aqb::rxk (0xacb36c)
+[pp+0x24f30] List(15) [0, 0x9, 0x5, 0x4, "Dli", 0x4, "Fli", 0x5, "Hli", 0x7, "Tli", 0x6, "Zii", 0x8, Null]
+[pp+0x24f38] String: "[漫画缓存] 图片下载失败已跳过 chapterId="
+[pp+0x24f40] String: ", page="
+[pp+0x24f48] List(13) [0, 0x8, 0x4, 0x4, "Fli", 0x4, "Hli", 0x6, "Tli", 0x5, "Zii", 0x7, Null]
+[pp+0x24f50] TypeArguments: <fpb>
+[pp+0x24f58] String: "刷新下载地址失败：接口未返回有效地址 chapterId="
+---
+[pp+0x24f38] String: "[漫画缓存] 图片下载失败已跳过 chapterId="
+[pp+0x24f40] String: ", page="
+[pp+0x24f48] List(13) [0, 0x8, 0x4, 0x4, "Fli", 0x4, "Hli", 0x6, "Tli", 0x5, "Zii", 0x7, Null]
+[pp+0x24f50] TypeArguments: <fpb>
+[pp+0x24f58] String: "刷新下载地址失败：接口未返回有效地址 chapterId="
+[pp+0x24f60] String: "[下载token刷新] 已更新下载地址 chapterId="
+[pp+0x24f68] String: ", 数量="
+[pp+0x24f70] String: "[下载token刷新] 重拉 cache/detail 失败 chapterId="
+[pp+0x24f78] TypeArguments: <List<String>?>
+---
+[pp+0x24f40] String: ", page="
+[pp+0x24f48] List(13) [0, 0x8, 0x4, 0x4, "Fli", 0x4, "Hli", 0x6, "Tli", 0x5, "Zii", 0x7, Null]
+[pp+0x24f50] TypeArguments: <fpb>
+[pp+0x24f58] String: "刷新下载地址失败：接口未返回有效地址 chapterId="
+[pp+0x24f60] String: "[下载token刷新] 已更新下载地址 chapterId="
+[pp+0x24f68] String: ", 数量="
+[pp+0x24f70] String: "[下载token刷新] 重拉 cache/detail 失败 chapterId="
+[pp+0x24f78] TypeArguments: <List<String>?>
+[pp+0x24f80] SubtypeTestCache
+---
+[pp+0x24f48] List(13) [0, 0x8, 0x4, 0x4, "Fli", 0x4, "Hli", 0x6, "Tli", 0x5, "Zii", 0x7, Null]
+[pp+0x24f50] TypeArguments: <fpb>
+[pp+0x24f58] String: "刷新下载地址失败：接口未返回有效地址 chapterId="
+[pp+0x24f60] String: "[下载token刷新] 已更新下载地址 chapterId="
+[pp+0x24f68] String: ", 数量="
+[pp+0x24f70] String: "[下载token刷新] 重拉 cache/detail 失败 chapterId="
+[pp+0x24f78] TypeArguments: <List<String>?>
+[pp+0x24f80] SubtypeTestCache
+[pp+0x24f88] Type: List
+---
+[pp+0x24f50] TypeArguments: <fpb>
+[pp+0x24f58] String: "刷新下载地址失败：接口未返回有效地址 chapterId="
+[pp+0x24f60] String: "[下载token刷新] 已更新下载地址 chapterId="
+[pp+0x24f68] String: ", 数量="
+[pp+0x24f70] String: "[下载token刷新] 重拉 cache/detail 失败 chapterId="
+[pp+0x24f78] TypeArguments: <List<String>?>
+[pp+0x24f80] SubtypeTestCache
+[pp+0x24f88] Type: List
+[pp+0x24f90] SubtypeTestCache
+---
+[pp+0x24fd0] SubtypeTestCache
+[pp+0x24fd8] Type: Map<String, dynamic>
+[pp+0x24fe0] SubtypeTestCache
+[pp+0x24fe8] String: "Get chapter cache detail failed: "
+[pp+0x24ff0] String: "nextChapterId"
+[pp+0x24ff8] String: "preChapterId"
+[pp+0x25000] String: "picList"
+[pp+0x25008] AnonymousClosure: static (0x46231c), of [YBm] Vtb
+[pp+0x25010] String: "totalComment"
+---
+[pp+0x24fd8] Type: Map<String, dynamic>
+[pp+0x24fe0] SubtypeTestCache
+[pp+0x24fe8] String: "Get chapter cache detail failed: "
+[pp+0x24ff0] String: "nextChapterId"
+[pp+0x24ff8] String: "preChapterId"
+[pp+0x25000] String: "picList"
+[pp+0x25008] AnonymousClosure: static (0x46231c), of [YBm] Vtb
+[pp+0x25010] String: "totalComment"
+[pp+0x25018] String: "appMaintenanceEnabled"
+---
+[pp+0x24fe0] SubtypeTestCache
+[pp+0x24fe8] String: "Get chapter cache detail failed: "
+[pp+0x24ff0] String: "nextChapterId"
+[pp+0x24ff8] String: "preChapterId"
+[pp+0x25000] String: "picList"
+[pp+0x25008] AnonymousClosure: static (0x46231c), of [YBm] Vtb
+[pp+0x25010] String: "totalComment"
+[pp+0x25018] String: "appMaintenanceEnabled"
+[pp+0x25020] String: "appMaintenanceEnabledTime"
+---
+[pp+0x257e0] SubtypeTestCache
+[pp+0x257e8] Type: Map<String, dynamic>
+[pp+0x257f0] SubtypeTestCache
+[pp+0x257f8] String: "Add shudan item failed: "
+[pp+0x25800] String: "comicIdsStr"
+[pp+0x25808] SubtypeTestCache
+[pp+0x25810] Type: Iterable
+[pp+0x25818] SubtypeTestCache
+[pp+0x25820] Function: [dart:core] ::_objectToString (0x3b4730)
+---
+[pp+0x29e98] SubtypeTestCache
+[pp+0x29ea0] Null
+[pp+0x29ea8] String: " in type cast"
+[pp+0x29eb0] String: "Cannot save read progress: identity unavailable"
+[pp+0x29eb8] String: "Read progress saved: comicId="
+[pp+0x29ec0] String: "[更新写入] comicId="
+[pp+0x29ec8] String: " 传入comicUpdateTime=\""
+[pp+0x29ed0] String: "\" 实际写入本地库updateTime=\""
+[pp+0x29ed8] String: "Failed to save read progress: "
+---
+[pp+0x29ea0] Null
+[pp+0x29ea8] String: " in type cast"
+[pp+0x29eb0] String: "Cannot save read progress: identity unavailable"
+[pp+0x29eb8] String: "Read progress saved: comicId="
+[pp+0x29ec0] String: "[更新写入] comicId="
+[pp+0x29ec8] String: " 传入comicUpdateTime=\""
+[pp+0x29ed0] String: "\" 实际写入本地库updateTime=\""
+[pp+0x29ed8] String: "Failed to save read progress: "
+[pp+0x29ee0] String: "ivi"
+---
+  off_1c: "单章模式"
+}
+[pp+0x29ef8] Field <cfb.sti>: late final (offset: 0x44)
+[pp+0x29f00] AnonymousClosure: (0x481330), of [VRl] cfb
+[pp+0x29f08] String: "加载本章精彩评论失败: chapterId="
+[pp+0x29f10] TypeArguments: <mub?>
+[pp+0x29f18] SubtypeTestCache
+[pp+0x29f20] Type: Map<String, dynamic>
+[pp+0x29f28] SubtypeTestCache
+---
+[pp+0x2a280] String: "章节阅读数据为空"
+[pp+0x2a288] AnonymousClosure: (0x488848), of [Vqm] mfb
+[pp+0x2a290] AnonymousClosure: (0x481330), of [VRl] cfb
+[pp+0x2a298] TypeArguments: <mfb?>
+[pp+0x2a2a0] String: "阅读页命中本地缓存: comicId="
+[pp+0x2a2a8] String: ", chapterId="
+[pp+0x2a2b0] String: ", images="
+[pp+0x2a2b8] String: "阅读页走网络章节详情: comicId="
+[pp+0x2a2c0] String: ", hasCache="
+---
+[pp+0x2a288] AnonymousClosure: (0x488848), of [Vqm] mfb
+[pp+0x2a290] AnonymousClosure: (0x481330), of [VRl] cfb
+[pp+0x2a298] TypeArguments: <mfb?>
+[pp+0x2a2a0] String: "阅读页命中本地缓存: comicId="
+[pp+0x2a2a8] String: ", chapterId="
+[pp+0x2a2b0] String: ", images="
+[pp+0x2a2b8] String: "阅读页走网络章节详情: comicId="
+[pp+0x2a2c0] String: ", hasCache="
+[pp+0x2a2c8] List(7) [0, 0x3, 0x1, 0x2, "Qwi", 0x2, Null]
+---
+[pp+0x2a298] TypeArguments: <mfb?>
+[pp+0x2a2a0] String: "阅读页命中本地缓存: comicId="
+[pp+0x2a2a8] String: ", chapterId="
+[pp+0x2a2b0] String: ", images="
+[pp+0x2a2b8] String: "阅读页走网络章节详情: comicId="
+[pp+0x2a2c0] String: ", hasCache="
+[pp+0x2a2c8] List(7) [0, 0x3, 0x1, 0x2, "Qwi", 0x2, Null]
+[pp+0x2a2d0] String: "加载章节 "
+[pp+0x2a2d8] String: " 图片失败: "
+---
+[pp+0x2a2c0] String: ", hasCache="
+[pp+0x2a2c8] List(7) [0, 0x3, 0x1, 0x2, "Qwi", 0x2, Null]
+[pp+0x2a2d0] String: "加载章节 "
+[pp+0x2a2d8] String: " 图片失败: "
+[pp+0x2a2e0] String: "阅读页网络失败，回退本地缓存: comicId="
+[pp+0x2a2e8] String: "Qwi"
+[pp+0x2a2f0] TypeArguments: <List<lfb>>
+[pp+0x2a2f8] List<lfb>(0) []
+[pp+0x2a300] AnonymousClosure: (0x488bd8), of [VRl] cfb
+---
+[pp+0x2a420] String: " in type cast"
+[pp+0x2a428] Null
+[pp+0x2a430] String: " in type cast"
+[pp+0x2a438] AnonymousClosure: (0xae2908), of [VRl] cfb
+[pp+0x2a440] String: "超清(type=2)章节详情返回 code=0，兜底降级为标清(type=1)重试一次: comicId="
+[pp+0x2a448] Null
+[pp+0x2a450] String: " in type cast"
+[pp+0x2a458] String: "freeLine"
+[pp+0x2a460] AnonymousClosure: (0x3be634), of [Lem] IMa
+---
+[pp+0x2fde0] String: "后台恢复播放失败: "
+[pp+0x2fde8] List<Nxb>(0) []
+[pp+0x2fdf0] Null
+[pp+0x2fdf8] String: " in type cast"
+[pp+0x2fe00] String: "[广播剧token替换] chapterId="
+[pp+0x2fe08] String: "[广播剧token替换] 后台已用新 token 重建播放列表 "
+[pp+0x2fe10] String: "后台已用新 token 恢复播放: chapterId="
+[pp+0x2fe18] String: ", position="
+[pp+0x2fe20] String: "后台上传广播剧播放进度失败: "
+---
+[pp+0x2fdf0] Null
+[pp+0x2fdf8] String: " in type cast"
+[pp+0x2fe00] String: "[广播剧token替换] chapterId="
+[pp+0x2fe08] String: "[广播剧token替换] 后台已用新 token 重建播放列表 "
+[pp+0x2fe10] String: "后台已用新 token 恢复播放: chapterId="
+[pp+0x2fe18] String: ", position="
+[pp+0x2fe20] String: "后台上传广播剧播放进度失败: "
+[pp+0x2fe28] AnonymousClosure: (0x630adc), of [GKm] PGb
+[pp+0x2fe30] AnonymousClosure: (0x630aa4), of [GKm] PGb
+---
+[pp+0x30ca8] AnonymousClosure: (0x81c1c0), in [mrm] Kfb::<anonymous closure> (0x81bae0)
+[pp+0x30cb0] AnonymousClosure: (0x81c508), in [mrm] Kfb::<anonymous closure> (0x81bae0)
+[pp+0x30cb8] String: "无法获取漫画信息"
+[pp+0x30cc0] String: "已取消收藏"
+[pp+0x30cc8] String: "取消收藏成功: comicId="
+[pp+0x30cd0] String: "收藏成功: comicId="
+[pp+0x30cd8] AnonymousClosure: (0x878368), of [kKm] jGb
+[pp+0x30ce0] AnonymousClosure: (0x8780b4), of [kKm] jGb
+[pp+0x30ce8] String: "icon_default_avatar.png"
+---
+[pp+0x30cb0] AnonymousClosure: (0x81c508), in [mrm] Kfb::<anonymous closure> (0x81bae0)
+[pp+0x30cb8] String: "无法获取漫画信息"
+[pp+0x30cc0] String: "已取消收藏"
+[pp+0x30cc8] String: "取消收藏成功: comicId="
+[pp+0x30cd0] String: "收藏成功: comicId="
+[pp+0x30cd8] AnonymousClosure: (0x878368), of [kKm] jGb
+[pp+0x30ce0] AnonymousClosure: (0x8780b4), of [kKm] jGb
+[pp+0x30ce8] String: "icon_default_avatar.png"
+[pp+0x30cf0] Obj!cqa@575c81 : {
+---
+[pp+0x31e08] AnonymousClosure: (0x475344), of [pqm] Deb
+[pp+0x31e10] AnonymousClosure: (0x4752e4), of [pqm] Deb
+[pp+0x31e18] String: "漫画ID为空，无法跳转到阅读页"
+[pp+0x31e20] String: "解析 readIndex 失败: "
+[pp+0x31e28] String: "跳转到阅读页: comicId="
+[pp+0x31e30] String: ", zIndex="
+[pp+0x31e38] List(13) [0, 0x5, 0x4, 0x1, "NZh", 0x3, "SOe", 0x2, "TZh", 0x4, "dwf", 0x1, Null]
+[pp+0x31e40] String: "删除失败：漫画ID为空"
+[pp+0x31e48] String: "确定要删除这条观看记录吗？"
+---
+[pp+0x31e30] String: ", zIndex="
+[pp+0x31e38] List(13) [0, 0x5, 0x4, 0x1, "NZh", 0x3, "SOe", 0x2, "TZh", 0x4, "dwf", 0x1, Null]
+[pp+0x31e40] String: "删除失败：漫画ID为空"
+[pp+0x31e48] String: "确定要删除这条观看记录吗？"
+[pp+0x31e50] String: "删除观看记录成功: comicId="
+[pp+0x31e58] String: "删除观看记录失败: "
+[pp+0x31e60] TypeArguments: <Dub?>
+[pp+0x31e68] AnonymousClosure: static (0x3db3f0), in [dart:_http] _ap::FJj (0x3db07c)
+[pp+0x31e70] AnonymousClosure: (0x3be634), of [Lem] IMa
+---
+[pp+0x40058] AnonymousClosure: (0x813298), of [TRl] meb
+[pp+0x40060] Function: [dart:ui] Shader::Shader._ (0xa85044)
+[pp+0x40068] AnonymousClosure: (0x813340), of [TRl] meb
+[pp+0x40070] AnonymousClosure: (0x81331c), of [TRl] meb
+[pp+0x40078] String: "取消收藏成功: comicIds="
+[pp+0x40080] AnonymousClosure: (0x8132d0), of [Qsm] Fhb
+[pp+0x40088] Null
+[pp+0x40090] String: " in type cast"
+[pp+0x40098] AnonymousClosure: (0x471468), of [TRl] meb
+---
