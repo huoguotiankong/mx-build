@@ -1,0 +1,118 @@
+name: Resolve Qingman Cover Base
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-cover-base.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Get current APK and bootstrap material
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/apk_url
+          import json,urllib.request
+          a=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))['data']['datas']['android']
+          if str(a.get('version'))!='4.4.5' or str(a.get('versionCode'))!='445': raise SystemExit('Unexpected Qingman version')
+          print(a['downloadUrl'])
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qm.apk
+          rm -rf /tmp/qm && mkdir -p /tmp/qm
+          unzip -q -j /tmp/qm.apk 'lib/arm64-v8a/libqx_security.so' 'lib/arm64-v8a/libapp.so' -d /tmp/qm
+          echo 'static_image_hosts:'
+          strings -a /tmp/qm/libapp.so | grep -Eo 'https?://[^"[:space:]]+' | sed -E 's#(https?://[^/]+).*#\1#' | grep -Ei 'qingman|dmzj|image|img|cdn' | sort -u || true
+
+      - name: Bootstrap and fetch one relative cover
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools python3-cryptography >/dev/null
+          python3 - <<'PY'
+          import base64,hashlib,json,time,urllib.request,uuid,os
+          from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+          from elftools.elf.elffile import ELFFile
+          with open('/tmp/qm/libqx_security.so','rb') as f:
+              elf=ELFFile(f)
+              def rv(va,n):
+                  for seg in elf.iter_segments():
+                      if seg['p_type']!='PT_LOAD': continue
+                      s=int(seg['p_vaddr']); e=s+int(seg['p_filesz'])
+                      if s<=va and va+n<=e:
+                          f.seek(int(seg['p_offset'])+va-s); return f.read(n)
+                  raise RuntimeError('VA not backed')
+              seed=rv(0x14a40,16)+rv(0x14af0,16); sc=rv(0x17d1f,33); ac=rv(0x17d40,32)
+          base=hashlib.sha256(seed).digest()
+          def deob(c,k):
+              out=b''; i=0
+              while len(out)<len(c): out+=hashlib.sha256(base+bytes([k])+i.to_bytes(4,'big')).digest(); i+=1
+              return bytes(a^b for a,b in zip(c,out))
+          sm=deob(sc,1); aes=deob(ac,2); ts=str(int(time.time()*1000)); did=uuid.uuid4().hex; nonce=uuid.uuid4().hex
+          sig=hashlib.sha256(ts.encode()+nonce.encode()+did.encode()+sm).hexdigest()
+          body=json.dumps({'timestamp':ts,'nonce':nonce,'sign':sig,'deviceId':did},separators=(',',':')).encode()
+          req=urllib.request.Request('https://mu8xm4cx.zermh.com/bootstrap/domain',data=body,headers={'Content-Type':'application/json','Accept':'application/json, text/plain, */*','User-Agent':'qingman/4.4.5 (Android)','appVersion':'4.4.5','platform':'android','X-Device-Id':did},method='POST')
+          resp=json.load(urllib.request.urlopen(req,timeout=20)); enc=resp['data']; p=base64.urlsafe_b64decode(enc+'='*((4-len(enc)%4)%4)); cfg=json.loads(AESGCM(aes).decrypt(p[:12],p[12:],(ts+'|'+nonce).encode()))
+          from urllib.parse import urlsplit
+          host=urlsplit(cfg['apiDomain']).hostname; access=cfg['appAccessToken']
+          print('bootstrap_keys='+','.join(sorted(cfg.keys())))
+          open('/tmp/host','w').write(host); open('/tmp/access','w').write(access); open('/tmp/did','w').write(did)
+          os.chmod('/tmp/access',0o600); os.chmod('/tmp/did',0o600)
+          PY
+          host=$(cat /tmp/host); access=$(cat /tmp/access); did=$(cat /tmp/did)
+          out=$(mktemp)
+          curl -fsS --connect-timeout 8 --max-time 25 -X POST \
+            -H 'Accept: application/json, text/plain, */*' \
+            -H 'User-Agent: qingman/4.4.5 (Android)' \
+            -H 'appVersion: 4.4.5' -H 'platform: android' \
+            -H "X-Device-Id: $did" -H "X-QM-App-Access: $access" \
+            -H 'Content-Type: application/json' --data '{}' \
+            "http://$host/api/comic/comics/v1/homeList?page=1&pageNum=1&pageSize=20" -o "$out"
+          python3 - "$out" <<'PY'
+          import json,sys,os,urllib.parse
+          o=json.load(open(sys.argv[1])); rel=None
+          def walk(x):
+              global rel
+              if rel is not None: return
+              if isinstance(x,dict):
+                  for k in ('verticalCover','cover','horizontalCover'):
+                      v=x.get(k)
+                      if isinstance(v,str) and v.strip() and not urllib.parse.urlsplit(v.strip()).scheme:
+                          rel=v.strip(); return
+                  for v in x.values(): walk(v)
+              elif isinstance(x,list):
+                  for v in x: walk(v)
+          walk(o)
+          if not rel: raise SystemExit('No relative cover found')
+          open('/tmp/cover_rel','w').write(rel)
+          print('relative_cover_found=true ext='+os.path.splitext(urllib.parse.urlsplit(rel).path)[1].lower())
+          PY
+          rm -f "$out"
+
+      - name: Test candidate image bases
+        shell: bash
+        run: |
+          set -euo pipefail
+          rel=$(cat /tmp/cover_rel)
+          rel="/${rel#/}"
+          for base in 'https://img-qingman.dmzj.com' 'http://img-qingman.dmzj.com'; do
+            for mode in plain ua referer; do
+              args=()
+              [[ "$mode" == ua ]] && args=(-H 'User-Agent: qingman/4.4.5 (Android)')
+              [[ "$mode" == referer ]] && args=(-H 'User-Agent: qingman/4.4.5 (Android)' -H 'Referer: https://www.qingman.app/')
+              hdr=$(mktemp); body=$(mktemp); err=$(mktemp)
+              code=$(curl -sS -L --connect-timeout 8 --max-time 25 -D "$hdr" -o "$body" -w '%{http_code}' "${args[@]}" "$base$rel" 2>"$err" || true)
+              ctype=$(awk 'BEGIN{IGNORECASE=1}/^content-type:/{v=$0}END{sub(/^content-type:[ ]*/,"",v);gsub("\r", "", v);print v}' "$hdr")
+              printf 'base=%s mode=%s http=%s bytes=%s ctype=%s err=%s\n' "$base" "$mode" "$code" "$(wc -c < "$body" | tr -d ' ')" "$ctype" "$(tr '\n' ' ' < "$err" | cut -c1-100)"
+              rm -f "$hdr" "$body" "$err"
+            done
+          done
+          rm -f /tmp/host /tmp/access /tmp/did /tmp/cover_rel
