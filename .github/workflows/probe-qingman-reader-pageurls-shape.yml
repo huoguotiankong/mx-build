@@ -91,3 +91,5 @@ jobs:
                   if any(t.lower() in line.lower() for t in terms) or 'List<String' in line:
                       print(line[:1000])
           PY
+
+# rerun after v1.6.14 on-device diagnostics showed type=2 pageUrls=1(relative=1)
