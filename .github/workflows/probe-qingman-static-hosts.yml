@@ -1,0 +1,42 @@
+name: Probe Qingman Static Hosts
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-static-hosts.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Inspect current public host literals
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/apk_url
+          import json,urllib.request
+          a=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))['data']['datas']['android']
+          if str(a.get('version'))!='4.4.5' or str(a.get('versionCode'))!='445': raise SystemExit('Unexpected Qingman version')
+          print(a['downloadUrl'])
+          PY
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/qm.apk
+          unzip -q -j /tmp/qm.apk 'lib/arm64-v8a/libapp.so' -d /tmp
+          echo '=== PUBLIC HTTP HOST LITERALS ==='
+          strings -a /tmp/libapp.so \
+            | grep -Eo 'https?://[A-Za-z0-9._:-]+' \
+            | sed -E 's#/$##' \
+            | sort -u \
+            | grep -Ev '(localhost|127\.0\.0\.1)' \
+            | head -200
+          echo '=== IMAGE RELATED STRINGS ==='
+          strings -a /tmp/libapp.so \
+            | grep -Ei '(verticalCover|horizontalCover|imageDomain|imgDomain|cdnDomain|imageHost|imgHost|cdnHost|imageUrl|picUrl|coverUrl)' \
+            | sed -E 's#https?://[^/[:space:]"'"']+#<host>#g' \
+            | cut -c1-240 \
+            | sort -u \
+            | head -200
