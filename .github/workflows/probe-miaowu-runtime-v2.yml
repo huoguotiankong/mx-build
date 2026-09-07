@@ -15,52 +15,78 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     steps:
-      - name: Probe public endpoints
+      - name: Inspect web routes and reader
         shell: bash
         run: |
-          set -uo pipefail
+          set -euo pipefail
           python3 - <<'PY'
-          import urllib.request, urllib.parse, urllib.error, socket
+          import urllib.request, urllib.parse, urllib.error, re, html
 
-          targets = [
-              ('GET', 'http://121.11.204.141:8124/mw.json', None, 4096),
-              ('GET', 'http://121.11.204.141:1133/', None, 4096),
-              ('GET', 'https://maowu.iqtao.cn/appv1/comic/hot_comics?page=1&limit=20&size=20', None, 4096),
-              ('POST', 'https://maowu.iqtao.cn/appv1/bootstrap/start', {'package_name':'com.maofan.comic','app_version':'1.0.0','platform':'android','os':'android'}, 4096),
-              ('GET', 'https://mh.iqtao.cn/', None, 16000),
-              ('GET', 'https://mh.iqtao.cn/128.html', None, 20000),
-          ]
-          headers={
-              'Accept':'text/html,application/json,text/plain,*/*',
-              'User-Agent':'Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140.0 Mobile Safari/537.36',
-          }
-          try:
-              print('DNS maowu=', socket.gethostbyname_ex('maowu.iqtao.cn'))
-              print('DNS mh=', socket.gethostbyname_ex('mh.iqtao.cn'))
-          except Exception as e:
-              print('DNS failed:', repr(e))
+          UA='Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140.0 Mobile Safari/537.36'
+          H={'User-Agent':UA,'Accept':'text/html,application/xhtml+xml,application/json,text/plain,*/*'}
 
-          for method,url,data,limit in targets:
-              print('\n===',method,url,'===')
-              payload=None
-              h=dict(headers)
-              if data is not None:
-                  payload=urllib.parse.urlencode(data).encode()
-                  h['Content-Type']='application/x-www-form-urlencoded'
-              req=urllib.request.Request(url, data=payload, headers=h, method=method)
+          def fetch(url, data=None, headers=None):
+              h=dict(H); h.update(headers or {})
+              req=urllib.request.Request(url, data=data, headers=h)
               try:
-                  with urllib.request.urlopen(req, timeout=15) as r:
-                      body=r.read(limit)
-                      print('STATUS',r.status,'FINAL',r.geturl())
-                      print('HEADERS',dict(r.headers))
-                      print('BODY_START')
-                      print(body.decode('utf-8','replace'))
-                      print('BODY_END')
+                  with urllib.request.urlopen(req, timeout=20) as r:
+                      b=r.read(500000)
+                      text=b.decode('utf-8','replace')
+                      print('\nURL',url,'STATUS',r.status,'FINAL',r.geturl(),'LEN',len(b))
+                      return text
               except urllib.error.HTTPError as e:
-                  body=e.read(limit)
-                  print('HTTPERROR',e.code,'FINAL',e.geturl())
-                  print('HEADERS',dict(e.headers))
-                  print('BODY',body.decode('utf-8','replace'))
+                  b=e.read(20000); print('\nURL',url,'HTTP',e.code,'BODY',b.decode('utf-8','replace')[:2000]); return ''
               except Exception as e:
-                  print('ERROR',type(e).__name__,repr(e))
+                  print('\nURL',url,'ERROR',repr(e)); return ''
+
+          search=fetch('https://mh.iqtao.cn/custom/search')
+          print('SEARCH FORMS')
+          for m in re.finditer(r'<form\b[^>]*>(.*?)</form>', search, re.I|re.S):
+              block=m.group(0)
+              print(block[:6000])
+          print('SEARCH INPUTS/ACTIONS')
+          for pat in [r'<form[^>]+action=["\']?([^"\' >]+)', r'<input[^>]+name=["\']?([^"\' >]+)', r'<script[^>]+src=["\']([^"\']+)']:
+              print(pat, re.findall(pat, search, re.I)[:30])
+
+          # Try plausible MCCMS search routes observed from form/JS conventions.
+          for u in [
+              'https://mh.iqtao.cn/search?key=19%E5%A4%A9',
+              'https://mh.iqtao.cn/search/19%E5%A4%A9',
+              'https://mh.iqtao.cn/custom/search?key=19%E5%A4%A9',
+              'https://mh.iqtao.cn/custom/search?name=19%E5%A4%A9',
+              'https://mh.iqtao.cn/search/index?key=19%E5%A4%A9',
+          ]:
+              t=fetch(u)
+              if t:
+                  print('SEARCH RESULT MARKERS',u, re.findall(r'href=["\']([^"\']+)["\'][^>]*>[^<]*19\s*天|alt=["\']([^"\']*19\s*天[^"\']*)',t,re.I)[:10])
+                  print('TITLE', re.findall(r'<title>(.*?)</title>',t,re.I|re.S)[:2])
+
+          detail=fetch('https://mh.iqtao.cn/128.html')
+          chapters=re.findall(r'<li\s+class=["\'][^"\']*chapter-item[^"\']*["\'][^>]*>\s*<a\s+href=["\']([^"\']+)["\'][^>]*>(.*?)</a>',detail,re.I|re.S)
+          print('CHAPTER COUNT',len(chapters),'FIRST',[(u,re.sub('<.*?>','',n).strip()) for u,n in chapters[:5]],'LAST',[(u,re.sub('<.*?>','',n).strip()) for u,n in chapters[-5:]])
+
+          reader=fetch('https://mh.iqtao.cn/128/221583.html')
+          print('READER TITLE',re.findall(r'<title>(.*?)</title>',reader,re.I|re.S)[:2])
+          keys=['chapter','image','pic','mccms','comic','read','pages','data','content']
+          print('READER SCRIPTS',re.findall(r'<script[^>]+src=["\']([^"\']+)',reader,re.I)[:50])
+          print('READER IMAGE URLS',re.findall(r'(?:https?:)?//[^"\'<> ]+\.(?:jpg|jpeg|png|webp|avif)(?:\?[^"\'<> ]*)?',reader,re.I)[:30])
+          print('READER INLINE SCRIPT CANDIDATES')
+          for m in re.finditer(r'<script\b[^>]*>(.*?)</script>',reader,re.I|re.S):
+              s=m.group(1)
+              if any(k in s.lower() for k in keys):
+                  print(s[:12000])
+
+          # Fetch site JS likely containing reader/search AJAX route logic.
+          for jsu in [
+              'https://npm.elemecdn.com/banwl/maocdn/packs/mccms/base_wap.js',
+              'https://npm.elemecdn.com/banwl/maocdn/template/wap/default/js/h5.base.js',
+              'https://npm.elemecdn.com/banwl/maocdn/template/wap/default/js/core.js',
+          ]:
+              j=fetch(jsu)
+              if j:
+                  print('JS MATCHES',jsu)
+                  for ln in j.splitlines():
+                      low=ln.lower()
+                      if any(x in low for x in ['search','chapter','comic/read','mccms','ajax','pic','image','read/']):
+                          print(ln[:3000])
           PY
