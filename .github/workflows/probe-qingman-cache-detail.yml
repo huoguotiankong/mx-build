@@ -1,0 +1,160 @@
+name: Probe QingMan Cache Detail
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-qingman-cache-detail.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reverse:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Resolve current QingMan APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          ua='Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Mobile Safari/537.36'
+          python3 - <<'PY'
+          import re
+          import urllib.parse
+          import urllib.request
+
+          ua='Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Mobile Safari/537.36'
+          def fetch(url):
+              req=urllib.request.Request(url,headers={'User-Agent':ua})
+              with urllib.request.urlopen(req,timeout=20) as r:
+                  return r.geturl(),r.read().decode('utf-8','ignore')
+
+          effective,security=fetch('https://www.qingman.app/')
+          print('security_effective=',effective)
+          candidates=[]
+          for raw in re.findall(r'https://[A-Za-z0-9._:-]+',security):
+              u=urllib.parse.urlsplit(raw)
+              if u.scheme and u.netloc:
+                  origin=f'{u.scheme}://{u.netloc}'
+                  if origin not in candidates:
+                      candidates.append(origin)
+
+          chosen=''
+          for origin in candidates:
+              try:
+                  final,body=fetch(origin+'/')
+              except Exception as e:
+                  print('candidate_error=',origin,type(e).__name__)
+                  continue
+              print('candidate=',origin,'final=',final,'bytes=',len(body.encode()))
+              if 'MOBILE_DOWNLOAD:"/APK"' in body or 'PC_DOWNLOAD:"/APK"' in body:
+                  p=urllib.parse.urlsplit(final)
+                  chosen=f'{p.scheme}://{p.netloc}'
+                  break
+          if not chosen:
+              raise SystemExit('No QingMan dynamic download origin found')
+          open('/tmp/qingman-origin','w').write(chosen)
+          print('landing_origin=',chosen)
+          PY
+
+          origin="$(cat /tmp/qingman-origin)"
+          curl -L -sS --connect-timeout 15 --max-time 300 -A "$ua" \
+            "$origin/APK" -o /tmp/qingman.apk -D /tmp/qingman-apk.headers
+          echo "apk_bytes=$(wc -c < /tmp/qingman.apk)"
+          echo "apk_sha256=$(sha256sum /tmp/qingman.apk | awk '{print $1}')"
+          file /tmp/qingman.apk
+          unzip -t /tmp/qingman.apk >/dev/null
+          unzip -p /tmp/qingman.apk lib/arm64-v8a/libapp.so > /tmp/libapp.so
+          unzip -p /tmp/qingman.apk lib/arm64-v8a/libflutter.so > /tmp/libflutter.so
+
+          echo '=== cache/detail markers in libapp.so ==='
+          strings -a /tmp/libapp.so | grep -Ei \
+            'api/comic/chapter/ie84hfh8/(cache/detail|detail|read|readend)|Get chapter cache detail failed|QxComicCacheImageProvider|x-custom-(timestamp|signature)|X-Signature|Authorization|qm-user-token|signature_url|downloadUrl|image_url|imageurls|imagelist|resourceUrl(Prefix)?|encryptedUrl|userBookTicket|chapterid_conflict|currentChapterId|comic_cache_path|comicAssets|upload and getsignature exception|Get Signature exception|Timestamp not set|X-Signature not set' \
+            | sort -u | head -400 || true
+
+      - name: Reverse Flutter AOT with Blutter
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y \
+            python3-pyelftools python3-requests git cmake ninja-build \
+            build-essential pkg-config libicu-dev libcapstone-dev
+          git clone --depth 1 https://github.com/worawit/blutter.git /tmp/blutter
+          python3 /tmp/blutter/blutter.py /tmp/qingman.apk /tmp/qingman-reverse
+          find /tmp/qingman-reverse -maxdepth 2 -type f -printf '%p %s bytes\n' | sort | head -120 || true
+
+      - name: Extract cache detail contract evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/qingman-cache-contract
+          pattern='cache/detail|Get chapter cache detail failed|QxComicCacheImageProvider|x-custom-timestamp|x-custom-signature|X-Signature|Authorization|qm-user-token|signature_url|downloadUrl|image_url|imageurls|imagelist|resourceUrl|resourceUrlPrefix|encryptedUrl|userBookTicket|chapterid_conflict|currentChapterId|comic_cache_path|comicAssets|upload and getsignature exception|Get Signature exception|Timestamp not set|X-Signature not set|ie84hfh8/detail|ie84hfh8/read|ie84hfh8/readend'
+
+          strings -a -t x /tmp/libapp.so | grep -Ei "$pattern" \
+            > /tmp/qingman-cache-contract/libapp-string-offsets.txt || true
+          grep -RniE -C 60 "$pattern" /tmp/qingman-reverse \
+            --exclude='blutter_frida.js' \
+            > /tmp/qingman-cache-contract/reverse-grep-context.txt || true
+
+          python3 - <<'PY'
+          from pathlib import Path
+          root=Path('/tmp/qingman-reverse')
+          out=Path('/tmp/qingman-cache-contract/targeted-context.txt')
+          needles=[
+              'api/comic/chapter/ie84hfh8/cache/detail','Get chapter cache detail failed',
+              'QxComicCacheImageProvider','x-custom-timestamp','x-custom-signature','X-Signature',
+              'Authorization','qm-user-token','signature_url','downloadUrl','image_url','imageurls','imagelist',
+              'resourceUrl','resourceUrlPrefix','encryptedUrl','userBookTicket','chapterid_conflict',
+              'currentChapterId','comic_cache_path','comicAssets','upload and getsignature exception',
+              'Get Signature exception','Timestamp not set','X-Signature not set',
+              'api/comic/chapter/ie84hfh8/detail','api/comic/chapter/ie84hfh8/read','api/comic/chapter/ie84hfh8/readend',
+          ]
+          chunks=[]; emitted=0
+          for path in sorted(root.rglob('*')):
+              if not path.is_file() or path.name == 'blutter_frida.js':
+                  continue
+              if path.stat().st_size > 80*1024*1024:
+                  continue
+              try:
+                  text=path.read_text('utf-8',errors='ignore')
+              except Exception:
+                  continue
+              lines=text.splitlines()
+              for i,line in enumerate(lines):
+                  hits=[n for n in needles if n.lower() in line.lower()]
+                  if not hits:
+                      continue
+                  start=max(0,i-100); end=min(len(lines),i+101)
+                  chunks += ['\n'+'='*100,f'FILE: {path.relative_to(root)} LINE: {i+1} HITS: {", ".join(hits)}','='*100]
+                  chunks += [f'{j+1:07d}: {lines[j]}' for j in range(start,end)]
+                  emitted += 1
+                  if emitted >= 200: break
+              if emitted >= 200: break
+          out.write_text('\n'.join(chunks),encoding='utf-8')
+          print('targeted_context_matches=',emitted)
+          print('targeted_context_bytes=',out.stat().st_size)
+          PY
+
+          echo '=== targeted evidence summary ==='
+          grep -nE 'FILE:|cache/detail|QxComicCacheImageProvider|x-custom-(timestamp|signature)|downloadUrl|image_url|signature_url|userBookTicket' \
+            /tmp/qingman-cache-contract/targeted-context.txt | head -600 || true
+          wc -c /tmp/qingman-cache-contract/* || true
+
+      - name: Upload cache detail evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: qingman-cache-detail-contract
+          path: /tmp/qingman-cache-contract
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload reverse output
+        uses: actions/upload-artifact@v4
+        with:
+          name: qingman-flutter-reverse
+          path: /tmp/qingman-reverse
+          if-no-files-found: error
+          retention-days: 7
