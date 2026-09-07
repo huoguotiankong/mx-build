@@ -13,14 +13,27 @@ permissions:
 jobs:
   trace:
     runs-on: ubuntu-24.04
-    timeout-minutes: 8
+    timeout-minutes: 10
     steps:
-      - name: Locate route dispatch table entries
+      - name: Prepare analyzer
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq python3-pyelftools >/dev/null
+          sudo apt-get install -y -qq python3-pyelftools python3-capstone cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+      - name: Restore analyzer cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/blutter/bin
+            /tmp/blutter/dartsdk
+            /tmp/blutter/packages
+          key: qingman-blutter-dart-3.12.2-arm64-v1
+      - name: Enumerate route candidates
+        shell: bash
+        run: |
+          set -euo pipefail
           python3 - <<'PY' >/tmp/apk_url
           import json,urllib.request
           a=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))['data']['datas']['android']
@@ -28,55 +41,31 @@ jobs:
           print(a['downloadUrl'])
           PY
           curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(cat /tmp/apk_url)" -o /tmp/q.apk
-          rm -rf /tmp/x && mkdir -p /tmp/x
-          unzip -q /tmp/q.apk 'lib/arm64-v8a/libapp.so' -d /tmp/x
+          rm -rf /tmp/lib /tmp/out /tmp/x && mkdir -p /tmp/lib /tmp/out /tmp/x
+          unzip -q /tmp/q.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' -d /tmp/x
+          cp /tmp/x/lib/arm64-v8a/libapp.so /tmp/x/lib/arm64-v8a/libflutter.so /tmp/lib/
+          cd /tmp/blutter && python3 blutter.py /tmp/lib /tmp/out >/dev/null 2>&1
           python3 - <<'PY'
-          from elftools.elf.elffile import ELFFile
-          from elftools.elf.relocation import RelocationSection
-          import struct
-          path='/tmp/x/lib/arm64-v8a/libapp.so'
-          targets={
-            0x7e25d0:'interstitial',
-            0x7e280c:'homeList',
-            0x7e2f78:'getAdConfig',
-            0x7e3010:'version',
-          }
-          with open(path,'rb') as f:
-              raw=f.read(); f.seek(0); elf=ELFFile(f)
-              print('=== ELF SECTIONS ===')
-              for s in elf.iter_sections():
-                  if any(k in s.name.lower() for k in ('data','rodata','rel','rela','snapshot')):
-                      print(f'{s.name} addr=0x{int(s["sh_addr"]):x} off=0x{int(s["sh_offset"]):x} size=0x{int(s["sh_size"]):x}')
-              print('=== DIRECT FILE VALUE HITS ===')
-              for va,name in targets.items():
-                  for width,fmt in ((8,'<Q'),(4,'<I')):
-                      needle=struct.pack(fmt,va)
-                      pos=[]; start=0
-                      while True:
-                          i=raw.find(needle,start)
-                          if i<0: break
-                          pos.append(i); start=i+1
-                          if len(pos)>=20: break
-                      print(f'{name} va=0x{va:x} width={width} hits='+','.join(hex(x) for x in pos))
-              print('=== RELOCATIONS TO TARGET ADDENDS ===')
-              for sec in elf.iter_sections():
-                  if not isinstance(sec,RelocationSection): continue
-                  for rel in sec.iter_relocations():
-                      addend=rel.entry.get('r_addend',None)
-                      if addend in targets:
-                          print(f'section={sec.name} offset=0x{int(rel["r_offset"]):x} addend=0x{int(addend):x} target={targets[addend]} type={rel.entry.get("r_info_type")}')
-              print('=== DYNAMIC RELATIVE RELOCATION NEIGHBORHOODS ===')
-              # Gather relative relocations whose addend is close to any route getter; a dispatch table row
-              # tends to contain many adjacent code-pointer relocations.
-              rows=[]
-              for sec in elf.iter_sections():
-                  if not isinstance(sec,RelocationSection): continue
-                  for rel in sec.iter_relocations():
-                      a=rel.entry.get('r_addend',None)
-                      if isinstance(a,int) and 0x7d0000<=a<=0x800000:
-                          rows.append((int(rel['r_offset']),a,sec.name,int(rel.entry.get('r_info_type',-1))))
-              rows.sort()
-              for off,a,sec,typ in rows:
-                  if any(abs(a-t)<=0x2000 for t in targets):
-                      print(f'off=0x{off:x} addend=0x{a:x} sec={sec} type={typ}')
+          from pathlib import Path
+          import re
+          pp=Path('/tmp/out/pp.txt').read_text('utf-8',errors='replace').splitlines()
+          rows=[]
+          for line in pp:
+              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\].*String: "([^"]+)"',line)
+              if not m: continue
+              s=m.group(2)
+              if s.startswith('api/') or s.startswith('/api/'):
+                  rows.append((int(m.group(1),16),s))
+          print('route_count='+str(len(rows)))
+          for off,s in rows:
+              print(f'0x{off:x} {s}')
+          print('=== APPCONFIG-LIKE NON-API STRINGS ===')
+          needles=('config','domain','line','route','server','baseurl','baseurl','image','imgurl','freeurl','officialurl','customerurl','promotionurl')
+          for line in pp:
+              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\].*String: "([^"]+)"',line)
+              if not m: continue
+              s=m.group(2); low=s.lower()
+              if any(n in low for n in needles) and len(s)<220:
+                  if not any(x in low for x in ('token','password','authorization','certificate','private','secret')):
+                      print(f'0x{int(m.group(1),16):x} {s}')
           PY
