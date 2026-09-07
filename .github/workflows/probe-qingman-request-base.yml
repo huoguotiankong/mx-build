@@ -30,7 +30,7 @@ jobs:
             /tmp/blutter/dartsdk
             /tmp/blutter/packages
           key: qingman-blutter-dart-3.12.2-arm64-v1
-      - name: Inspect AppConfig request construction
+      - name: Disassemble AppConfig descriptor internals
         shell: bash
         run: |
           set -euo pipefail
@@ -50,55 +50,47 @@ jobs:
           python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
           python3 - <<'PY'
           from pathlib import Path
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+          from elftools.elf.elffile import ELFFile
           import re
+
           deny=re.compile(r'(?i)(password|token|authorization|bearer|cookie|secret|private|clientp12|certificate|keystore|proof|signature|sign/key|seed|k1a|k1b|k2a|k2b|k3a|k3b)')
-          asm=Path('/tmp/blutter-out/asm')
+          pp={}
+          for line in Path('/tmp/blutter-out/pp.txt').read_text('utf-8',errors='replace').splitlines():
+              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s+(.*)$',line)
+              if m: pp[int(m.group(1),16)]=m.group(2)
 
-          def emit(title,p,lines,i,before,after):
-              print(f'=== {title} FILE={p.name} LINE={i+1} ===')
-              for z in lines[max(0,i-before):min(len(lines),i+after)]:
-                  if not deny.search(z): print(z[:900])
+          with open('/tmp/app-lib/libapp.so','rb') as f:
+              elf=ELFFile(f); sec=elf.get_section_by_name('.text'); base=int(sec['sh_addr']); data=sec.data()
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.skipdata=True
 
-          # AppConfig fetch is known to allocate txb in the 0xb028dc..0xb02b5f function.
-          for p in asm.glob('*.dart'):
-              lines=p.read_text('utf-8',errors='replace').splitlines()
-              hits=[i for i,z in enumerate(lines) if re.search(r'0xb0290[0-9a-f]:',z,re.I) or re.search(r'0xb028dc\b',z,re.I)]
-              for h in hits[:4]: emit('APPCONFIG FETCH EXACT',p,lines,h,120,320)
+          def dump(start,end,title):
+              print(f'=== {title} 0x{start:x}-0x{end:x} ===')
+              pending={}
+              for ins in md.disasm(data[start-base:end-base],start):
+                  pending={r:(b,n-1) for r,(b,n) in pending.items() if n>1}
+                  op=ins.op_str.lower(); ann=''
+                  m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
+                  if ins.mnemonic=='add' and m:
+                      pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),32)
+                  elif ins.mnemonic in ('ldr','ldur','ldrsw'):
+                      m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
+                      if m:
+                          br=m.group(2); disp=int(m.group(3),0) if m.group(3) else 0
+                          off=disp if br=='x27' else (pending[br][0]+disp if br in pending else None)
+                          if off is not None and off in pp and not deny.search(pp[off]): ann=f' ; PP+0x{off:x}={pp[off][:420]}'
+                  if ann or ins.mnemonic in ('bl','blr','b','b.eq','b.ne','cbz','cbnz','tbz','tbnz','ret'):
+                      print(f'0x{ins.address:x} {ins.mnemonic:<7} {ins.op_str}{ann}')
 
-          # Locate the nearest declared AOT functions around common initializer 0x3ea090.
-          funcs=[]
-          for p in asm.glob('*.dart'):
-              lines=p.read_text('utf-8',errors='replace').splitlines()
-              for i,z in enumerate(lines):
-                  m=re.search(r'\*\* addr:\s*0x([0-9a-fA-F]+)',z)
-                  if m: funcs.append((int(m.group(1),16),p,i))
-          funcs.sort(key=lambda x:x[0])
-          target=0x3ea090
-          near=[x for x in funcs if target-0x1200 <= x[0] <= target+0x1200]
-          print('=== FUNCTIONS NEAR 0x3ea090 ===')
-          for addr,p,i in near:
-              lines=p.read_text('utf-8',errors='replace').splitlines()
-              header=' | '.join(z.strip() for z in lines[max(0,i-3):i+2] if z.strip())
-              if not deny.search(header): print(f'addr=0x{addr:x} file={p.name} line={i+1} {header[:800]}')
-          below=[x for x in funcs if x[0] <= target]
-          above=[x for x in funcs if x[0] > target]
-          if below:
-              addr,p,i=below[-1]; emit(f'NEAREST BELOW 0x{addr:x}',p,p.read_text('utf-8',errors='replace').splitlines(),i,12,260)
-          if above:
-              addr,p,i=above[0]; emit(f'NEAREST ABOVE 0x{addr:x}',p,p.read_text('utf-8',errors='replace').splitlines(),i,12,120)
+          # txb allocation stub passes 0x3e021c to AllocateObject; AppConfig fetch then invokes 0x3ea090 on txb.
+          dump(0x3e0000,0x3e0400,'TXB CLASS/ALLOC TARGET')
+          dump(0x3e9f00,0x3ea300,'TXB INITIALIZER/DISPATCH TARGET')
+          dump(0xb028dc,0xb02950,'APPCONFIG REQUEST CALLER')
 
-          # Raw call sites to 0x3ea090, compact, so argument setup before the call is visible.
-          print('=== 0x3ea090 CALL SITES ===')
-          count=0
-          for p in asm.glob('*.dart'):
-              lines=p.read_text('utf-8',errors='replace').splitlines()
-              for i,z in enumerate(lines):
-                  if re.search(r'bl\s+#0x3ea090\b',z,re.I):
-                      count+=1
-                      print(f'--- caller {count} {p.name}:{i+1} ---')
-                      for q in lines[max(0,i-28):min(len(lines),i+18)]:
-                          if not deny.search(q): print(q[:900])
-                      if count>=12: break
-              if count>=12: break
-          print('shown_callers='+str(count))
+          print('=== SAFE PP NEAR REQUEST DESCRIPTOR CLASSES ===')
+          for off,val in sorted(pp.items()):
+              if deny.search(val): continue
+              low=val.lower()
+              if ('txb' in low or 'fpa' in low or 'uxb' in low or 'appconfig' in low or 'baseimgurl' in low):
+                  print(f'PP+0x{off:x} {val[:500]}')
           PY
