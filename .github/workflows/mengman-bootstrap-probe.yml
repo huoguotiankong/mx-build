@@ -1,4 +1,4 @@
-name: Mengman Detail Probe
+name: Mengman API Probe
 
 on:
   push:
@@ -13,45 +13,33 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Fetch signed detail data
+      - name: Probe comic API
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p /tmp/mengman-detail
           python3 - <<'PY'
-          import hashlib,time,urllib.request
-          base='https://static.yisix.cn'
-          seed='94e890e3a45ba392c0c519ed45190a4c'
-          paths=[
-            '/static/comic/0/2140.zip',
-            '/static/comic/5/2145.zip',
-            '/static/comic/40/2140.zip',
-            '/static/comic/2140/2140.zip',
-            '/static/comic/chapter/2140/0.zip',
-            '/static/comic/chapter/2140/1.zip',
-            '/comics/0/cover_1776966416457.enc',
+          import urllib.request, urllib.error
+          urls=[
+            'https://api.yisix.cn/api/v1/comics?page=1&size=20',
+            'https://api.yisix.cn/api/v1/comics?page=1&size=20&keyword=%E4%BB%99%E5%B8%9D',
+            'https://api.yisix.cn/api/v1/search?keyword=%E4%BB%99%E5%B8%9D&page=1&page_size=20',
+            'https://api.yisix.cn/comics?page=1&size=20&keyword=%E4%BB%99%E5%B8%9D',
+            'https://api.yisix.cn/api/v1/comics/2140',
+            'https://api.yisix.cn/api/v1/comic-categories',
           ]
-          for path in paths:
-              ts=str(int(time.time()))
-              sign=hashlib.md5((seed+path+ts).encode()).hexdigest()
-              url=f'{base}{path}?ts={ts}&sign={sign}'
-              name=path.strip('/').replace('/','__')
+          headers={'User-Agent':'okhttp/4.12.0','Accept':'application/json'}
+          for url in urls:
+              print('\nURL',url)
               try:
-                  req=urllib.request.Request(url,headers={'User-Agent':'okhttp/4.12.0'})
+                  req=urllib.request.Request(url,headers=headers)
                   with urllib.request.urlopen(req,timeout=30) as r:
-                      data=r.read()
-                      print(path,'status',r.status,'len',len(data),'type',r.headers.get('content-type'),'head',data[:32].hex())
-                      open('/tmp/mengman-detail/'+name,'wb').write(data)
+                      b=r.read(8000)
+                      print('STATUS',r.status,'TYPE',r.headers.get('content-type'),'LEN-SAMPLE',len(b))
+                      print(b.decode('utf-8','replace'))
+              except urllib.error.HTTPError as e:
+                  b=e.read(8000)
+                  print('HTTP',e.code,'TYPE',e.headers.get('content-type'))
+                  print(b.decode('utf-8','replace'))
               except Exception as e:
-                  print(path,'ERROR',repr(e))
+                  print('ERROR',repr(e))
           PY
-          ls -lh /tmp/mengman-detail
-          sha256sum /tmp/mengman-detail/* || true
-
-      - name: Upload detail data
-        uses: actions/upload-artifact@v4
-        with:
-          name: mengman-detail-data
-          path: /tmp/mengman-detail
-          if-no-files-found: error
-          retention-days: 1
