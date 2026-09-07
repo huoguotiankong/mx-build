@@ -1,0 +1,187 @@
+name: Probe Mengman live JSON schema v6
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-mengman-json-schema-v6.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Decrypt live Mengman static bundles and inspect schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, io, json, os, re, struct, subprocess, tempfile, time, urllib.parse, urllib.request, zipfile
+
+          # Reuse the verified native table embedded in v4 so the probe stays consistent with the prior byte-for-byte validation.
+          text=open('.github/workflows/probe-mengman-native-seed-v4.yml','r',encoding='utf-8').read()
+          m=re.search(r"SS0_HEX='([0-9a-f]+)'",text)
+          if not m: raise SystemExit('SS0 table not found')
+          SS0=list(struct.unpack('<256I',bytes.fromhex(m.group(1))))
+          KC=[0x9e3779b9,0x3c6ef373,0x78dde6e6,0xf1bbcdcc,0xe3779b99,0xc6ef3733,0x8dde6e67,0x1bbcdccf,0x3779b99e,0x6ef3733c,0xdde6e678,0xbbcdccf1,0x779b99e3,0xef3733c6,0xde6e678d,0xbcdccf1b]
+          MASK=0xffffffff
+          A5=[x>>24 for x in SS0]; A6=[(x>>16)&255 for x in SS0]; A7=[(x>>8)&255 for x in SS0]; A8=[x&255 for x in SS0]
+
+          def G(x):
+              x &= MASK
+              b3=(x>>24)&255; b2=(x>>16)&255; b1=(x>>8)&255; b0=x&255
+              o3=A6[b2]^A5[b3]^A7[b1]^A8[b0]
+              o2=A6[b1]^A5[b2]^A7[b0]^A8[b3]
+              o1=A6[b0]^A5[b1]^A7[b3]^A8[b2]
+              o0=A6[b3]^A5[b0]^A7[b2]^A8[b1]
+              return ((o3<<24)|(o2<<16)|(o1<<8)|o0)&MASK
+
+          def schedule(key):
+              a,b,c,d=struct.unpack('>4I',key); rk=[]
+              for i,kc in enumerate(KC):
+                  rk += [G(c+a-kc),G(b-d+kc)]
+                  if i%2==0:
+                      olda,oldb=a,b
+                      a,b=((olda>>8)|(oldb<<24))&MASK,((oldb>>8)|(olda<<24))&MASK
+                  else:
+                      oldc,oldd=c,d
+                      c,d=((oldc<<8)|(oldd>>24))&MASK,((oldd<<8)|(oldc>>24))&MASK
+              return rk
+
+          def block(key,src):
+              rk=schedule(key)
+              w24,w23,w9,w8=struct.unpack('>4I',src)
+              for rr in range(15,-1,-1):
+                  old0,old1=w24,w23
+                  t0=rk[2*rr]^w9; t1=rk[2*rr+1]^w8
+                  x=G(t0^t1); y=G(x+t0); z=G(y+x)
+                  n0=((z+y)&MASK)^old0; n1=z^old1
+                  w24,w23,w9,w8=w9,w8,n0&MASK,n1&MASK
+              return struct.pack('>4I',w9,w24,w8,w23)
+
+          def transform(key,data):
+              if len(data)%16: raise RuntimeError('bootstrap payload not block aligned')
+              return b''.join(block(key,data[i:i+16]) for i in range(0,len(data),16))
+
+          def fetch(url):
+              req=urllib.request.Request(url,headers={'User-Agent':'okhttp/4.12.0','Accept':'*/*'})
+              with urllib.request.urlopen(req,timeout=30) as r:
+                  b=r.read(); print('GET',url.split('?',1)[0],'status',r.status,'bytes',len(b)); return b
+
+          def signed(path):
+              ts=int(time.time()); seed='94e890e3a45ba392c0c519ed45190a4c'
+              sign=hashlib.md5((seed+path+str(ts)).encode()).hexdigest()
+              return f'https://static.yisix.cn{path}?ts={ts}&sign={sign}'
+
+          def chunks(png):
+              out=[]; p=8
+              if not png.startswith(b'\x89PNG\r\n\x1a\n'): raise RuntimeError('bootstrap not png')
+              while p+12<=len(png):
+                  n=struct.unpack('>I',png[p:p+4])[0]; typ=png[p+4:p+8]; s=p+8; e=s+n
+                  if e+4>len(png): raise RuntimeError('truncated png')
+                  if typ==b'tEXt':
+                      out.append(png[s:e])
+                      if len(out)==2:return out
+                  p=e+4
+              raise RuntimeError('missing tEXt')
+
+          def aes_dec(ct,key,iv):
+              with tempfile.TemporaryDirectory() as td:
+                  fi=td+'/i'; fo=td+'/o'; open(fi,'wb').write(ct)
+                  p=subprocess.run(['openssl','enc','-aes-128-cbc','-d','-K',key.hex(),'-iv',iv.hex(),'-in',fi,'-out',fo],stderr=subprocess.PIPE)
+                  if p.returncode: raise RuntimeError(p.stderr.decode('utf-8','replace'))
+                  return open(fo,'rb').read()
+
+          boot=chunks(fetch('https://static.yisix.cn/bootstrap/a1.png'))
+          plain=transform(boot[0][83:99],boot[1])
+          sk=plain[1194:1210]; iv=plain[1210:1226]
+          print('BOOTSTRAP_OK',len(plain),hashlib.sha256(sk).hexdigest()[:16],hashlib.sha256(iv).hexdigest()[:16])
+
+          def unzip_bundle(path):
+              raw=fetch(signed(path)); dec=aes_dec(raw,sk,iv)
+              with zipfile.ZipFile(io.BytesIO(dec)) as z:
+                  names=z.namelist(); print('\nBUNDLE',path,'entries',names)
+                  return {n:z.read(n) for n in names if not n.endswith('/')}
+
+          def shape(x,depth=0):
+              if depth>2: return type(x).__name__
+              if isinstance(x,dict): return {k:shape(v,depth+1) for k,v in list(x.items())[:30]}
+              if isinstance(x,list): return {'list_len':len(x),'first':shape(x[0],depth+1) if x else None}
+              if isinstance(x,str): return f'str(len={len(x)})'
+              return type(x).__name__
+
+          def summarize_json(label,b):
+              obj=json.loads(b.decode('utf-8'))
+              print(label,'SHAPE',json.dumps(shape(obj),ensure_ascii=False,sort_keys=True))
+              # Print representative public fields only, avoiding large blobs.
+              def walk(v):
+                  if isinstance(v,dict):
+                      keys=set(v)
+                      if keys & {'id','comic_id','comicId','title','name','cover','cover_url','coverUrl','chapter_num','chapterNum','chapter_number','chapterNumber','pages','page_list','pageList'}:
+                          out={}
+                          for k in ['id','comic_id','comicId','title','name','cover','cover_url','coverUrl','chapter_num','chapterNum','chapter_number','chapterNumber','image_url','imageUrl','url','src']:
+                              if k in v and isinstance(v[k],(str,int,float,bool,type(None))): out[k]=v[k]
+                          if out: print(label,'SAMPLE',json.dumps(out,ensure_ascii=False)[:1200]); return True
+                      for vv in v.values():
+                          if walk(vv): return True
+                  elif isinstance(v,list):
+                      for vv in v[:10]:
+                          if walk(vv): return True
+                  return False
+              walk(obj)
+              return obj
+
+          test_paths=[
+              '/static/category/list.zip',
+              '/static/category/1/1.zip',
+              '/static/ranking/new.zip',
+              '/static/ranking/hot.zip',
+              '/static/ranking/favorite.zip',
+              '/static/search/hot_comic.zip',
+              '/static/comic/40/2140.zip',
+              '/static/comic/chapter/2140/1.zip',
+          ]
+          discovered=[]
+          for path in test_paths:
+              try:
+                  files=unzip_bundle(path)
+                  for n,b in files.items():
+                      if n.lower().endswith('.json'):
+                          obj=summarize_json(path+':'+n,b)
+                          # collect likely image paths for one encrypted-image validation
+                          def collect(v):
+                              if len(discovered)>=5:return
+                              if isinstance(v,str) and v.lower().split('?',1)[0].endswith('.enc'):
+                                  discovered.append(v)
+                              elif isinstance(v,dict):
+                                  for vv in v.values(): collect(vv)
+                              elif isinstance(v,list):
+                                  for vv in v[:50]: collect(vv)
+                          collect(obj)
+              except Exception as e:
+                  print('\nBUNDLE_FAIL',path,type(e).__name__,str(e)[:500])
+
+          print('\nDISCOVERED_ENC',discovered[:5])
+          for raw in discovered[:3]:
+              try:
+                  if raw.startswith('http://') or raw.startswith('https://'):
+                      u=urllib.parse.urlparse(raw); path=u.path
+                  elif raw.startswith('/'):
+                      path=raw
+                  else:
+                      path='/'+raw
+                  ct=fetch(signed(path)); img=aes_dec(ct,sk,iv)
+                  magic='unknown'
+                  if img.startswith(b'\xff\xd8\xff'):magic='jpeg'
+                  elif img.startswith(b'\x89PNG\r\n\x1a\n'):magic='png'
+                  elif img.startswith(b'RIFF') and img[8:12]==b'WEBP':magic='webp'
+                  elif img.startswith(b'GIF8'):magic='gif'
+                  print('ENC_IMAGE_OK',path,'plain_bytes',len(img),'magic',magic)
+              except Exception as e:
+                  print('ENC_IMAGE_FAIL',raw,type(e).__name__,str(e)[:300])
+          PY
