@@ -1,0 +1,151 @@
+name: Probe Qingman AppConfig Candidates V2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-qingman-appconfig-candidates-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Bootstrap, probe AppConfig routes, and verify public media candidates
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools python3-cryptography >/dev/null
+          python3 - <<'PY'
+          import base64, hashlib, json, os, tempfile, time, urllib.error, urllib.parse, urllib.request, uuid, zipfile
+          from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+          from elftools.elf.elffile import ELFFile
+
+          UA='qingman/4.4.5 (Android)'
+          VERSION='https://bass8ycl.zermh.com/api/radio/api/config/version'
+          BOOTSTRAP='https://mu8xm4cx.zermh.com/bootstrap/domain'
+          vr=json.load(urllib.request.urlopen(urllib.request.Request(VERSION,headers={'User-Agent':'mx-qingman-probe/1.0'}),timeout=20))['data']['datas']['android']
+          if str(vr.get('version'))!='4.4.5' or str(vr.get('versionCode'))!='445': raise SystemExit('Unexpected Qingman version')
+          download_host=urllib.parse.urlsplit(vr['downloadUrl']).hostname or ''
+
+          with tempfile.TemporaryDirectory() as td:
+              apk=os.path.join(td,'q.apk'); so=os.path.join(td,'libqx_security.so')
+              with urllib.request.urlopen(urllib.request.Request(vr['downloadUrl'],headers={'User-Agent':'mx-qingman-probe/1.0'}),timeout=60) as r, open(apk,'wb') as f:
+                  while True:
+                      b=r.read(1<<20)
+                      if not b: break
+                      f.write(b)
+              with zipfile.ZipFile(apk) as z, z.open('lib/arm64-v8a/libqx_security.so') as src, open(so,'wb') as dst:
+                  dst.write(src.read())
+              with open(so,'rb') as f:
+                  elf=ELFFile(f)
+                  def rv(va,n):
+                      for seg in elf.iter_segments():
+                          if seg['p_type']!='PT_LOAD': continue
+                          s=int(seg['p_vaddr']); e=s+int(seg['p_filesz'])
+                          if s<=va and va+n<=e:
+                              f.seek(int(seg['p_offset'])+va-s); return f.read(n)
+                      raise RuntimeError('VA')
+                  seed=rv(0x14a40,16)+rv(0x14af0,16); sc=rv(0x17d1f,33); ac=rv(0x17d40,32)
+
+          base=hashlib.sha256(seed).digest()
+          def deob(c,k):
+              out=b''; i=0
+              while len(out)<len(c):
+                  out += hashlib.sha256(base+bytes([k])+i.to_bytes(4,'big')).digest(); i+=1
+              return bytes(a^b for a,b in zip(c,out))
+          sm=deob(sc,1); aes=deob(ac,2)
+          ts=str(int(time.time()*1000)); did=uuid.uuid4().hex; nonce=uuid.uuid4().hex
+          sig=hashlib.sha256(ts.encode()+nonce.encode()+did.encode()+sm).hexdigest()
+          body=json.dumps({'timestamp':ts,'nonce':nonce,'sign':sig,'deviceId':did},separators=(',',':')).encode()
+          boot_headers={'Content-Type':'application/json','Accept':'application/json, text/plain, */*','User-Agent':UA,'appVersion':'4.4.5','platform':'android','X-Device-Id':did}
+          br=json.load(urllib.request.urlopen(urllib.request.Request(BOOTSTRAP,data=body,headers=boot_headers,method='POST'),timeout=20))
+          enc=br['data']; blob=base64.urlsafe_b64decode(enc+'='*((4-len(enc)%4)%4)); cfg=json.loads(AESGCM(aes).decrypt(blob[:12],blob[12:],(ts+'|'+nonce).encode()))
+          api_host=urllib.parse.urlsplit(cfg['apiDomain']).hostname; access=cfg['appAccessToken']
+          if not api_host or not access: raise SystemExit('bootstrap missing fields')
+          headers={'Accept':'application/json, text/plain, */*','Content-Type':'application/json','User-Agent':UA,'appVersion':'4.4.5','platform':'android','X-Device-Id':did,'X-QM-App-Access':access}
+
+          def request_json(method,path):
+              req=urllib.request.Request('http://'+api_host+'/'+path,headers=headers,method=method,data=(b'{}' if method=='POST' else None))
+              try:
+                  with urllib.request.urlopen(req,timeout=15) as r:
+                      raw=r.read(512*1024).decode('utf-8','replace')
+                      return r.status,json.loads(raw)
+              except urllib.error.HTTPError as e:
+                  raw=e.read(128*1024).decode('utf-8','replace')
+                  try: obj=json.loads(raw)
+                  except Exception: obj={'_nonjson':True}
+                  return e.code,obj
+              except Exception as e:
+                  return 0,{'_error':type(e).__name__+':'+str(e)[:80]}
+
+          def find_field(x,target):
+              if isinstance(x,dict):
+                  for k,v in x.items():
+                      if str(k).lower()==target.lower(): return v
+                      z=find_field(v,target)
+                      if z is not None:return z
+              elif isinstance(x,list):
+                  for v in x:
+                      z=find_field(v,target)
+                      if z is not None:return z
+              return None
+
+          home_status,home=request_json('POST','api/comic/comics/v1/homeList?page=1&pageNum=1&pageSize=20')
+          cover=None
+          def find_cover(x):
+              global cover
+              if cover:return
+              if isinstance(x,dict):
+                  for k in ('verticalCover','comicCoverUrl','cover','horizontalCover'):
+                      v=x.get(k)
+                      if isinstance(v,str) and v.startswith('/'):
+                          cover=v; return
+                  for v in x.values():find_cover(v)
+              elif isinstance(x,list):
+                  for v in x:find_cover(v)
+          find_cover(home)
+          print('home_ok='+str(home_status==200)+' relative_cover='+str(bool(cover)).lower()+' download_host='+download_host)
+
+          candidates=[
+              'api/radio/api/config/appConfig','api/radio/api/config/appconfig','api/radio/api/config/getAppConfig','api/radio/api/config/getAppconfig',
+              'api/radio/api/config/app','api/radio/api/config/getApp','api/radio/api/config/common','api/radio/api/config/base','api/radio/api/config/config',
+              'api/radio/api/config/getConfig','api/radio/api/config/init','api/radio/api/config/initialize','api/radio/api/config/bootstrap','api/radio/api/config/application',
+              'api/radio/api/app/config','api/appapi/config','api/appapi/config/app','api/appapi/config/appConfig','api/comic/config/app','api/comic/config/appConfig',
+              'api/comic/common/config','api/comic/common/appConfig'
+          ]
+          seen=set()
+          for path in candidates:
+              for method in ('GET','POST'):
+                  status,obj=request_json(method,path)
+                  code=obj.get('code') if isinstance(obj,dict) else None
+                  msg=obj.get('msg') if isinstance(obj,dict) else None
+                  base_img=find_field(obj,'baseImgUrl')
+                  marker=(status,code,str(msg)[:60],str(base_img)[:180])
+                  if status not in (404,405) or base_img is not None or marker not in seen:
+                      print('route='+path+' method='+method+' http='+str(status)+' code='+str(code)+' msg='+repr(str(msg)[:80]))
+                  seen.add(marker)
+                  if isinstance(base_img,str) and base_img.strip():
+                      p=urllib.parse.urlsplit(base_img.strip())
+                      print('FOUND_BASE_IMG route='+path+' method='+method+' scheme='+p.scheme+' host='+(p.hostname or '')+' path='+p.path[:120])
+
+          if cover:
+              media_hosts=[]
+              if download_host: media_hosts.append(('apk_download_host','https://'+download_host))
+              media_hosts += [('official_site','https://www.qingman.app')]
+              for label,base_url in media_hosts:
+                  req=urllib.request.Request(base_url.rstrip('/')+cover,headers={'User-Agent':UA,'Accept':'image/avif,image/webp,image/*,*/*;q=0.8','Referer':'https://www.qingman.app/'})
+                  try:
+                      with urllib.request.urlopen(req,timeout=15) as r:
+                          b=r.read(32); ctype=r.headers.get('Content-Type','')
+                          print('media='+label+' http='+str(r.status)+' ctype='+ctype+' magic='+b[:12].hex()+' final_host='+(urllib.parse.urlsplit(r.geturl()).hostname or ''))
+                  except urllib.error.HTTPError as e:
+                      print('media='+label+' http='+str(e.code)+' ctype='+e.headers.get('Content-Type',''))
+                  except Exception as e:
+                      print('media='+label+' error='+type(e).__name__+':'+str(e)[:100])
+          PY
