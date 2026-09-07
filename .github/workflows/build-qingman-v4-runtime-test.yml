@@ -227,4 +227,4 @@ jobs:
         if: always()
         run: rm -f upstream/signingkey.jks
 
-# trigger: v1.6.7 official search and authenticated reader parser 370047d0
+# trigger: v1.6.7 live-confirmed search + recursive reader parsing bccbd9c0
