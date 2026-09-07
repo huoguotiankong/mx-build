@@ -1,0 +1,261 @@
+=== PP TARGETS ===
+pp=0x6298 key=referer value=String: "Referer"
+pp=0x8e10 key=X-Signature value=Set<String>(5) { "X-Timestamp", "X-Signature", "X-QM-Proof-Version", "X-QM-Request-Id", "X-QM-Proof" }
+pp=0x18c78 key=imageUrl value=String: "imageUrl"
+pp=0x1eba0 key=baseImgUrl value=String: "baseImgUrl"
+pp=0x1eba8 key=freeUrl value=String: "freeUrl"
+pp=0x20a30 key=imageUrl value=String: "imageUrls"
+pp=0x21130 key=decryptImage value=String: "decryptImage"
+pp=0x22648 key=pageUrls value=String: "pageUrls"
+pp=0x226c0 key=referer value=String: "referer"
+pp=0x23d00 key=imageUrl value=String: "horizontalImageUrl"
+pp=0x23d08 key=imageUrl value=String: "verticalImageUrl"
+pp=0x25088 key=referer value=String: " referer="
+pp=0x2a458 key=freeLine value=String: "freeLine"
+pp=0x2a508 key=ComicReadSelectedImageLine value=String: "ComicReadSelectedImageLine"
+pp=0x38f00 key=claimedImageUrl value=String: "claimedImageUrl"
+pp=0x3d060 key=decryptCacheImage value=String: "decryptCacheImage"
+pp=0x3fb88 key=QxComicCacheImageProvider value=String: "QxComicCacheImageProvider("
+
+=== XREF ADDRESSES ===
+pageUrls=0x45f368,0x460080
+referer=0x3a625c,0x3a6348,0x45f398,0x46068c,0x46ee8c,0x490594,0x4df410,0x701ee0,0x878094,0x8f1a5c,0xaccfbc,0xacd2ac,0xacd328
+baseImgUrl=0x4cfec8,0x4d0434
+freeUrl=0x4cfee0,0x4d0484
+freeLine=0x489d3c
+ComicReadSelectedImageLine=0x48f000,0x64243c
+claimedImageUrl=0x7637e8,0x7639e4
+decryptImage=0xb072b0
+decryptCacheImage=0xb681d8
+QxComicCacheImageProvider=0x8a2b10
+X-Signature=0x3b6158
+imageUrl=0x3a5064,0x4a1b2c,0x4c99e4,0x4c99fc,0x4c9a14,0x4c9b38,0x4c9b98,0x4c9c74,0x4ca040,0x4ce44c,0x7637d0,0x763994,0x7b84e8,0x821814
+
+=== NEARBY CONTRACT GROUPS (<=0x800) ===
+pageUrls <-> referer distance<=0x800
+baseImgUrl <-> freeUrl distance<=0x800
+claimedImageUrl <-> imageUrl distance<=0x800
+
+=== GENERATED TEXT MATCHES ===
+FILE=ida_script/addNames.py MATCH_LINE=42447
+042442: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 261040), '''String: "缓存图片路径: "''', True)
+042443: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 261032), '''AnonymousClosure: (0x8f186c), of [drm] yfb''', True)
+042444: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 261024), '''String: ", cacheHeight: "''', True)
+042445: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 261016), '''String: ", cacheWidth: "''', True)
+042446: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 261008), '''String: ", scale: "''', True)
+042447: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 261000), '''String: "QxComicCacheImageProvider("''', True)
+042448: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 260992), '''TypeArguments: <Ffb>''', True)
+042449: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 260984), '''AnonymousClosure: (0x79a580), of [krm] _Ifb''', True)
+042450: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 260976), '''String: "保存亮度设置失败: "''', True)
+042451: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 260968), '''String: "保存跟随系统亮度设置失败: "''', True)
+042452: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 260960), '''AnonymousClosure: (0x7fe254), in [prm] dgb::<anonymous closure> (0x7fd940)''', True)
+042453: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 260952), '''String: "跟随系统"''', True)
+FILE=ida_script/addNames.py MATCH_LINE=44095
+044090: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 249976), '''List<int>(9) [0x51, 0x4d, 0x43, 0x32, 0x9f, 0x27, 0x6b, 0xd4, 0xa]''', True)
+044091: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 249968), '''List<int>(9) [0x51, 0x4d, 0x43, 0x31, 0x9f, 0x27, 0x6b, 0xd4, 0xa]''', True)
+044092: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 249960), '''Obj!FormatException@5764f1 : {
+044093:   off_8: "缓存图片解密失败"
+044094: }''', True)
+044095: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 249952), '''String: "decryptCacheImage"''', True)
+044096: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 249936), '''String: "ImmutableBuffer::init"''', True)
+044097: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 249928), '''TypeArguments: <FG>''', True)
+044098: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 249920), '''AnonymousClosure: (0x4440f8), in [iem] eLa::<anonymous closure> (0x3ecb30)''', True)
+044099: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 249912), '''AnonymousClosure: static (0x6b4db4), of [dart:ui] FG''', True)
+044100: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 249896), '''String: "ImageDescriptor::dispose"''', True)
+044101: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 249888), '''String: " in type cast"''', True)
+FILE=ida_script/addNames.py MATCH_LINE=46543
+046538: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 233256), '''TypeArguments: <czb?>''', True)
+046539: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 233248), '''String: "rewardText"''', True)
+046540: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 233240), '''String: "claimed"''', True)
+046541: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 233232), '''String: "canClaim"''', True)
+046542: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 233224), '''String: "currentDays"''', True)
+046543: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 233216), '''String: "claimedImageUrl"''', True)
+046544: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 233208), '''String: "rewardVipDays"''', True)
+046545: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 233200), '''String: "requiredDays"''', True)
+046546: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 233192), '''String: "configId"''', True)
+046547: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 233184), '''TypeArguments: <nzb?>''', True)
+046548: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 233176), '''AnonymousClosure: static (0x76387c), of [CEm] mzb''', True)
+046549: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 233168), '''String: "currentAnnualDays"''', True)
+FILE=ida_script/addNames.py MATCH_LINE=55731
+055726: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 173360), '''String: "yyi"''', True)
+055727: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 173352), '''String: "wyi"''', True)
+055728: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 173344), '''String: "Eyi"''', True)
+055729: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 173336), '''String: "Dyi"''', True)
+055730: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 173328), '''String: "Cyi"''', True)
+055731: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 173320), '''String: "ComicReadSelectedImageLine"''', True)
+055732: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 173312), '''String: "切换线路前获取用户信息失败: "''', True)
+055733: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 173304), '''String: "已切换到备用线路"''', True)
+055734: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 173296), '''String: "已切换到加速线路"''', True)
+055735: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 173288), '''Obj!la@583c51 : {
+055736:   off_8: int(0x445c0)
+055737: }''', True)
+FILE=ida_script/addNames.py MATCH_LINE=55755
+055750: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 173184), '''AnonymousClosure: (0x470178), of [Rpm] Ydb''', True)
+055751: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 173176), '''String: "网络章节列表加载失败，尝试使用本地缓存章节列表: "''', True)
+055752: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 173168), '''AnonymousClosure: (0x3be634), of [Lem] IMa''', True)
+055753: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 173160), '''AnonymousClosure: (0x489e4c), of [VRl] cfb''', True)
+055754: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 173152), '''AnonymousClosure: (0x3be634), of [Lem] IMa''', True)
+055755: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 173144), '''String: "freeLine"''', True)
+055756: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 173136), '''String: " in type cast"''', True)
+055757: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 173128), '''Null''', True)
+055758: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 173120), '''String: "超清(type=2)章节详情返回 code=0，兜底降级为标清(type=1)重试一次: comicId="''', True)
+055759: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 173112), '''AnonymousClosure: (0xae2908), of [VRl] cfb''', True)
+055760: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 173104), '''String: " in type cast"''', True)
+055761: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 173096), '''Null''', True)
+FILE=ida_script/addNames.py MATCH_LINE=59008
+059003:   off_8: "缓存图片加密失败"
+059004: }''', True)
+059005: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 151712), '''String: "encryptCacheImage"''', True)
+059006: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 151704), '''String: " filePath="''', True)
+059007: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 151696), '''String: "Download request failed: url="''', True)
+059008: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 151688), '''String: " referer="''', True)
+059009: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 151680), '''String: ": url="''', True)
+059010: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 151672), '''String: "Download failed with status "''', True)
+059011: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 151664), '''List(7) [0, 0x3, 0x1, 0x2, "dPb", 0x2, Null]''', True)
+059012: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 151656), '''List(11) [0x1, 0x5, 0x5, 0x2, "YMc", 0x3, "ZMc", 0x4, "options", 0x2, Null]''', True)
+059013: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 151648), '''AnonymousClosure: (0x464984), of [jAm] cqb''', True)
+059014: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 151640), '''String: "bytes="''', True)
+FILE=ida_script/addNames.py MATCH_LINE=59746
+059741: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 146736), '''AnonymousClosure: (0x4cb0bc), in [ltm] iib::<anonymous closure> (0x4caf20)''', True)
+059742: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 146728), '''AnonymousClosure: (0x4cb2d8), in [ltm] iib::<anonymous closure> (0x4caf20)''', True)
+059743: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 146720), '''AnonymousClosure: (0x4caf20), of [ltm] iib''', True)
+059744: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 146712), '''String: "我是有底线的"''', True)
+059745: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 146704), '''AnonymousClosure: (0x4ca258), in [ltm] iib::<anonymous closure> (0x4ca1e4)''', True)
+059746: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 146696), '''String: "verticalImageUrl"''', True)
+059747: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 146688), '''String: "horizontalImageUrl"''', True)
+059748: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 146680), '''TypeArguments: <Nsb>''', True)
+059749: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 146672), '''TypeArguments: <Nsb?>''', True)
+059750: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 146664), '''AnonymousClosure: static (0x4c9abc), of [vBm] Msb''', True)
+059751: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 146656), '''String: "Get radio banner list failed: "''', True)
+059752: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 146648), '''SubtypeTestCache''', True)
+FILE=ida_script/addNames.py MATCH_LINE=59747
+059742: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 146728), '''AnonymousClosure: (0x4cb2d8), in [ltm] iib::<anonymous closure> (0x4caf20)''', True)
+059743: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 146720), '''AnonymousClosure: (0x4caf20), of [ltm] iib''', True)
+059744: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 146712), '''String: "我是有底线的"''', True)
+059745: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 146704), '''AnonymousClosure: (0x4ca258), in [ltm] iib::<anonymous closure> (0x4ca1e4)''', True)
+059746: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 146696), '''String: "verticalImageUrl"''', True)
+059747: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 146688), '''String: "horizontalImageUrl"''', True)
+059748: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 146680), '''TypeArguments: <Nsb>''', True)
+059749: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 146672), '''TypeArguments: <Nsb?>''', True)
+059750: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 146664), '''AnonymousClosure: static (0x4c9abc), of [vBm] Msb''', True)
+059751: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 146656), '''String: "Get radio banner list failed: "''', True)
+059752: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 146648), '''SubtypeTestCache''', True)
+059753: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 146640), '''Type: Map<String, dynamic>''', True)
+FILE=ida_script/addNames.py MATCH_LINE=60587
+060582: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 141032), '''String: "totalPages"''', True)
+060583: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 141024), '''String: " in type cast"''', True)
+060584: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 141016), '''Null''', True)
+060585: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 141008), '''String: "progressPercent"''', True)
+060586: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 141000), '''String: "pending"''', True)
+060587: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 140992), '''String: "referer"''', True)
+060588: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 140984), '''String: "localDir"''', True)
+060589: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 140976), '''String: "isLastReadChapter"''', True)
+060590: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 140968), '''String: " in type cast"''', True)
+060591: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 140960), '''Null''', True)
+060592: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 140952), '''String: "chapterIndex"''', True)
+060593: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 140944), '''String: "chapterCoverUrl"''', True)
+FILE=ida_script/addNames.py MATCH_LINE=60602
+060597: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 140912), '''Null''', True)
+060598: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 140904), '''AnonymousClosure: (0x3be634), of [Lem] IMa''', True)
+060599: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 140896), '''AnonymousClosure: static (0x461008), of [Yzm] Upb''', True)
+060600: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 140888), '''String: " in type cast"''', True)
+060601: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 140880), '''Null''', True)
+060602: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 140872), '''String: "pageUrls"''', True)
+060603: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 140864), '''String: "comic_cache_tasks"''', True)
+060604: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 140856), '''TypeArguments: <Upb?>''', True)
+060605: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 140848), '''Field <eqb._Bii@1566372493>: late final (offset: 0x18)''', True)
+060606: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 140840), '''String: ".bin"''', True)
+060607: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 140832), '''String: "qx-offline-name-v1-3f9a2c"''', True)
+060608: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 140824), '''Field <eqb._Gii@1566372493>: late final (offset: 0x30)''', True)
+FILE=ida_script/addNames.py MATCH_LINE=61422
+061417: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 135496), '''String: "jep"''', True)
+061418: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 135488), '''String: "jpg"''', True)
+061419: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 135480), '''Obj!FormatException@576491 : {
+061420:   off_8: "加密图片解密失败"
+061421: }''', True)
+061422: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 135472), '''String: "decryptImage"''', True)
+061423: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 135464), '''TypeArguments: <String, Uint8List>''', True)
+061424: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 135456), '''String: "图片响应文件流为空"''', True)
+061425: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 135448), '''Obj!aFb@577211 : {
+061426:   Super!_Enum : {
+061427:     off_8: int(0x0),
+061428:     off_10: "normal"
+FILE=ida_script/addNames.py MATCH_LINE=61718
+061713: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 133720), '''String: "创建话题“"''', True)
+061714: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 133712), '''String: "value"''', True)
+061715: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 133704), '''Null''', True)
+061716: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 133696), '''String: "[#%&<>]"''', True)
+061717: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 133688), '''String: "Fetch upload config failed: "''', True)
+061718: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 133680), '''String: "imageUrls"''', True)
+061719: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 133672), '''AnonymousClosure: (0x38c608), of [WBm] Rtb''', True)
+061720: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 133664), '''AnonymousClosure: (0x38c79c), of [NCm] Dvb''', True)
+061721: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 133656), '''String: "bookId"''', True)
+061722: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 133648), '''String: "Submit post failed: "''', True)
+061723: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 133640), '''SubtypeTestCache''', True)
+061724: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 133632), '''Type: Map<String, dynamic>''', True)
+FILE=ida_script/addNames.py MATCH_LINE=62917
+062912: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 125904), '''SubtypeTestCache''', True)
+062913: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 125896), '''TypeArguments: <Bsb?>''', True)
+062914: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 125888), '''String: "promotionUrl"''', True)
+062915: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 125880), '''String: "officialUrl"''', True)
+062916: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 125872), '''String: "customerUrl"''', True)
+062917: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 125864), '''String: "freeUrl"''', True)
+062918: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 125856), '''String: "baseImgUrl"''', True)
+062919: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 125848), '''String: "comicReadBannerAdEnabled"''', True)
+062920: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 125840), '''String: "comicReadInfoAdEnabled"''', True)
+062921: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 125832), '''String: "comicInfoAdEnabled"''', True)
+062922: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 125824), '''String: "circleBannerAdEnabled"''', True)
+062923: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 125816), '''String: "circleInfoAdEnabled"''', True)
+FILE=ida_script/addNames.py MATCH_LINE=62918
+062913: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 125896), '''TypeArguments: <Bsb?>''', True)
+062914: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 125888), '''String: "promotionUrl"''', True)
+062915: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 125880), '''String: "officialUrl"''', True)
+062916: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 125872), '''String: "customerUrl"''', True)
+062917: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 125864), '''String: "freeUrl"''', True)
+062918: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 125856), '''String: "baseImgUrl"''', True)
+062919: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 125848), '''String: "comicReadBannerAdEnabled"''', True)
+062920: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 125840), '''String: "comicReadInfoAdEnabled"''', True)
+062921: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 125832), '''String: "comicInfoAdEnabled"''', True)
+062922: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 125824), '''String: "circleBannerAdEnabled"''', True)
+062923: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 125816), '''String: "circleInfoAdEnabled"''', True)
+062924: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 125808), '''String: "mobileRegisterEnabled"''', True)
+FILE=ida_script/addNames.py MATCH_LINE=68671
+068666: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 101536), '''SubtypeTestCache''', True)
+068667: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 101528), '''TypeArguments: <Jsb?>''', True)
+068668: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 101520), '''SubtypeTestCache''', True)
+068669: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 101512), '''Type: Map''', True)
+068670: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 101504), '''SubtypeTestCache''', True)
+068671: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 101496), '''String: "imageUrl"''', True)
+068672: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 101488), '''String: "comicId"''', True)
+068673: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 101480), '''String: "加载轮播图数据失败: "''', True)
+068674: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 101472), '''TypeArguments: <Map<String, Object?>>''', True)
+068675: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 101464), '''AnonymousClosure: (0x4a1a64), of [Crm] wgb''', True)
+068676: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 101456), '''TypeArguments: <Ksb>''', True)
+068677: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 101448), '''AnonymousClosure: static (0x44ae40), of [rCm] Lub''', True)
+FILE=ida_script/addNames.py MATCH_LINE=82723
+082718: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 36400), '''String: "canonicalRequest"''', True)
+082719: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 36392), '''Map<String, String>(0) {
+082720: }''', True)
+082721: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 36384), '''TypeArguments: <Map<String, String>>''', True)
+082722: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 36376), '''String: "apiGuard"''', True)
+082723: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 36368), '''Set<String>(5) { "X-Timestamp", "X-Signature", "X-QM-Proof-Version", "X-QM-Request-Id", "X-QM-Proof" }''', True)
+082724: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 36360), '''String: "校验未通过，请稍后重试"''', True)
+082725: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 36352), '''String: "X-Api-Guard"''', True)
+082726: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 36344), '''Obj!_TL@576031 : {
+082727: }''', True)
+082728: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 36336), '''Field <xEb.ORc>: static late final (offset: 0x1388)''', True)
+082729: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 36328), '''AnonymousClosure: static (0x3b613c), of [XIm] ''', True)
+FILE=ida_script/addNames.py MATCH_LINE=84499
+084494: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 25280), '''TypeArguments: <Map<String, Object>>''', True)
+084495: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 25272), '''TypeArguments: <RHb>''', True)
+084496: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 25264), '''String: " in type cast"''', True)
+084497: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 25256), '''Null''', True)
+084498: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 25248), '''String: "play_progress_"''', True)
+084499: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 25240), '''String: "Referer"''', True)
+084500: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 25232), '''Obj!la@583c11 : {
+084501:   off_8: int(0x4c4b40)
+084502: }''', True)
+084503: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 25224), '''String: "bytes=0-1"''', True)
+084504: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 25216), '''String: "Range"''', True)
+084505: 	ida_struct.set_member_cmt(ida_struct.get_member(struc, 25208), '''String: ".m3u8"''', True)
+text_contexts=17
