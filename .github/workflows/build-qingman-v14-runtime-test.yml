@@ -1,0 +1,218 @@
+name: Build And Stage Qingman v1.6.14 Runtime Test
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/build-qingman-v14-runtime-test.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-qingman-v14-runtime-test
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check required secrets
+        env:
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "$MANGA_SIGNING_BUNDLE" ]]
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]]
+
+      - name: Checkout current Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          ref: main
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout Qingman runtime source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: fix/qingman-v3-runtime-clean
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: dev
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Record source commit and version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_sha="$(git -C dev rev-parse HEAD)"
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+          python3 - <<'PY'
+          import os,re
+          from pathlib import Path
+          text=Path('dev/src/zh/qingman/build.gradle.kts').read_text('utf-8')
+          code=re.search(r'versionCode\s*=\s*(\d+)',text)
+          lib=re.search(r'libVersion\s*=\s*"([0-9]+\.[0-9]+)"',text)
+          if not code or not lib: raise SystemExit('Unable to resolve Qingman version')
+          source_code=int(code.group(1)); version_name=f'{lib.group(1)}.{source_code}'
+          if (source_code,version_name)!=(14,'1.6.14'):
+              raise SystemExit(f'Expected Qingman v1.6.14, got code={source_code} name={version_name}')
+          with Path(os.environ['GITHUB_OUTPUT']).open('a',encoding='utf-8') as f:
+              f.write(f'source_code={source_code}\nversion_name={version_name}\n')
+          print(f'Qingman source={version_name} sha={os.popen("git -C dev rev-parse --short HEAD").read().strip()}')
+          PY
+
+      - name: Validate v14 online reader patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 dev/scripts/validate_sources.py
+          git -C dev diff --check
+          source='dev/src/zh/qingman/src/eu/kanade/tachiyomi/extension/zh/qingman/Qingman.kt'
+          grep -q 'for (readerType in listOf(2, 1))' "$source"
+          grep -q 'readerDiagnostic' "$source"
+          grep -q 'readerUrlShape' "$source"
+          grep -q 'resolveReaderImageUrl' "$source"
+          grep -q 'Headers.Builder()' "$source"
+          grep -q '\.reversed()' "$source"
+          if sed -n '/override suspend fun getPageList/,/override fun imageRequest/p' "$source" | grep -q 'fetchReaderCacheRoot'; then
+            echo '::error::Online reader still calls cache/detail helper'
+            exit 1
+          fi
+
+      - name: Overlay Qingman
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf upstream/src/zh/qingman
+          cp -a dev/src/zh/qingman upstream/src/zh/qingman
+
+      - name: Prepare verified official bootstrap material
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check pyelftools >/dev/null
+          python3 dev/scripts/prepare_qingman_bootstrap.py --module upstream/src/zh/qingman
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Spotless check
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:qingman:spotlessCheck
+
+      - name: Prepare stable signing key
+        env:
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64,json,os
+          from pathlib import Path
+          bundle=json.loads(os.environ['MANGA_SIGNING_BUNDLE'])
+          required=('signingKey','alias','storePassword','keyPassword')
+          missing=[k for k in required if not bundle.get(k)]
+          if missing: raise SystemExit('Signing bundle missing: '+', '.join(missing))
+          Path('upstream/signingkey.jks').write_bytes(base64.b64decode(bundle['signingKey']))
+          with Path(os.environ['GITHUB_ENV']).open('a',encoding='utf-8') as f:
+              for env_name,key in (('ALIAS','alias'),('KEY_STORE_PASSWORD','storePassword'),('KEY_PASSWORD','keyPassword')):
+                  value=str(bundle[key]); print(f'::add-mask::{value}'); f.write(f'{env_name}<<EOF_SIGN\n{value}\nEOF_SIGN\n')
+          PY
+
+      - name: Build signed debug and release APKs
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:qingman:assembleDebug :src:zh:qingman:assembleRelease
+
+      - name: Verify stable signing identity
+        id: signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(keytool -exportcert -alias "$ALIAS" -keystore upstream/signingkey.jks -storepass "$KEY_STORE_PASSWORD" | sha256sum | awk '{print $1}' | tr '[:upper:]' '[:lower:]')"
+          designated='1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620'
+          [[ "$expected" == "$designated" ]] || { echo '::error::Unexpected signing identity'; exit 1; }
+          apk="$(find upstream/src/zh/qingman -path '*/build/outputs/apk/release/*.apk' -type f | head -n1)"
+          test -n "$apk"
+          apksigner="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n1)"
+          "$apksigner" verify "$apk"
+          echo "fingerprint=$expected" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout extension staging
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-build
+          ref: extension-staging
+          token: ${{ github.token }}
+          path: staging
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Generate isolated Qingman v1.6.14 test store
+        env:
+          SIGNING_FINGERPRINT: ${{ steps.signing.outputs.fingerprint }}
+          EXPECTED_VERSION: ${{ steps.version.outputs.version_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' 'zh/qingman' > targets.txt
+          python3 dev/scripts/publish_test_repo.py \
+            --targets targets.txt \
+            --upstream-root upstream \
+            --source-root dev \
+            --repo-dir staging/test \
+            --owner huoguotiankong \
+            --repository mx-repo \
+            --signing-key "$SIGNING_FINGERPRINT"
+          test -f "staging/test/apk/tachiyomi-zh.qingman-v${EXPECTED_VERSION}.apk"
+          grep -q 'eu.kanade.tachiyomi.extension.zh.qingman' staging/test/index.json
+
+      - name: Commit staged Qingman v1.6.14
+        working-directory: staging
+        env:
+          EXPECTED_VERSION: ${{ steps.version.outputs.version_name }}
+          SOURCE_SHA: ${{ steps.version.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add test
+          if git diff --cached --quiet; then
+            echo 'No staging changes'
+          else
+            git commit -m "Stage Qingman v${EXPECTED_VERSION} runtime test (${SOURCE_SHA:0:8})"
+            git push origin HEAD:extension-staging
+          fi
+
+      - name: Upload signed APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: qingman-v14-runtime-signed-apk
+          path: upstream/src/zh/qingman/**/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Cleanup signing material
+        if: always()
+        run: rm -f upstream/signingkey.jks
