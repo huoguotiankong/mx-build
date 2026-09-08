@@ -1,0 +1,113 @@
+name: Promote Tencent v30 test store
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/promote-tencent-v30-test.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: promote-tencent-v30-test
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check repository token
+        shell: bash
+        env:
+          MX_REPO_TOKEN: ${{ secrets.MX_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_REPO_TOKEN" ]] || { echo "::error::Missing MX_REPO_TOKEN"; exit 1; }
+
+      - name: Checkout staged test store
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-build
+          ref: extension-staging
+          path: staging
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify staged Tencent v30
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('staging/test/index.json').read_text('utf-8'))
+          package = 'eu.kanade.tachiyomi.extension.zh.tencentcomics'
+          items = [x for x in data['extensionList']['extensions'] if x.get('packageName') == package]
+          if len(items) != 1:
+              raise SystemExit(f'Expected one staged {package}, got {len(items)}')
+          item = items[0]
+          expected = ('1.4.30', 104030)
+          actual = (item.get('versionName'), item.get('versionCode'))
+          if actual != expected:
+              raise SystemExit(f'{package}: expected {expected}, got {actual}')
+          print(f'Staged Tencent v30 verified: {actual}')
+          PY
+          test -f staging/test/apk/tachiyomi-zh.tencentcomics-v1.4.30.apk
+
+      - name: Checkout public repository
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-repo
+          ref: repo
+          token: ${{ secrets.MX_REPO_TOKEN }}
+          path: repo
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Promote staged test store
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf repo/test
+          mkdir -p repo/test
+          cp -a staging/test/. repo/test/
+          git -C repo status --short
+
+      - name: Commit public test store
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add test
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "No test-store changes to promote"
+          else
+            git commit -m "Publish Tencent Comics v30 test"
+            git push origin HEAD:repo
+          fi
+
+      - name: Verify promoted Tencent v30 locally
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('repo/test/index.json').read_text('utf-8'))
+          package = 'eu.kanade.tachiyomi.extension.zh.tencentcomics'
+          items = [x for x in data['extensionList']['extensions'] if x.get('packageName') == package]
+          if len(items) != 1:
+              raise SystemExit(f'Expected one promoted {package}, got {len(items)}')
+          item = items[0]
+          actual = (item.get('versionName'), item.get('versionCode'))
+          expected = ('1.4.30', 104030)
+          if actual != expected:
+              raise SystemExit(f'Promoted {package}: expected {expected}, got {actual}')
+          print('Promoted Tencent v30 index verified')
+          PY
