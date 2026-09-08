@@ -1,0 +1,174 @@
+name: Patch MX 1.14.12 replacement marker refresh
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/patch-mx-v92-marker-refresh.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout private MX App maintenance branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-app
+          ref: hotfix/v91-marker-refresh-v92
+          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply marker refresh backport
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          manga = Path("app/src/main/java/eu/kanade/tachiyomi/ui/manga/MangaScreen.kt")
+          text = manga.read_text(encoding="utf-8")
+
+          old_binding = '''        val wholeMangaBindingUrl by readerPreferences
+              .chapterContentBindingMangaUrl(successState.manga.id)
+              .changes()
+              .collectAsState(
+                  initial = readerPreferences.chapterContentBindingMangaUrl(successState.manga.id).get(),
+              )
+          val hasWholeMangaContentBinding = wholeMangaBindingSourceId >= 0L && wholeMangaBindingUrl.isNotBlank()
+  '''
+          new_binding = '''        val wholeMangaBindingUrl by readerPreferences
+              .chapterContentBindingMangaUrl(successState.manga.id)
+              .changes()
+              .collectAsState(
+                  initial = readerPreferences.chapterContentBindingMangaUrl(successState.manga.id).get(),
+              )
+          val wholeMangaBindingTitle by readerPreferences
+              .chapterContentBindingMangaTitle(successState.manga.id)
+              .changes()
+              .collectAsState(
+                  initial = readerPreferences.chapterContentBindingMangaTitle(successState.manga.id).get(),
+              )
+          val wholeMangaBindingMemo by readerPreferences
+              .chapterContentBindingMangaMemo(successState.manga.id)
+              .changes()
+              .collectAsState(
+                  initial = readerPreferences.chapterContentBindingMangaMemo(successState.manga.id).get(),
+              )
+          val wholeMangaBindingOffset by readerPreferences
+              .chapterContentBindingOffset(successState.manga.id)
+              .changes()
+              .collectAsState(
+                  initial = readerPreferences.chapterContentBindingOffset(successState.manga.id).get(),
+              )
+          val hasWholeMangaContentBinding = wholeMangaBindingSourceId >= 0L && wholeMangaBindingUrl.isNotBlank()
+          val wholeMangaChapterMatchInputs = remember(successState.chapters) {
+              successState.chapters.map { item ->
+                  Triple(item.chapter.id, item.chapter.name, item.chapter.chapterNumber)
+              }
+          }
+          var wholeMangaReplacementChapterIds by remember(successState.manga.id) {
+              mutableStateOf<Set<Long>>(emptySet())
+          }
+          LaunchedEffect(
+              wholeMangaBindingSourceId,
+              wholeMangaBindingUrl,
+              wholeMangaBindingTitle,
+              wholeMangaBindingMemo,
+              wholeMangaBindingOffset,
+              wholeMangaChapterMatchInputs,
+              successState.isRefreshingData,
+          ) {
+              if (successState.isRefreshingData) return@LaunchedEffect
+              if (!hasWholeMangaContentBinding) {
+                  wholeMangaReplacementChapterIds = emptySet()
+                  return@LaunchedEffect
+              }
+
+              wholeMangaReplacementChapterIds = emptySet()
+              wholeMangaReplacementChapterIds = runCatching {
+                  withIOContext {
+                      val targetSource = sourceManager.get(wholeMangaBindingSourceId) as? HttpSource
+                          ?: error("Bound replacement source is unavailable")
+                      val targetManga = SManga.create().apply {
+                          url = wholeMangaBindingUrl
+                          title = wholeMangaBindingTitle.ifBlank { wholeMangaBindingUrl }
+                          if (wholeMangaBindingMemo.isNotBlank()) {
+                              memo = runCatching {
+                                  Json.parseToJsonElement(wholeMangaBindingMemo).jsonObject
+                              }.getOrDefault(memo)
+                          }
+                      }
+                      val targetChapters = targetSource.getMangaUpdate(
+                          manga = targetManga,
+                          chapters = emptyList(),
+                          fetchDetails = false,
+                          fetchChapters = true,
+                      ).chapters
+
+                      successState.chapters
+                          .asSequence()
+                          .map { it.chapter }
+                          .filter { isWholeMangaReplacementEligible(it.name) }
+                          .mapNotNull { chapter ->
+                              chapter.id.takeIf {
+                                  findBestReplacementChapter(
+                                      currentName = chapter.name,
+                                      currentNumber = chapter.chapterNumber.toFloat(),
+                                      candidates = targetChapters,
+                                      offset = wholeMangaBindingOffset,
+                                  ) != null
+                              }
+                          }
+                          .toSet()
+                  }
+              }.onFailure { error ->
+                  logcat(LogPriority.WARN, error) {
+                      "Failed to refresh MX whole-manga replacement availability"
+                  }
+              }.getOrDefault(emptySet())
+          }
+  '''
+          if old_binding not in text:
+              raise SystemExit("binding anchor not found")
+          text = text.replace(old_binding, new_binding, 1)
+
+          old_marker = '''            isChapterContentReplaced = { chapter ->
+                  val directReplacement = chapter.id.toString() in replacedChapterIds
+                  val wholeMangaReplacement = hasWholeMangaContentBinding &&
+                      isWholeMangaReplacementEligible(chapter.name)
+                  directReplacement || wholeMangaReplacement
+              },
+  '''
+          new_marker = '''            isChapterContentReplaced = { chapter ->
+                  val directReplacement = chapter.id.toString() in replacedChapterIds
+                  val wholeMangaReplacement = chapter.id in wholeMangaReplacementChapterIds
+                  directReplacement || wholeMangaReplacement
+              },
+  '''
+          if old_marker not in text:
+              raise SystemExit("marker anchor not found")
+          text = text.replace(old_marker, new_marker, 1)
+          manga.write_text(text, encoding="utf-8")
+
+          gradle = Path("app/build.gradle.kts")
+          g = gradle.read_text(encoding="utf-8")
+          if 'versionCode = 91' not in g or 'versionName = "1.14.11"' not in g:
+              raise SystemExit("unexpected app version before v92 patch")
+          g = g.replace('versionCode = 91', 'versionCode = 92', 1)
+          g = g.replace('versionName = "1.14.11"', 'versionName = "1.14.12"', 1)
+          gradle.write_text(g, encoding="utf-8")
+          PY
+
+          ./gradlew spotlessApply
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/build.gradle.kts app/src/main/java/eu/kanade/tachiyomi/ui/manga/MangaScreen.kt
+          git diff --cached --quiet && { echo "::error::Patch produced no changes"; exit 1; }
+          git commit -m "fix: refresh whole-manga replacement markers after updates"
+          git push origin HEAD:hotfix/v91-marker-refresh-v92
