@@ -219,6 +219,27 @@
         ]
       },
       {
+        "name": "KManhua",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.kmanhua",
+        "resources": {
+          "apkUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.kmanhua-v1.6.1.apk",
+          "iconUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/icon/eu.kanade.tachiyomi.extension.zh.kmanhua-v106001.png",
+          "jarUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.kmanhua-v1.6.1.jar"
+        },
+        "extensionLib": "1.6",
+        "versionCode": "106001",
+        "versionName": "1.6.1",
+        "contentWarning": "CONTENT_WARNING_NSFW",
+        "sources": [
+          {
+            "id": "5495405383053627615",
+            "name": "K\u6f2b\u753b",
+            "language": "zh",
+            "homeUrl": "https://kmh010.net"
+          }
+        ]
+      },
+      {
         "name": "Kuaikan Manhua",
         "packageName": "eu.kanade.tachiyomi.extension.zh.kuaikanmanhua",
         "resources": {
@@ -411,6 +432,27 @@
             "mirrorUrls": [
               "https://manshiduo.org"
             ]
+          }
+        ]
+      },
+      {
+        "name": "Manwa Plus",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.manwaplus",
+        "resources": {
+          "apkUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.manwaplus-v1.6.5.apk",
+          "iconUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/icon/eu.kanade.tachiyomi.extension.zh.manwaplus-v106005.png",
+          "jarUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.manwaplus-v1.6.5.jar"
+        },
+        "extensionLib": "1.6",
+        "versionCode": "106005",
+        "versionName": "1.6.5",
+        "contentWarning": "CONTENT_WARNING_MIXED",
+        "sources": [
+          {
+            "id": "6342625961215603376",
+            "name": "\u6f2b\u86d9 Plus",
+            "language": "zh",
+            "homeUrl": "https://manwa.me"
           }
         ]
       },

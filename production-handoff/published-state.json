@@ -87,6 +87,17 @@
     "versionCode": 106004,
     "versionName": "1.6.4"
   },
+  "eu.kanade.tachiyomi.extension.zh.kmanhua": {
+    "androidVersionCode": 212001,
+    "apk": "tachiyomi-zh.kmanhua-v1.6.1.apk",
+    "apkSha256": "6f6e66d9dceda4786c88ca03b7adbdb003516ab41ece783fec9f098cb0b8969b",
+    "jar": "tachiyomi-zh.kmanhua-v1.6.1.jar",
+    "jarSha256": "05b582e3e3087756f4cfa3cd0656b447e3f0caf90d68ca9d952bb317edb79af8",
+    "module": "zh.kmanhua",
+    "sourceHash": "31cd833a65d1d79e9d8a75ae0fe8289e5a830366d3e81e5d1a42d4e686016e4c",
+    "versionCode": 106001,
+    "versionName": "1.6.1"
+  },
   "eu.kanade.tachiyomi.extension.zh.kuaikanmanhua": {
     "androidVersionCode": 212026,
     "apk": "tachiyomi-zh.kuaikanmanhua-v1.6.26.apk",
@@ -174,6 +185,17 @@
     "sourceHash": "003079d48e189db77f0876ea2a1f6e8f8a54b3a97589d266f5937a40c4842d57",
     "versionCode": 106001,
     "versionName": "1.6.1"
+  },
+  "eu.kanade.tachiyomi.extension.zh.manwaplus": {
+    "androidVersionCode": 212005,
+    "apk": "tachiyomi-zh.manwaplus-v1.6.5.apk",
+    "apkSha256": "23c889b58be6c145a16c5cca739517b5cfd1f1a7d457d332941d6a4bb82db797",
+    "jar": "tachiyomi-zh.manwaplus-v1.6.5.jar",
+    "jarSha256": "c3e9cdd7a9a7a88731a5c356aca0d7d08f6c58a4d444f6b331f2dbf4aed1c071",
+    "module": "zh.manwaplus",
+    "sourceHash": "6ac98c78748d58513c0c5401c6b4e9ff449221e7539357ed50b0ca75f42cf137",
+    "versionCode": 106005,
+    "versionName": "1.6.5"
   },
   "eu.kanade.tachiyomi.extension.zh.mengxige": {
     "androidVersionCode": 212004,
