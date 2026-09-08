@@ -1,0 +1,242 @@
+name: Stage MengXiGe v1.6.6 Formal Repo
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/stage-mengxige-v166-formal.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stage-mengxige-v166-formal
+  cancel-in-progress: false
+
+jobs:
+  stage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout build infrastructure
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Check required secrets
+        shell: bash
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]] || { echo "::error::Missing MX_PRIVATE_READ_TOKEN"; exit 1; }
+          [[ -n "$MANGA_SIGNING_BUNDLE" ]] || { echo "::error::Missing MANGA_SIGNING_BUNDLE"; exit 1; }
+
+      - name: Checkout private extension source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify MengXiGe v1.6.6 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F 'versionCode = 6' source/src/zh/mengxige/build.gradle.kts
+          test -f source/src/zh/mengxige/src/eu/kanade/tachiyomi/extension/zh/mengxige/MengXiGe.kt
+          python3 source/scripts/validate_sources.py
+          git -C source rev-parse HEAD | tee /tmp/source-sha.txt
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Checkout current Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Overlay MengXiGe module
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf upstream/src/zh/mengxige
+          mkdir -p upstream/src/zh
+          cp -a source/src/zh/mengxige upstream/src/zh/mengxige
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Normalize formatting
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:mengxige:spotlessApply :src:zh:mengxige:spotlessCheck
+
+      - name: Prepare stable signing key
+        shell: bash
+        env:
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, json, os
+          from pathlib import Path
+          bundle = json.loads(os.environ['MANGA_SIGNING_BUNDLE'])
+          required = ('signingKey','alias','storePassword','keyPassword')
+          missing = [k for k in required if not bundle.get(k)]
+          if missing:
+              raise SystemExit('Signing bundle missing: ' + ', '.join(missing))
+          Path('upstream/signingkey.jks').write_bytes(base64.b64decode(bundle['signingKey']))
+          with Path(os.environ['GITHUB_ENV']).open('a', encoding='utf-8') as f:
+              for env_name, key in (('ALIAS','alias'),('KEY_STORE_PASSWORD','storePassword'),('KEY_PASSWORD','keyPassword')):
+                  value = str(bundle[key])
+                  print(f'::add-mask::{value}')
+                  f.write(f'{env_name}<<__MX_EOF__\n{value}\n__MX_EOF__\n')
+          PY
+
+      - name: Verify configured signing identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620'
+          actual="$(keytool -exportcert -alias "$ALIAS" -keystore upstream/signingkey.jks -storepass "$KEY_STORE_PASSWORD" | sha256sum | awk '{print $1}')"
+          actual="$(printf '%s' "$actual" | tr '[:upper:]' '[:lower:]')"
+          [[ "$actual" == "$expected" ]] || { echo "::error::Signing identity mismatch"; exit 1; }
+          echo "SIGNING_FINGERPRINT=$actual" >> "$GITHUB_ENV"
+
+      - name: Build and lint signed Release extension
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:mengxige:assembleRelease :src:zh:mengxige:lintRelease --stacktrace
+
+      - name: Verify APK and JAR signatures
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$SIGNING_FINGERPRINT"
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          apk="$(find upstream/src/zh/mengxige -path '*/build/outputs/apk/release/*.apk' -type f | head -n 1)"
+          jar="$(find upstream/src/zh/mengxige -path '*/build/outputs/jar/release/*.jar' -type f | head -n 1)"
+          [[ -n "$apksigner" && -n "$apk" && -n "$jar" ]] || { echo "::error::Missing release artifact"; exit 1; }
+          cert_output="$("$apksigner" verify --print-certs "$apk" 2>&1)"
+          normalized="$(printf '%s' "$cert_output" | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')"
+          [[ "$normalized" == *"$expected"* ]] || { echo "::error::APK signing certificate mismatch"; exit 1; }
+          jarsigner -verify "$jar" >/dev/null
+
+      - name: Checkout current public repo snapshot
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-repo
+          ref: repo
+          path: repo
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Generate targeted formal repository update
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp repo/index.json /tmp/index-before.json
+          python3 -m pip install --disable-pip-version-check protobuf >/dev/null
+          python3 source/scripts/publish_repo.py \
+            --artifacts-root upstream/src/zh/mengxige \
+            --source-root source \
+            --repo-dir repo \
+            --owner huoguotiankong \
+            --repository mx-repo \
+            --signing-key "$SIGNING_FINGERPRINT" \
+            --upstream-root upstream
+
+      - name: Verify targeted release invariant
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          pkg='eu.kanade.tachiyomi.extension.zh.mengxige'
+          before=json.loads(Path('/tmp/index-before.json').read_text('utf-8'))
+          after=json.loads(Path('repo/index.json').read_text('utf-8'))
+          b={x['packageName']:x for x in before['extensionList']['extensions']}
+          a={x['packageName']:x for x in after['extensionList']['extensions']}
+          if set(a) != set(b):
+              raise SystemExit(f'Package set changed: before={len(b)} after={len(a)}')
+          changed=[]
+          for name in sorted(a):
+              if name == pkg:
+                  continue
+              if a[name] != b[name]:
+                  changed.append(name)
+          if changed:
+              raise SystemExit('Non-target canonical entries changed: ' + ', '.join(changed))
+          item=a[pkg]
+          if item.get('versionName') != '1.6.6' or str(item.get('versionCode')) != '6':
+              raise SystemExit(f'Unexpected MengXiGe canonical version: {item.get("versionName")}/{item.get("versionCode")}')
+          if not item['resources']['apkUrl'].endswith('tachiyomi-zh.mengxige-v1.6.6.apk'):
+              raise SystemExit('Unexpected MengXiGe APK URL')
+          if not item['resources']['jarUrl'].endswith('tachiyomi-zh.mengxige-v1.6.6.jar'):
+              raise SystemExit('Unexpected MengXiGe JAR URL')
+          android=json.loads(Path('repo/index-android.json').read_text('utf-8'))
+          ai=next(x for x in android['extensionList']['extensions'] if x['packageName']==pkg)
+          if str(ai.get('versionCode')) != '106006':
+              raise SystemExit(f'Unexpected Android compatibility versionCode: {ai.get("versionCode")}')
+          print('Targeted formal repo verified: MengXiGe 1.6.6 / canonical 6 / android 106006')
+          PY
+          test -f repo/tachiyomi-zh.mengxige-v1.6.6.apk
+          test -f repo/tachiyomi-zh.mengxige-v1.6.6.jar
+
+      - name: Checkout formal staging branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-build
+          ref: formal-staging
+          token: ${{ github.token }}
+          path: staging
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Stage generated formal repository snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf staging/formal
+          mkdir -p staging/formal
+          rsync -a --exclude='.git/' --exclude='test/' repo/ staging/formal/
+          printf 'source=huoguotiankong/mx-dev\nref=main\nmodule=mengxige\nversion=1.6.6\ncanonicalVersionCode=6\nandroidVersionCode=106006\n' > staging/formal/VALIDATED.txt
+          git -C staging status --short
+
+      - name: Commit formal staging snapshot
+        working-directory: staging
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add formal
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo 'No formal staging changes'
+          else
+            git commit -m "Stage MengXiGe v1.6.6 formal repo"
+            git push origin HEAD:formal-staging
+          fi
+
+      - name: Cleanup signing material
+        if: always()
+        shell: bash
+        run: rm -f upstream/signingkey.jks
