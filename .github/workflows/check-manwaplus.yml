@@ -52,6 +52,10 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Format transient checkout for compile diagnostics
+        working-directory: upstream
+        run: ./gradlew :src:zh:manwaplus:spotlessApply
+
       - name: Spotless, debug build, release lint
         working-directory: upstream
         run: ./gradlew :src:zh:manwaplus:spotlessCheck :src:zh:manwaplus:assembleDebug :src:zh:manwaplus:lintRelease --stacktrace
