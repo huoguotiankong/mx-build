@@ -231,6 +231,28 @@
         ]
       },
       {
+        "name": "Manwa Plus",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.manwaplus",
+        "resources": {
+          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.manwaplus-v1.6.1.apk",
+          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.manwaplus-v106001.png"
+        },
+        "extensionLib": "1.6",
+        "versionCode": 106001,
+        "versionName": "1.6.1",
+        "contentWarning": "MIXED",
+        "sources": [
+          {
+            "id": 6342625961215603376,
+            "name": "漫蛙 Plus",
+            "language": "zh",
+            "homeUrl": "https://manwa.me",
+            "mirrorUrls": [],
+            "message": null
+          }
+        ]
+      },
+      {
         "name": "Mengman",
         "packageName": "eu.kanade.tachiyomi.extension.zh.mengman",
         "resources": {
