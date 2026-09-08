@@ -1,0 +1,120 @@
+name: Capture K Manga structure
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-kmh010-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Capture pages and bundles
+        shell: bash
+        run: |
+          set -euo pipefail
+          ua='Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36'
+          root="$RUNNER_TEMP/kmh010"
+          mkdir -p "$root/js"
+          fetch() {
+            local path="$1" out="$2"
+            curl -L --compressed --connect-timeout 10 --max-time 35 -A "$ua" -sS \
+              -D "$out.headers" -o "$out" -w '%{http_code} %{url_effective}\n' "https://kmh010.net$path"
+          }
+          fetch /home "$root/home.html"
+          fetch /category "$root/category.html"
+          fetch /search "$root/search.html"
+          sample="$(grep -oE '/comic/[A-Za-z0-9]+' "$root/home.html" | head -n1)"
+          echo "sample=$sample" | tee "$root/discovery.txt"
+          fetch "$sample" "$root/comic.html"
+          chapter="$(grep -oE '/[^\"'"'"'<> ]*(chapter|read|viewer)[^\"'"'"'<> ]*' "$root/comic.html" | head -n1 || true)"
+          printf 'chapter=%s\n' "$chapter" | tee -a "$root/discovery.txt"
+          if [[ -n "$chapter" ]]; then fetch "$chapter" "$root/chapter.html" || true; fi
+          curl -L --compressed --connect-timeout 10 --max-time 25 -A "$ua" -sS -o "$root/favicon-192.png" https://kmh010.net/android-icon-192x192.png || true
+
+          python3 - "$root" <<'PY'
+          from pathlib import Path
+          from urllib.parse import urljoin
+          import re, subprocess, sys
+          root=Path(sys.argv[1])
+          html=(root/'home.html').read_text('utf-8',errors='ignore')
+          scripts=[]
+          for src in re.findall(r'<script[^>]+src=["\']([^"\']+)',html,re.I):
+              u=urljoin('https://kmh010.net/home',src)
+              if u not in scripts: scripts.append(u)
+          (root/'scripts.txt').write_text('\n'.join(scripts),'utf-8')
+          for i,u in enumerate(scripts):
+              p=root/'js'/f'{i:02d}.js'
+              subprocess.run(['curl','-L','--compressed','--connect-timeout','10','--max-time','30','-A','Mozilla/5.0','-sS','-o',str(p),u],check=False)
+          print('scripts',len(scripts))
+          for name in ['home.html','category.html','search.html','comic.html','chapter.html']:
+              p=root/name
+              if not p.exists(): continue
+              text=p.read_text('utf-8',errors='ignore')
+              links=[]
+              for h in re.findall(r'href=["\']([^"\']+)',text,re.I):
+                  if h not in links: links.append(h)
+              imgs=[]
+              for s in re.findall(r'(?:src|data-src|data-original)=["\']([^"\']+)',text,re.I):
+                  if s not in imgs: imgs.append(s)
+              print('\n###',name,'bytes',len(text.encode()))
+              print('title',re.findall(r'<title[^>]*>(.*?)</title>',text,re.I|re.S)[:2])
+              print('links',links[:120])
+              print('imgs',imgs[:80])
+          PY
+
+          echo '=== API / route strings from bundles ==='
+          python3 - "$root" <<'PY'
+          from pathlib import Path
+          import re, sys
+          root=Path(sys.argv[1])
+          needles=('api','comic','chapter','episode','search','category','weekly','complete','shelf','favorite','image','img.kmh','axios','fetch(')
+          out=[]
+          for p in sorted((root/'js').glob('*.js')):
+              text=p.read_text('utf-8',errors='ignore')
+              strings=re.findall(r'["\'`]([^"\'`]{2,260})["\'`]',text)
+              hits=[]
+              for s in strings:
+                  low=s.lower()
+                  if any(n in low for n in needles):
+                      if s not in hits: hits.append(s)
+              if hits:
+                  out.append(f'## {p.name}')
+                  out.extend(hits[:500])
+          result='\n'.join(out)
+          (root/'bundle-strings.txt').write_text(result,'utf-8')
+          print(result[:50000])
+          PY
+
+          echo '=== Comic visible text ==='
+          python3 - "$root" <<'PY'
+          from pathlib import Path
+          import re, html, sys
+          root=Path(sys.argv[1])
+          for name in ['home.html','category.html','comic.html','chapter.html']:
+              p=root/name
+              if not p.exists(): continue
+              t=p.read_text('utf-8',errors='ignore')
+              t=re.sub(r'<script.*?</script>',' ',t,flags=re.S|re.I)
+              t=re.sub(r'<style.*?</style>',' ',t,flags=re.S|re.I)
+              t=re.sub(r'<[^>]+>','\n',t)
+              t=html.unescape(t)
+              lines=[re.sub(r'\s+',' ',x).strip() for x in t.splitlines()]
+              lines=[x for x in lines if x]
+              print('\n###',name)
+              print('\n'.join(lines[:260]))
+          PY
+
+      - name: Upload capture
+        uses: actions/upload-artifact@v4
+        with:
+          name: kmh010-structure
+          path: ${{ runner.temp }}/kmh010
+          if-no-files-found: error
+          retention-days: 3
