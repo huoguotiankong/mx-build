@@ -32,7 +32,7 @@ jobs:
           sha="$(git -C source rev-parse HEAD)"
           echo "Checked mx-dev commit: $sha" >> "$GITHUB_STEP_SUMMARY"
           grep -F 'versionCode = 6' source/src/zh/mengxige/build.gradle.kts
-          grep -F 'IMAGE_BODY_ATTEMPTS = 3' source/src/zh/mengxige/src/eu/kanade/tachiyomi/extension/zh/mengxige/MengXiGeImageDecoderInterceptor.kt
+          grep -F 'IMAGE_HTTP1_FALLBACK_CLIENT' source/src/zh/mengxige/src/eu/kanade/tachiyomi/extension/zh/mengxige/MengXiGeImageDecoderInterceptor.kt
           test -s source/src/zh/mengxige/res/mipmap-mdpi/ic_launcher.png
           test -s source/src/zh/mengxige/res/mipmap-hdpi/ic_launcher.png
           test -s source/src/zh/mengxige/res/mipmap-xhdpi/ic_launcher.png
