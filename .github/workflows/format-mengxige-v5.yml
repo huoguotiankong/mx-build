@@ -132,3 +132,5 @@ jobs:
             echo "- Validated source pushed back to mx-dev/main"
             echo "- Android real-device behavior remains a separate validation step"
           } >> "$GITHUB_STEP_SUMMARY"
+
+# rerun: 2026-09-08 v5 validation
