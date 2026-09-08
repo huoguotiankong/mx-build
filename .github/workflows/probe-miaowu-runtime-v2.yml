@@ -15,22 +15,29 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     steps:
-      - name: Install Capstone
-        run: python3 -m pip install --disable-pip-version-check capstone==5.0.9
-      - name: Disassemble Miaowu parser and helper
+      - name: Discover official APK endpoint
         shell: bash
         run: |
+          set -euo pipefail
           python3 - <<'PY'
-          import base64
-          from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM
-          regions = [
-            ('parser', 0x35fc00, 'Ynt9+eyDFpSgg1/4A/BBuGOAHIujAx/4cId9+fABAPkssRmUoYNe+KMDX/jlAwCqYod9+eCDFpSgg1/4AzBCuGOAHIujAx/4cJN9+fABAPkgsRmUoYNe+KMDX/jlAwCqYpN9+dSDFpSgg1/4A3BCuGOAHIujAx/4cJ99+fABAPkUsRmUoYNe+KMDX/jlAwCqYp99+ciDFpSgg1747wMdqv15wajAA1/W16galIn//xf9eb+p/QMPqlAnQPn/ARDryQAAVKELQPkGAACU7wMdqv15wajAA1/Wy6galPr//xf9eb+p/QMPqu8BAdGhgx/4UCdA+f8BEOtJjgBU9VAXlKADH/hAP0D5ABRT+XAjQPkfABBrYQAAVGIvZPnkoBqU5AMAqqODX/ikgx74YPBf+AB8TNPhAwOqYitt+R4cBNG+en74wAM/1uEDAKqgg174oQMe+ALwX/hCfEzTX3AO8cEDAFRw60H5fjNk+f5BAKlLgxqUIAIgN6EDXvj0Rf+X4wMAquIDFqrhAxaqo4Md+ATwX/iEfEzThHgB0Z8EAPGJAABUaNdF+WOrffmV+RaUoINd+BQAABRwh0T5voNe+P7BAKmwA1748AEA+WQnQPkplRqUDAAAFAHwX/ghfEzTcIdE+eDBAKmwA1748AEA+eADAapkJ0D5HgRA0b56fvjAAz/WHwAWa2ABAFSjA1/4YHAAuOAAADZw8F84EfBfODAKUIofglzqQAAAVACiGpQCAAAUowNf+KSDX/hFP0D5pRRT+aWDHviA8F/4AHxM0+EDBKpiu1L5HhwE0b56fvjAAz/W4QMAqqCDXvihAx74AvBf+EJ8TNNfcA7xwQMAVHDrQfl+M2T5/kEAqQSDGpQgAiA3oQNe+K1F/5fjAwCq4gMWquEDFqqjgx34BPBf+IR8TNOEeAHRnwQA8YkAAFRo10X5Y7N9+U75FpSgg134FAAAFHCHRPm+g174/sEAqbADXvjwAQD5ZCdA+eKUGpQMAAAUAfBf+CF8TNNwh0T54MEAqbADXvjwAQD54AMBqmQnQPkeBEDRvnp++MADP9YfABZrYAEAVKMDX/hgsAC44AAANnDwXzgR8F84MApQih+CXOpAAABUuaEalAIAABSjA1/4pINf+EU/QPmlFFP5pYMe+IDwX/gAfEzT4QMEqmK7ffkeHATRvnp++MADP9bhAwCqoINe+KEDHvgC8F/4QnxM019wDvHhAwBUcANB+X4zZPn+QQCpvYIalEACIDehA174ZkX/l+MDAKriAxaq4QMWqqODHfggAQA2BPBf+IR8TNOE8ADRnwQA8YkAAFRo50X5Y799+a/UGpSgg134FAAAFHDbRPm+g174/sEAqbADXvjwAQD5ZCdA+ZqUGpQMAAAUAfBf+CF8TNNw20T54MEAqbADXvjwAQD54AMBqmQnQPkeBEDRvnp++MADP9YfABZrYAEAVKMDX/hg8AC44AAANnDwXzgR8F84MApQih+CXOpAAABUcaEalAIAABSjA1/4pINf+EU/QPmlFFP5pYMe+IDwX/gAfEzT4QMEqmKTbfkeHATRvnp++MADP9bhAwCqoINe+KEDHvgC8F/4QnxM019wDvHhAwBUcANB+X4zZPn+QQCpdYIalEACIDehA174HkX/l+MDAKriAxaq4QMWqqODHfggAQA2BPBf+IR8TNOE8ADRnwQA8YkAAFRo50X5Y8d9+WfUGpSgg134FAAAFHDbRPm+g174/sEAqbADXvjwAQD5ZCdA+VKUGpQMAAAUAfBf+CF8TNNw20T54MEAqbADXvjwAQD54AMBqmQnQPkeBEDRvnp++MADP9YfABZrYAEAVKMDX/hgMAG44AAANnDwXzgR8F84MApQih+CXOpAAABUKaEalAIAABSjA1/4pINf+EU/QPmlFFP5pYMe+IDwX/gAfEzT4QMEqmJ7bfkeHATRvnp++MADP9bhAwCqoINe+KEDHvgC8F/4QnxM019wDvGhAwBUcFtF+X4zZPn+QQCpLYIalAACIDehA1741kT/l+MDAKriAxaq4QMWqqODHfgE8F/4hHxM05/8APGAAABUaJtF+WPPfflZAheUoINd+BQAABRwK1f5voNe+P7BAKmwA1748AEA+WQnQPkMlBqUDAAAFAHwX/ghfEzTcCtX+eDBAKmwA1748AEA+eADAapkJ0D5HgRA0b56fvjAAz/WHwAWa4AAAFSjA1/4YHABuAIAABSjA1/4pINf+EU/QPmlFFP5pYMe+IDwX/gAfEzT4QMEqmJvffkeHATRvnp++MADP9bhAwCqoINe+KEDHvgC8F/4QnxM019wDvHhAwBUcANB+X4zZPn+QQCp7oEalEACIDehA174l0T/l+MDAKriAxaq4QMWqg=='),
-            ('helper33154c', 0x331480, 'Y3N3+czLF5Sgg1/4HwAWa2EAAFTgAxaqGwAAFGF7d/niAxaqY18blOEDAKqgg1/4AvBf+EJ8TNNwf3f54MEAqeEBAPngAwKqZCdA+RGGltIeABGLvnp++MADP9YB8F/4IXxM0/ADAKrgAwGq4QMQqmTfQvlxGpfSHgARi756fvjAAz/WHwAWa0ABAFShA1/4ILAAuDDwXzgR8F84MApQih+CXOpAAABUMVwblAIAABShA1/44AMBqu8DHar9ecGowANf1rBiG5R0//8X/Xm/qf0DD6rvIQDRUCdA+f8BEOvJAgBUPwAWa6EAAFTgAxaq7wMdqv15wajAA1/WgAeA0mEAADYg8F/4AHxM0+EBAPlkQ0L5UdyE0h4AEYu+en74wAM/1uEDAKoGAACU7wMdqv15wajAA1/Wk2IblOr//xf9eb+p/QMPqu9BANGhgx/4UCdA+f8BEOupAgBUIQCA0iNeG5ThAwCqoINf+CDwALjiAwGqYUtl+Q5fG5RhT2X54gMWqqCDH/gKXxuU4AEA+aKDX/hhU2X5ZFdl+el6BpTvAx2q/XnBqMADX9Z2YhuU6///F2BbZfnAA1/W/Xm/qf0DD6rvgQDRoA9A+QFwQbghgByLoYMf+FAnQPn/ARDr6QIAVKALQPkC8EC4QoAci+IBAPm+dheU4QMAqqCDX/ihAx/4AvBAuEKAHItA8F/4AHxM0+IBAPke8D/Rvnp++MADP9awA1/44EEAqauYFZTvAx2q/XnBqMADX9ZSYhuU6f//F/15v6n9Aw+q78EA0aGDH/hQJ0D5/wEQ6+kGAFRwY0b5XlNA+f5BAKmQtReU4QMAqqCDX/ihgx74A3BAuGOAHIujAx/4cGN3+fABAPlwahqUoYNe+KMDX/jlAwCqYmN3+SQ9F5Sgg1/4A7BAuGOAHIujAx/4fwAWa2EAAFTjAxaqEAAAFGFbQJEhxEL54gMWqrdeG5Rwj1f5vgNf+P7BAKngAQD5ZCdA+TzNBpQBcEC4IYAci+IDAKq1Vv6X4wMAqqODH/hwb3f58AEA+VBqGpShg174o4Nf+OUDAKpib3f5BD0XlKCDXvjvAx2q/XnBqMADX9YTYhuUyf//F/15v6n9Aw+qUCdA+f8BEOvJAABUoQtA+QYAAJTvAx2q/XnBqMADX9YHYhuU+v//F/15v6n9Aw+q76EA0aGDH/hQJ0D5/wEQ62kEAFRwY0b5XlNA+f5BAKlFtReU4QMAqqCDX/ihgx74A3BAuGOAHIujAx/4cEt3+fABAPklahqUoYNe+KMDX/jlAwCqYkt3+dk8F5Sgg1/4A7BAuGOAHIujAx/4cFd3+fABAPkZahqUoYNe+KMDX/jlAwCqYld3+Q=='),
-          ]
-          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
-          for name,base,b64 in regions:
-              print(f'===== {name} {base:#x} =====')
-              for ins in md.disasm(base64.b64decode(b64),base):
-                  if name == 'parser' or (0x3314d0 <= ins.address <= 0x331680):
-                      print(f'{ins.address:#010x}: {ins.mnemonic:<8} {ins.op_str}')
+          import urllib.request, urllib.error, re
+          urls=['https://zyz.iqtao.cn/index.php/share/app/10001','https://mwapk.jsj66.com','https://mwapk.jss66.com']
+          H={'User-Agent':'Mozilla/5.0 (Linux; Android 16; Mobile) AppleWebKit/537.36 Chrome/140.0 Mobile Safari/537.36'}
+          for url in urls:
+              print('\nURL',url)
+              try:
+                  r=urllib.request.urlopen(urllib.request.Request(url,headers=H),timeout=20)
+                  body=r.read(1000000)
+                  print('STATUS',getattr(r,'status',None),'FINAL',r.geturl(),'TYPE',r.headers.get('content-type'),'LEN',len(body))
+                  if b'<html' in body.lower() or b'http' in body.lower():
+                      t=body.decode('utf-8','replace')
+                      found=[]
+                      for x in re.findall(r'https?://[^\"\'<>\s]+|(?:href|src)=[\"\']([^\"\']+)',t,re.I):
+                          if isinstance(x,tuple): x=next((z for z in x if z),'')
+                          if x and x not in found: found.append(x)
+                      for x in found[:100]: print('LINK',x)
+                      for key in ['apk','download','安卓','android','version']:
+                          p=t.lower().find(key.lower())
+                          if p>=0: print('AROUND',key,re.sub(r'\s+',' ',t[max(0,p-300):p+700])[:1000])
+              except Exception as e: print('ERR',type(e).__name__,str(e)[:300])
           PY
