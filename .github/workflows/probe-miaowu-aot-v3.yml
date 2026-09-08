@@ -1,0 +1,39 @@
+name: Probe Miaowu AOT v3
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-miaowu-aot-v3.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  disasm:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Install Capstone
+        run: python3 -m pip install --disable-pip-version-check capstone==5.0.9
+      - name: Disassemble targeted Miaowu AOT regions
+        shell: bash
+        run: |
+          python3 - <<'PYCODE'
+          import base64
+          from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM
+          regions={}
+          regions['piclist'] = (3542656, base64.b64decode('YAEAVKEDX/ggMAS44AAANjDwXzgR8F84MApQih+CXOpAAABU0p0alAIAABShA1/44AMBqu8DHar9ecGowANf1lGkGpSO+/8X/Xm/qf0DD6rvoQDRUCdA+f8BEOvpCABUQD9A+QAUU/lwI0D5HwAQa2EAAFRiL2T5bZwalKCDH/gB8F/4IXxM0z9wDvHBAwBUcLNm+X4zZPn+QQCp4H4alAACIDehC0D5iUH/l+MDAKriAxaq4QMWqqMDH/gE8F/4hHxM05+oDfGAAABUaHt++WN/fvmimxqUowNf+BYAABRwH35+74Nf/MAEtC+8cAAFHgA8f4sAtA+fABAPngAwGqZCdA+R4EQNG+en74wAM/1H8AFmthAABU4AMDAuIDFqrhAxaqBPBf+IR8TNOfoA3xgAAAVGi3ZvljiH75M0wXlKADX/hDAABQoSNM8XzxxwAKHAZR4QMWquEDGKrgAwr5I/P/H34eAxaqBAQAFCBfYGphfQYQYI8DAa7xeNlGkPBNX+jDA1/46QEQVTA7ZvmdrzCZa40alF8fABCrIQAAUOADLgLiAxaq4QMWqgTwX/iEfEzTn6AN8YAAAAxot2b5Y4d++SNM8ZXxjB/V8YwA1f7xwAAUkAIgqmB9BhBgjwMBvA/BxvqHwWIeoAMG4q9hoBE84ccACswHU+EfBhB4AcGAeWEGAFQRAhWu50dQPCBNZwXVealUcB1HGoYWDIKHUrUiOAIQRBlW56cwceJGZ+qFza17i/A7lTZ1vJhkEguWsErmXY63k6dKmiV/2gx4Oy/aaEBmA5xgSxgzwKSIHSGqh1hwHQ5rZ6TPblWwqc88USNrLrsXH8+W20v8V0nBdKI7WOdhwqAU5Khj31FVsMTE6e9uTTMMg3WNqyWGZRm2T01rfi+5gtbzGyFoVSswOpBn6HoFk7Mk6hZ3ZJkD03HnwjIPbVjY6VW8j8x1Vt/JSWPdpAdBKSOlva6UdGSzxZIAZoWZXsTeQYdHA8WkpSWCcEj/85Qn8aB0q5NG4fCRiEOe2bOgi03lr7GuAIuqVe7ZiigLKfDhKAkyB0hqoaYcB0Oa2ekz25VsKnPPFEjay67Fx/PlttL/FdJwXSiO1jnYcKgFOSoY99RVbDExOnvbk0zDIN1jaslhmUZtk9Na34vuYLW8xshaFUrMDqQZ+h6BZ24yCKCzJs94/9sqJ9G3Fv0RV0qYVn7PjpHjGSVHjA5i3GuqhZug6BZOzJOoWd2SZA9Nx58IyD21Y2OlVvI/MdVbfyUlj3aQHQSkjpb2ulHRks8WSAGaFmV7E3kGHRwPFpKUliHgScfkSN7PLHIWfgD+McVDXi4FqUHh2BwrF4I0LwW4jo4azWj9EJ/YtlqfZ+EmR+dI2eAGaFmV7E3kGHRwPFpKUlg7opBYIYXVddE7Uyfap3vQaORFGSiRO5i5rn+Nxl/sieFGvdCmCofv/xxfd9MogdiHlFkPxWVBL8b8U/VRL8RHd+isZhb/zcmxA2jUDzpXSxyFn4A/jHFQ14uBalB4dgcKxeCNC8FuI6OGs1o/RCf2LZan2fhJkfnSNngBmhZlexN5Bh0cDxaSlJYR4EnH5EjezixyFn4A/jHFQ14uBalB4dgcKxeCNC8FuI6OGs1o/RCf2LZan2fhJkfnSNngBmhZlexN5Bh0cDxaSlJYO6KQWCGF1XXRO1Mn2qd70GjkRRkokTuYua5/jcZf7InhRr3QpgqH7/8cX3fTKIHYh5RZD8VlQS/G/FP1US/ER3forGYW/83JsQNo1A86V0schZ+AP4xxUNeLgWpQeHYHCsXgjQvBbiOjhrNaP0Qn9i2Wp9n4SZH50jZ4AZoWZXsTeQYdHA8WkpSWA=='))
+          regions['parser'] = (3536896, base64.b64decode('VYFP9EwX5RAeJtGAVfBPUf8LAPVQBgBUEC8D6R4Y4ZAh0Z2J0f3Z6U2KdHVtVf0fnhwLCuEd62C0U2n5w6FyLBSA5gMO4V7fQwWwwB28dPb8WW6yN8NCvjEZQhpLLl9h0ZPDMZnC4J3W+72+3lWnNqm1Y4c5wzdIylnN7XbTVH5RTKkjScJ6X5A3e2JvS1L9xJVc/YcR6xPPlxPEV6aiKyWBEE5Kf4FQ1uRdYSBmJDmEOUljxGss9sYI+9JOeYjZ7gR+jwd5qMnAL6RbaVMb6gM+aPsPxiUiwtUYVRInUoZkQiTUYuVTj4RdwRXuxC9chJkJQyLYZ1OadAalSFkcDGwZlFS3j+0U6T+gHM2zPdR8VmBl2PWUxzpW2W9p2WhrM0tB/9xFl5V+qrxaiGav+vUtO5C+uLm4t4nN+QTxI5iHgScfkSN7PLHIWfgD+McVDXi4FqUHh2BwrF4I0LwW4jo4azWj9EJ/YtlqfZ+EmR+dI2eAGaFmV7E3kGHRwPFpKUliHgScfkSN7PLHIWfgD+McVDXi4FqUHh2BwrF4I0LwW4jo4azWj9EJ/YtlqfZ+EmR+dI2eAGaFmV7E3kGHRwPFpKUlg7opBYIYXVddE7Uyfap3vQaORFGSiRO5i5rn+Nxl/sieFGvdCmCofv/xxfd9MogdiHlFkPxWVBL8b8U/VRL8RHd+isZhb/zcmxA2jUDzpXSxyFn4A/jHFQ14uBalB4dgcKxeCNC8FuI6OGs1o/RCf2LZan2fhJkfnSNngBmhZlexN5Bh0cDxaSlJYR4EnH5EjezixyFn4A/jHFQ14uBalB4dgcKxeCNC8FuI6OGs1o/RCf2LZan2fhJkfnSNngBmhZlexN5Bh0cDxaSlJYO6KQWCGF1XXRO1Mn2qd70GjkRRkokTuYua5/jcZf7InhRr3QpgqH7/8cX3fTKIHYh5RZD8VlQS/G/FP1US/ER3forGYW/83JsQNo1A86V0schZ+AP4xxUNeLgWpQeHYHCsXgjQvBbiOjhrNaP0Qn9i2Wp9n4SZH50jZ4AZoWZXsTeQYdHA8WkpSWA=='))
+          regions['read_entry'] = (5657088, base64.b64decode('4QMVquADFKrhAxaq4wMK+ST4/x9+HgMWqgQAAFQn4Qr5IPBN0eIDFyqgAxaq4QMWquADGKogAsT4K5B++R8hANWKAABU6QMWqig7QfnxAwr5OPz/H+IHFypwB0H5X5gB8YMBAFR+IwT1oAMUquEDFqrhAxSq4AMIqig7QPmPAwr5JPP/H+IHFyrwK0H5bwUB8YEBQFTgA8f4sAtA+fABAPngAwGqZCdA+R4EQNG+en74wAM/1H8AFmthAABU4AMDAuIDFqrhAxaqBPBf+IR8TNOfoA3xgAAAVGi3ZvljiH75M0wXlKADX/hDAABQoSNM8XzxxwAKHAZR4QMWquEDGKrgAwr5I/P/H34eAxaqBAQAFCBfYGphfQYQYI8DAa7xeNlGkPBNX+jDA1/46QEQVTA7ZvmdrzCZa40alF8fABCrIQAAUOADLgLiAxaq4QMWqgTwX/iEfEzTn6AN8YAAAAxot2b5Y4d++SNM8ZXxjB/V8YwA1f7xwAAUkAIgqmB9BhBgjwMBvA/BxvqHwWIeoAMG4q9hoBE84ccACswHU+EfBhB4AcGAeWEGAFQRAhWu50dQPCBNZwXVealUcB1HGoYWDIKHUrUiOAIQRBlW56cwceJGZ+qFza17i/A7lTZ1vJhkEguWsErmXY63k6dKmiV/2gx4Oy/aaEBmA5xgSxgzwKSIHSGqh1hwHQ5rZ6TPblWwqc88USNrLrsXH8+W20v8V0nBdKI7WOdhwqAU5Khj31FVsMTE6e9uTTMMg3WNqyWGZRm2T01rfi+5gtbzGyFoVSswOpBn6HoFk7Mk6hZ3ZJkD03HnwjIPbVjY6VW8j8x1Vt/JSWPdpAdBKSOlva6UdGSzxZIAZoWZXsTeQYdHA8WkpSWCcEj/85Qn8aB0q5NG4fCRiEOe2bOgi03lr7GuAIuqVe7ZiigLKfDhKAkyB0hqoaYcB0Oa2ekz25VsKnPPFEjay67Fx/PlttL/FdJwXSiO1jnYcKgFOSoY99RVbDExOnvbk0zDIN1jaslhmUZtk9Na34vuYLW8xshaFUrMDqQZ+h6BZ24yCKCzJs94/9sqJ9G3Fv0RV0qYVn7PjpHjGSVHjA5i3GuqhZug6BZOzJOoWd2SZA9Nx58IyD21Y2OlVvI/MdVbfyUlj3aQHQSkjpb2ulHRks8WSAGaFmV7E3kGHRwPFpKUliHgScfkSN7PLHIWfgD+McVDXi4FqUHh2BwrF4I0LwW4jo4azWj9EJ/YtlqfZ+EmR+dI2eAGaFmV7E3kGHRwPFpKUlg7opBYIYXVddE7Uyfap3vQaORFGSiRO5i5rn+Nxl/sieFGvdCmCofv/xxfd9MogdiHlFkPxWVBL8b8U/VRL8RHd+isZhb/zcmxA2jUDzpXSxyFn4A/jHFQ14uBalB4dgcKxeCNC8FuI6OGs1o/RCf2LZan2fhJkfnSNngBmhZlexN5Bh0cDxaSlJYR4EnH5EjezixyFn4A/jHFQ14uBalB4dgcKxeCNC8FuI6OGs1o/RCf2LZan2fhJkfnSNngBmhZlexN5Bh0cDxaSlJYO6KQWCGF1XXRO1Mn2qd70GjkRRkokTuYua5/jcZf7InhRr3QpgqH7/8cX3fTKIHYh5RZD8VlQS/G/FP1US/ER3forGYW/83JsQNo1A86V0schZ+AP4xxUNeLgWpQeHYHCsXgjQvBbiOjhrNaP0Qn9i2Wp9n4SZH50jZ4AZoWZXsTeQYdHA8WkpSWA=='))
+
+          md=Cs(CS_ARCH_ARM64, CS_MODE_ARM)
+          md.detail=True
+          targets={0x360ec8:'piclist_transform',0x35fce0:'comic_read_parser',0x56568c:'comic_read_entry'}
+          for name,(base,data) in regions.items():
+              print(f'\n===== REGION {name} base={base:#x} size={len(data)} =====')
+              for ins in md.disasm(data, base):
+                  mark=' <<<' if ins.address in targets else ''
+                  print(f'{ins.address:#010x}: {ins.mnemonic:<8} {ins.op_str}{mark}')
+          PYCODE
