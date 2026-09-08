@@ -1,5 +1,6 @@
 name: Check MengXiGe v5 Extension
 
+# Rerun after source formatting fix.
 on:
   push:
     branches: [main]
