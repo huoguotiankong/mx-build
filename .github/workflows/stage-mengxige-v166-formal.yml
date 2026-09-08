@@ -193,9 +193,9 @@ jobs:
               raise SystemExit('Unexpected MengXiGe JAR URL')
           android=json.loads(Path('repo/index-android.json').read_text('utf-8'))
           ai=next(x for x in android['extensionList']['extensions'] if x['packageName']==pkg)
-          if str(ai.get('versionCode')) != '106006':
+          if str(ai.get('versionCode')) != '212006':
               raise SystemExit(f'Unexpected Android compatibility versionCode: {ai.get("versionCode")}')
-          print('Targeted formal repo verified: MengXiGe 1.6.6 / versionCode 106006')
+          print('Targeted formal repo verified: MengXiGe 1.6.6 / canonical 106006 / Android 212006')
           PY
           test -f repo/tachiyomi-zh.mengxige-v1.6.6.apk
           test -f repo/tachiyomi-zh.mengxige-v1.6.6.jar
@@ -217,7 +217,7 @@ jobs:
           rm -rf staging/formal
           mkdir -p staging/formal
           rsync -a --exclude='.git/' --exclude='test/' repo/ staging/formal/
-          printf 'source=huoguotiankong/mx-dev\nref=main\nmodule=mengxige\nversion=1.6.6\nversionCode=106006\n' > staging/formal/VALIDATED.txt
+          printf 'source=huoguotiankong/mx-dev\nref=main\nmodule=mengxige\nversion=1.6.6\ncanonicalVersionCode=106006\nandroidVersionCode=212006\n' > staging/formal/VALIDATED.txt
           git -C staging status --short
 
       - name: Commit formal staging snapshot
