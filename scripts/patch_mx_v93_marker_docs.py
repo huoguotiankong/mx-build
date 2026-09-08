@@ -1,0 +1,10 @@
+from pathlib import Path
+
+path = Path("docs/CHAPTER_CONTENT.md")
+text = path.read_text(encoding="utf-8")
+heading = "## 2026-09-08 replacement marker stability\n"
+if heading in text:
+    raise SystemExit("marker stability docs already present")
+
+addition = '''\n\n## 2026-09-08 safe matching and replacement marker stability\n\nThe Android-tested maintenance line now treats whole-manga chapter matching and chapter-list marker state as two related but separately protected operations:\n\n- generic numbered chapters require the expected numeric chapter rather than reusing a nearby older chapter;\n- if the replacement catalog currently ends before the expected original chapter, that original chapter has no automatic whole-manga replacement and remains `🔒`;\n- descriptive-title matching may bridge a small numbering displacement only while the candidate remains inside the replacement catalog's available range;\n- chapter-list replacement markers are recalculated from real safe matches after manga refresh, so a newly published replacement chapter can become replaceable on the next successful refresh;\n- an availability refresh no longer clears the previously verified marker set before the target catalog finishes loading;\n- transient target-source or network failures keep the last successfully verified marker snapshot instead of making `🔁` chapters flicker back to `🔒`;\n- the last verified marker snapshot is persisted for the current whole-manga binding so reopening the detail page does not start from a false all-locked state;\n- the snapshot is scoped to the binding source, manga URL/title/memo, and chapter offset, and is discarded when the binding changes or is removed.\n\nThis marker cache is presentation state only. Reader replacement still performs the normal safe chapter resolution, and a successful later availability refresh atomically replaces the cached marker set. CI verification does not replace Android-device validation; the non-flickering behavior remains pending user confirmation on device.\n'''
+path.write_text(text.rstrip() + addition + "\n", encoding="utf-8")
