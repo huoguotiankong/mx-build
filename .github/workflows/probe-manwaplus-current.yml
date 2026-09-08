@@ -16,171 +16,110 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - name: Discover candidate domains
+      - name: Probe likely content hosts
         shell: bash
         run: |
           set -u
-          UA='Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36'
-          mkdir -p probe/discovery
-          entries=(
-            'https://fuwbm.cc'
-            'https://fuwbm.cc/maKapG'
-            'https://mwmissing8.cc'
-            'https://fuwt.cc/mw666'
-            'https://manwaxzaw.cc'
+          mkdir -p probe
+          MOBILE_UA='Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro Build/AP2A.240805.005) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36'
+          DESKTOP_UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
+          hosts=(
+            'manwa.me' 'www.manwa.me'
+            'manwass.cc' 'www.manwass.cc'
+            'manwatg.cc' 'www.manwatg.cc'
+            'manwaqp.cc' 'www.manwaqp.cc'
+            'manwafl.cc' 'www.manwafl.cc'
+            'manwaqr.cc' 'www.manwaqr.cc'
+            'manwaqs.cc' 'www.manwaqs.cc'
+            'manwagd.cc' 'www.manwagd.cc'
           )
-          n=0
-          for url in "${entries[@]}"; do
-            n=$((n+1))
-            curl -L --compressed --max-time 25 --connect-timeout 8 -A "$UA" -sS \
-              -D "probe/discovery/${n}.headers" -o "probe/discovery/${n}.body" "$url" \
-              2>"probe/discovery/${n}.err" || true
-          done
-
-          python3 - <<'PY'
-          from pathlib import Path
-          from urllib.parse import urlparse
-          import base64, html, re
-
-          root = Path('probe/discovery')
-          suffix = r'(?:cc|me|top|site|vip|com|net|org|xyz|co)'
-          host_re = re.compile(r'(?<![\w.-])(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(?![\w.-])')
-          url_re = re.compile(r'https?://[^\"\'<>\s)]+', re.I)
-          b64_re = re.compile(r'(?:atob\s*\(\s*[\"\']|[\"\'])([A-Za-z0-9+/]{20,}={0,2})(?:[\"\']\s*\)|[\"\'])')
-
-          hosts = []
-          def add_host(value):
-              value = value.strip().lower().strip('.').removeprefix('www.')
-              if not value or '.' not in value:
-                  return
-              if value.endswith(('google.com','urldance.com','cloudflare.com','gstatic.com')):
-                  return
-              if value not in hosts:
-                  hosts.append(value)
-
-          for p in sorted(root.glob('*.body')):
-              text = html.unescape(p.read_text(errors='ignore'))
-              for u in url_re.findall(text):
-                  add_host(urlparse(u).hostname or '')
-              for h in host_re.findall(text):
-                  add_host(h)
-              for token in b64_re.findall(text):
-                  try:
-                      decoded = base64.b64decode(token + '=' * (-len(token) % 4)).decode('utf-8', 'ignore')
-                  except Exception:
-                      continue
-                  for u in url_re.findall(decoded):
-                      add_host(urlparse(u).hostname or '')
-                  for h in host_re.findall(decoded):
-                      add_host(h)
-
-          # Historical and announcement candidates remain useful fallbacks even if not present today.
-          for host in [
-              'manwa.me','manwagf.cc','manwagc.cc','manwagd.cc','manwass.cc',
-              'manwatg.cc','manwast.cc','manwasy.cc','manwaxzaw.cc'
-          ]:
-              add_host(host)
-
-          Path('probe/candidates.txt').write_text('\n'.join(hosts) + '\n')
-          print('candidate-hosts', hosts)
-          PY
-
-      - name: Probe candidate domains
-        shell: bash
-        run: |
-          set -u
-          UA='Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36'
           : > probe/summary.tsv
-          n=0
-          while IFS= read -r host; do
-            [ -z "$host" ] && continue
-            n=$((n+1))
-            base="https://$host"
-            for spec in 'home:/' 'rank:/rank' 'latest:/getUpdate?page=0&date=' 'update:/update' 'browse:/booklist' 'detail:/book/509384'; do
-              name="${spec%%:*}"
-              path="${spec#*:}"
-              body="probe/${n}_${name}.body"
-              meta=$(curl --compressed --max-redirs 0 --max-time 15 --connect-timeout 6 -A "$UA" -e "$base/" -sS \
-                -o "$body" -D "probe/${n}_${name}.headers" \
-                -w '%{http_code}\t%{content_type}\t%{redirect_url}' "$base$path" \
-                2>"probe/${n}_${name}.err" || true)
-              bytes=$(wc -c < "$body" 2>/dev/null || echo 0)
-              printf '%s\t%s\t%s\t%s\n' "$host" "$name" "$meta" "$bytes" >> probe/summary.tsv
+          i=0
+          for host in "${hosts[@]}"; do
+            for ua_name in mobile desktop; do
+              if [ "$ua_name" = mobile ]; then UA="$MOBILE_UA"; else UA="$DESKTOP_UA"; fi
+              i=$((i+1))
+              for spec in 'home:/' 'rank:/rank' 'latest:/getUpdate?page=0&date=' 'browse:/booklist' 'detail:/book/509384'; do
+                name="${spec%%:*}"
+                path="${spec#*:}"
+                body="probe/${i}_${name}.body"
+                meta=$(curl -L --compressed --max-redirs 5 --max-time 20 --connect-timeout 6 -sS \
+                  -A "$UA" \
+                  -H 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8' \
+                  -H 'Accept-Language: zh-CN,zh;q=0.9,en;q=0.7' \
+                  -H 'Cache-Control: no-cache' \
+                  -H 'Pragma: no-cache' \
+                  -H 'Sec-Fetch-Dest: document' \
+                  -H 'Sec-Fetch-Mode: navigate' \
+                  -H 'Sec-Fetch-Site: none' \
+                  -o "$body" \
+                  -w '%{http_code}\t%{content_type}\t%{url_effective}\t%{num_redirects}' \
+                  "https://$host$path" 2>"probe/${i}_${name}.err" || true)
+                bytes=$(wc -c < "$body" 2>/dev/null || echo 0)
+                printf '%s\t%s\t%s\t%s\t%s\n' "$host" "$ua_name" "$name" "$meta" "$bytes" >> probe/summary.tsv
+              done
             done
-          done < probe/candidates.txt
+          done
           cat probe/summary.tsv
 
-      - name: Identify active Manwa-compatible hosts
+      - name: Detect usable Manwa responses
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import json, re
+          import json
 
           root = Path('probe')
           lines = root.joinpath('summary.tsv').read_text(errors='ignore').splitlines()
-          rows = {}
+          groups = {}
+          request_index = 0
+          last_key = None
           for line in lines:
-              parts = line.split('\t')
-              if len(parts) < 6:
+              p = line.split('\t')
+              if len(p) < 8:
                   continue
-              host, name, code, ctype, redirect, size = parts[:6]
-              rows.setdefault(host, {})[name] = (code, ctype, redirect, size)
+              host, ua, name, code, ctype, final_url, redirects, size = p[:8]
+              key = (host, ua)
+              if key != last_key:
+                  request_index += 1
+                  last_key = key
+              body_path = root / f'{request_index}_{name}.body'
+              body = body_path.read_text(errors='ignore') if body_path.exists() else ''
+              g = groups.setdefault(key, {'signals': [], 'finals': set()})
+              g['finals'].add(final_url)
+              if name == 'latest':
+                  try:
+                      obj = json.loads(body)
+                      if isinstance(obj, dict) and isinstance(obj.get('books'), list) and 'total' in obj:
+                          g['signals'].append(f'latest-json:{len(obj["books"])}')
+                  except Exception:
+                      pass
+              if name == 'rank' and ('rankList_2' in body or '/book/' in body):
+                  g['signals'].append('rank-html')
+              if name == 'browse' and ('manga-filter-row' in body or 'manga-list-2' in body):
+                  g['signals'].append('browse-html')
+              if name == 'detail' and 'detail-main-info-title' in body and '/chapter/' in body:
+                  g['signals'].append('detail-html')
+                  if 'detail-list-comment' in body or '查看更多回复数' in body:
+                      g['signals'].append('comments-html')
 
-          active = []
-          for host, info in rows.items():
-              idx = list(rows).index(host) + 1
-              latest_p = root / f'{idx}_latest.body'
-              detail_p = root / f'{idx}_detail.body'
-              browse_p = root / f'{idx}_browse.body'
-              home_p = root / f'{idx}_home.body'
-              latest = latest_p.read_text(errors='ignore') if latest_p.exists() else ''
-              detail = detail_p.read_text(errors='ignore') if detail_p.exists() else ''
-              browse = browse_p.read_text(errors='ignore') if browse_p.exists() else ''
-              home = home_p.read_text(errors='ignore') if home_p.exists() else ''
-
-              latest_ok = False
-              latest_books = 0
-              try:
-                  obj = json.loads(latest)
-                  latest_ok = isinstance(obj, dict) and isinstance(obj.get('books'), list) and 'total' in obj
-                  latest_books = len(obj.get('books', [])) if latest_ok else 0
-              except Exception:
-                  pass
-
-              detail_ok = 'detail-main-info-title' in detail and '/chapter/' in detail
-              browse_ok = 'manga-list-2' in browse or 'manga-filter-row' in browse
-              home_ok = 'img-host-modal' in home or 'manga-list' in home or '/book/' in home
-              score = sum([latest_ok, detail_ok, browse_ok, home_ok])
-              if score:
-                  active.append(host)
-              print('host-signal', host, {
-                  'score': score,
-                  'latest_json': latest_ok,
-                  'latest_books': latest_books,
-                  'detail': detail_ok,
-                  'browse': browse_ok,
-                  'home': home_ok,
-                  'comment_list': detail.count('detail-list-comment'),
-                  'reply_marker': detail.count('查看更多回复数'),
-                  'report_marker': detail.count('举报'),
-                  'img_host_modal': home.count('img-host-modal'),
-              })
-
-          print('active-compatible-hosts', active)
+          usable = []
+          for (host, ua), data in groups.items():
+              signals = sorted(set(data['signals']))
+              finals = sorted(data['finals'])
+              print('probe-result', host, ua, 'signals=', signals, 'finals=', finals)
+              if signals:
+                  usable.append((host, ua, signals))
+          print('usable-hosts', usable)
           PY
 
-      - name: Upload request metadata
+      - name: Upload probe metadata
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: manwaplus-current-probe
           path: |
-            probe/candidates.txt
             probe/summary.tsv
-            probe/*.headers
             probe/*.err
-            probe/discovery/*.headers
-            probe/discovery/*.err
           retention-days: 3
           if-no-files-found: warn
