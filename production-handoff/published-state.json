@@ -88,15 +88,15 @@
     "versionName": "1.6.4"
   },
   "eu.kanade.tachiyomi.extension.zh.kmanhua": {
-    "androidVersionCode": 212001,
-    "apk": "tachiyomi-zh.kmanhua-v1.6.1.apk",
-    "apkSha256": "6f6e66d9dceda4786c88ca03b7adbdb003516ab41ece783fec9f098cb0b8969b",
-    "jar": "tachiyomi-zh.kmanhua-v1.6.1.jar",
-    "jarSha256": "05b582e3e3087756f4cfa3cd0656b447e3f0caf90d68ca9d952bb317edb79af8",
+    "androidVersionCode": 212002,
+    "apk": "tachiyomi-zh.kmanhua-v1.6.2.apk",
+    "apkSha256": "a6590bfbae5191f8b853ed027f9301dde9eacdb0e05d04e808262c7194179e73",
+    "jar": "tachiyomi-zh.kmanhua-v1.6.2.jar",
+    "jarSha256": "b2e577e00cf5ac658ab3d433edd209004b508b2fec8bac2cd0402be9566218b7",
     "module": "zh.kmanhua",
-    "sourceHash": "31cd833a65d1d79e9d8a75ae0fe8289e5a830366d3e81e5d1a42d4e686016e4c",
-    "versionCode": 106001,
-    "versionName": "1.6.1"
+    "sourceHash": "abd1e411d42a5359c5898c7a2939ba54e3ca2d9fdc7590ccf77f2861ebc9958c",
+    "versionCode": 106002,
+    "versionName": "1.6.2"
   },
   "eu.kanade.tachiyomi.extension.zh.kuaikanmanhua": {
     "androidVersionCode": 212026,
