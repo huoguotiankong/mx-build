@@ -32,7 +32,7 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Prepare and verify stable signing identity
+      - name: Prepare stable signing key
         shell: bash
         env:
           MX_APP_SIGNING_BUNDLE: ${{ secrets.MX_APP_SIGNING_BUNDLE }}
@@ -58,6 +58,11 @@ jobs:
                   print(f"::add-mask::{value}")
                   f.write(f"{name}<<__MX_EOF__\n{value}\n__MX_EOF__\n")
           PY
+
+      - name: Verify stable signing identity
+        shell: bash
+        run: |
+          set -euo pipefail
           expected="c230be9c78bf5d28a101c2cb785923b899aa569ead15961309dea8bbcb34ec33"
           actual="$(keytool -exportcert -alias "$MX_KEY_ALIAS" -keystore "$MX_KEYSTORE_PATH" -storepass "$MX_KEYSTORE_PASSWORD" | sha256sum | awk '{print $1}')"
           [[ "$actual" == "$expected" ]] || { echo "::error::MX signing certificate mismatch"; exit 1; }
