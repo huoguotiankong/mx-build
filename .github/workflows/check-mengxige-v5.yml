@@ -1,0 +1,74 @@
+name: Check MengXiGe v5 Extension
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/check-mengxige-v5.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout private MX source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Record checked source
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha="$(git -C source rev-parse HEAD)"
+          echo "Checked mx-dev commit: $sha" >> "$GITHUB_STEP_SUMMARY"
+          grep -F 'versionCode = 5' source/src/zh/mengxige/build.gradle.kts
+          grep -F 'routeCatalogRequest' source/src/zh/mengxige/src/eu/kanade/tachiyomi/extension/zh/mengxige/MengXiGeImageDecoderInterceptor.kt
+
+      - name: Validate source layout
+        working-directory: source
+        run: python3 scripts/validate_sources.py
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Checkout current Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Overlay MengXiGe module
+        run: |
+          rm -rf upstream/src/zh/mengxige
+          cp -a source/src/zh/mengxige upstream/src/zh/mengxige
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Spotless, debug build, release lint
+        working-directory: upstream
+        run: ./gradlew :src:zh:mengxige:spotlessCheck :src:zh:mengxige:assembleDebug :src:zh:mengxige:lintRelease --stacktrace
+
+      - name: Upload debug APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mengxige-v5-debug
+          path: upstream/src/zh/mengxige/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 7
