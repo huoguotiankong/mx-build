@@ -1,0 +1,144 @@
+name: Apply Tencent and Kuaikan chapter date fix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/apply-chapter-dates-v1.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apply-chapter-dates-v1
+  cancel-in-progress: false
+
+jobs:
+  patch-build-commit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout build helpers
+        uses: actions/checkout@v5
+        with:
+          path: build
+          persist-credentials: false
+
+      - name: Check private source token
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]] || { echo "::error::Missing MX_PRIVATE_READ_TOKEN"; exit 1; }
+
+      - name: Checkout current private source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: dev
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply guarded date patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 build/scripts/patch_chapter_dates_v1.py
+          git -C dev diff --check
+          python3 dev/scripts/validate_sources.py
+          grep -F 'versionCode = 31' dev/src/zh/tencentcomics/build.gradle.kts
+          grep -F 'Comic/comicChapterList' dev/src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+          grep -F 'versionCode = 27' dev/src/zh/kuaikanmanhua/build.gradle.kts
+          grep -F 'publishedTime' dev/src/zh/kuaikanmanhua/src/eu/kanade/tachiyomi/extension/zh/kuaikanmanhua/Kuaikanmanhua.kt
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Checkout current Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Overlay patched extensions
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf upstream/src/zh/tencentcomics upstream/src/zh/kuaikanmanhua
+          cp -a dev/src/zh/tencentcomics upstream/src/zh/tencentcomics
+          cp -a dev/src/zh/kuaikanmanhua upstream/src/zh/kuaikanmanhua
+
+      - name: Format and check
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:tencentcomics:spotlessApply :src:zh:kuaikanmanhua:spotlessApply
+          ./gradlew :src:zh:tencentcomics:spotlessCheck :src:zh:kuaikanmanhua:spotlessCheck
+
+      - name: Build debug and release
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew \
+            :src:zh:tencentcomics:assembleDebug \
+            :src:zh:tencentcomics:assembleRelease \
+            :src:zh:kuaikanmanhua:assembleDebug \
+            :src:zh:kuaikanmanhua:assembleRelease
+
+      - name: Lint releases
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:tencentcomics:lintRelease :src:zh:kuaikanmanhua:lintRelease
+
+      - name: Sync formatter output and validation state
+        shell: bash
+        env:
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          rm -rf dev/src/zh/tencentcomics dev/src/zh/kuaikanmanhua
+          cp -a upstream/src/zh/tencentcomics dev/src/zh/tencentcomics
+          cp -a upstream/src/zh/kuaikanmanhua dev/src/zh/kuaikanmanhua
+          rm -rf dev/src/zh/tencentcomics/build dev/src/zh/kuaikanmanhua/build
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          run_id = os.environ['RUN_ID']
+          for rel in ('docs/sources/tencentcomics.md', 'docs/sources/kuaikanmanhua.md'):
+              p = Path('dev') / rel
+              text = p.read_text(encoding='utf-8')
+              text = text.replace(
+                  '构建状态：待公共构建器验证；Android 实机显示仍待验证。',
+                  f'构建状态：mx-build run {run_id} 已通过当前 Keiyoushi Spotless、Debug、Release 与 lintRelease；Android 实机显示仍待验证。',
+                  1,
+              )
+              p.write_text(text, encoding='utf-8')
+          PY
+          python3 dev/scripts/validate_sources.py
+          git -C dev diff --check
+
+      - name: Commit validated source to main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C dev config user.name 'github-actions[bot]'
+          git -C dev config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C dev add src/zh/tencentcomics src/zh/kuaikanmanhua docs/sources/tencentcomics.md docs/sources/kuaikanmanhua.md
+          git -C dev diff --cached --check
+          git -C dev diff --cached --quiet && { echo 'Date fix already current'; exit 0; }
+          git -C dev commit -m 'fix(chapters): use official publication dates for Tencent and Kuaikan'
+          git -C dev pull --rebase origin main
+          git -C dev push origin HEAD:main
