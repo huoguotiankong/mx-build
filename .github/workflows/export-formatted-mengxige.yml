@@ -82,3 +82,5 @@ jobs:
           fi
           git commit -m "ci: export formatted MengXiGe source"
           git push origin HEAD:main
+
+# trigger: 2026-09-08
