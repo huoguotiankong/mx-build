@@ -200,8 +200,8 @@ replace_once(
 
 replace_once(
     "docs/CAPABILITY_MATRIX.md",
-    '''| Chapter-content replacement | Host implemented | Opt-in enhanced sources | Partial device validation | Generic single-chapter and persistent whole-manga binding have initial validation; other flows vary |''',
-    '''| Chapter-content replacement | Host implemented | Opt-in enhanced sources | Partial device validation | Generic single-chapter and persistent whole-manga binding have initial validation; safe-tail matching and atomic marker refresh remain pending device validation |''',
+    '''| Chapter-content replacement | Host implemented; safe whole-manga tail matching and refresh re-evaluation CI verified | Opt-in enhanced sources | Partial device validation | Generic single-chapter and persistent whole-manga binding have initial validation; 2026-09-08 no-tail-reuse/marker-refresh behavior remains pending device validation |''',
+    '''| Chapter-content replacement | Host implemented; safe whole-manga tail matching and refresh re-evaluation CI verified | Opt-in enhanced sources | Partial device validation | Generic single-chapter and persistent whole-manga binding have initial validation; safe-tail matching plus atomic last-verified marker refresh remain pending device validation |''',
 )
 
 # Hard postconditions make the helper safe to re-run only when the exact expected branch state is present.
