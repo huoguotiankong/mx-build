@@ -27,12 +27,12 @@ jobs:
           path: source
           fetch-depth: 1
           persist-credentials: false
-      - name: Resolve config and fetch official source list
+      - name: Resolve every config domain and fetch source list
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import base64,hashlib,json,re,subprocess,time,urllib.parse,urllib.request
+          import base64,hashlib,json,re,subprocess,time,urllib.request
           from pathlib import Path
           src=Path('source/src/zh/mengxige/src/eu/kanade/tachiyomi/extension/zh/mengxige/MengXiGe.kt').read_text('utf-8')
           def c(n):
@@ -40,9 +40,9 @@ jobs:
               if not m: raise SystemExit('missing '+n)
               return m.group(1)
           package,secret,version,channel,app_id=[c(x) for x in ('APP_PACKAGE','APP_SECRET','APP_VERSION','APP_CHANNEL','APP_ID')]
-          def headers():
+          def headers(referer='https://book.folongteng.com/'):
               now=str(int(time.time())); sign=hashlib.md5((package+'1'+now+secret).encode()).hexdigest()
-              return {'User-Agent':'OPPO_R821T/1.0 Linux/3.4.5 Android/4.2.2 Release/03.26.2013 Browser/AppleWebKit534.30 Mobile Safari/534.30 MBBMS/2.2 System/Android 4.2.2_'+package,'Accept':'*/*','Referer':'https://book.folongteng.com/','pt':'1','version':version,'channel':channel,'uuid':'probe-00000000-0000-0000-0000-000000000004','xf-appid':app_id,'fc-session-id':'','package':package,'time':now,'stamp':'','sign':sign}
+              return {'User-Agent':'OPPO_R821T/1.0 Linux/3.4.5 Android/4.2.2 Release/03.26.2013 Browser/AppleWebKit534.30 Mobile Safari/534.30 MBBMS/2.2 System/Android 4.2.2_'+package,'Accept':'*/*','Accept-Language':'zh-CN,zh;q=0.9,en;q=0.7','Referer':referer,'pt':'1','version':version,'channel':channel,'uuid':'probe-00000000-0000-0000-0000-000000000005','xf-appid':app_id,'fc-session-id':'','package':package,'time':now,'stamp':'','sign':sign}
           def decode(raw):
               try: root=json.loads(raw)
               except Exception: return raw
@@ -55,20 +55,10 @@ jobs:
           def get(url):
               req=urllib.request.Request(url,headers=headers())
               with urllib.request.urlopen(req,timeout=20) as r: return r.status,decode(r.read().decode('utf-8','replace'))
-          result={'configAttempts':{},'sourceAttempts':{}}
-          config_obj=None
-          for suffix in ('folongteng.com','xiangxung.com'):
-              for q in ('', '?t='+str(int(time.time()))):
-                  url=f'https://conf.{suffix}/v4/android/{package}/{channel}{q}'
-                  key=suffix+q
-                  try:
-                      st,body=get(url); obj=json.loads(body); result['configAttempts'][key]={'url':url,'status':st,'json':obj}; config_obj=obj; break
-                  except Exception as e: result['configAttempts'][key]={'url':url,'error':type(e).__name__+': '+str(e)}
-              if config_obj is not None: break
           def find_secondary(x):
               if isinstance(x,dict):
-                  if 'secondary_domain' in x and isinstance(x['secondary_domain'],dict): return x['secondary_domain']
-                  if 'secondaryDomain' in x and isinstance(x['secondaryDomain'],dict): return x['secondaryDomain']
+                  for k in ('secondary_domain','secondaryDomain'):
+                      if isinstance(x.get(k),dict): return x[k]
                   for v in x.values():
                       r=find_secondary(v)
                       if r:return r
@@ -77,20 +67,42 @@ jobs:
                       r=find_secondary(v)
                       if r:return r
               return None
-          secondary=find_secondary(config_obj) if config_obj is not None else None
-          result['secondaryDomain']=secondary
+          result={'configAttempts':{},'domainCandidates':[],'sourceAttempts':{}}
+          configs=[]
+          t=str(int(time.time()))
+          for confbase in ('https://conf.folongteng.com','https://conf.xiangxung.com'):
+              for query in ('','?t='+t):
+                  url=f'{confbase}/v4/android/{package}/{channel}{query}'
+                  try:
+                      st,body=get(url); obj=json.loads(body); result['configAttempts'][url]={'status':st,'json':obj}; configs.append(obj)
+                  except Exception as e: result['configAttempts'][url]={'error':type(e).__name__+': '+str(e)}
           candidates=[]
-          if isinstance(secondary,dict) and secondary.get('d'):
-              candidates.append(str(secondary['d']).rstrip('/'))
-          for suffix in ('folongteng.com','xiangxung.com'):
-              candidates.append('https://d.'+suffix)
-          for base in dict.fromkeys(candidates):
-              url=base+'/book/source/v4/5002/5002663.html'
-              try:
-                  st,body=get(url); obj=json.loads(body); result['sourceAttempts'][base]={'url':url,'status':st,'json':obj}
-              except Exception as e: result['sourceAttempts'][base]={'url':url,'error':type(e).__name__+': '+str(e)}
+          for cfg in configs:
+              if isinstance(cfg,dict):
+                  urls=cfg.get('urls') if isinstance(cfg.get('urls'),dict) else {}
+                  domain=urls.get('domain')
+                  if domain: candidates.append('https://d.'+str(domain).strip('/'))
+                  sec=find_secondary(cfg)
+                  if isinstance(sec,dict) and sec.get('d'): candidates.append(str(sec['d']).rstrip('/'))
+          candidates += ['https://d.folongteng.com','http://d.folongteng.com','https://d.xiangxung.com','http://d.xiangxung.com']
+          candidates=list(dict.fromkeys(candidates)); result['domainCandidates']=candidates
+          paths=[
+              '/book/source/v4/5002/5002663.html',
+              '/book/source/v4/5002/5002663',
+              '/book/source/v4/500/5002663.html',
+              '/source/v4/5002/5002663.html',
+              '/source/5002/5002663.html',
+          ]
+          for base in candidates:
+              for path in paths:
+                  key=base+path
+                  try:
+                      st,body=get(key); parsed=json.loads(body); result['sourceAttempts'][key]={'status':st,'json':parsed}
+                  except Exception as e: result['sourceAttempts'][key]={'error':type(e).__name__+': '+str(e)}
           p=Path('helper/probe-results/mengxige-source-d.json'); p.parent.mkdir(parents=True,exist_ok=True); p.write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n','utf-8')
-          print(json.dumps(result,ensure_ascii=False)[:20000])
+          ok=[(k,v) for k,v in result['sourceAttempts'].items() if 'status' in v]
+          print('SUCCESSFUL',json.dumps(ok,ensure_ascii=False)[:20000])
+          print('CANDIDATES',json.dumps(candidates,ensure_ascii=False))
           PY
       - name: Commit result
         working-directory: helper
@@ -99,4 +111,4 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add probe-results/mengxige-source-d.json
-          if ! git diff --cached --quiet; then git commit -m 'probe: record MengXiGe resolved d source'; git push origin HEAD:main; fi
+          if ! git diff --cached --quiet; then git commit -m 'probe: record MengXiGe all d-domain attempts'; git push origin HEAD:main; fi
