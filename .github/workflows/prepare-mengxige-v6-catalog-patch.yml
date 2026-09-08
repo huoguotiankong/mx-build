@@ -1,0 +1,49 @@
+name: Prepare MengXiGe v6 catalog patch
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/prepare-mengxige-v6-catalog-patch.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout private MX source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Remove reload metadata endpoint from chapter candidates
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('source/src/zh/mengxige/src/eu/kanade/tachiyomi/extension/zh/mengxige/MengXiGe.kt')
+          s = p.read_text('utf-8')
+          old = '''        listOf("list_path", "list_reload_path").forEach { key ->\n            detail?.string(key)\n                ?.let(::catalogUrl)\n                ?.let { add(it) }\n        }\n'''
+          new = '''        detail?.string("list_path")\n            ?.let(::catalogUrl)\n            ?.let { add(it) }\n'''
+          if s.count(old) != 1:
+              raise SystemExit(f'expected one catalog candidate block, got {s.count(old)}')
+          p.write_text(s.replace(old, new), 'utf-8')
+          PY
+
+      - name: Upload patched source
+        uses: actions/upload-artifact@v4
+        with:
+          name: mengxige-v6-catalog-patch
+          path: source/src/zh/mengxige/src/eu/kanade/tachiyomi/extension/zh/mengxige/MengXiGe.kt
+          if-no-files-found: error
+          retention-days: 3
