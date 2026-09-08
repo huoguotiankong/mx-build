@@ -1,0 +1,114 @@
+name: Probe Tencent classify channel and sc
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-tencent-classify-channel-sc.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Install crypto dependency
+        run: python3 -m pip install --disable-pip-version-check pycryptodome
+
+      - name: Probe classify list variants
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, hashlib, json, random, time, urllib.parse, urllib.request
+          from Crypto.Cipher import DES3
+          from Crypto.Util.Padding import unpad
+
+          VERSION='12.19.9'
+          UA='okhttp/4.10.0'
+          SUFFIX='4jo2YHMm0d2VGt59tVYndX9P7eFcw8TvRv5lMqFP1TT'
+          KEY=b'42e0d587d5bda41326c2000d'
+          HOSTS=['https://a.ac.qq.com','https://android.ac.qq.com']
+          PATH=f'/{VERSION}/Classify/comicClassifyList'
+
+          def decode(raw):
+              text=raw.decode('utf-8','replace').strip()
+              if text.startswith('{') or text.startswith('['):
+                  return json.loads(text)
+              enc=base64.b64decode(text)
+              plain=unpad(DES3.new(KEY,DES3.MODE_ECB).decrypt(enc),8)
+              return json.loads(plain.decode('utf-8'))
+
+          def trace_headers():
+              now=int(time.time()*1000)
+              count=random.randrange(0,10000)
+              ts=f'{now:010X}'[-10:]
+              q36='00000000'
+              trace=('04'+ts+q36+f'{count:04X}'[-4:]+'00000000').lower()
+              span=('04'+'00000000000000').lower()
+              return {'trace-id':trace,'span-id':span}
+
+          def full_common(channel):
+              h={
+                  'version':VERSION,
+                  'channel':channel,
+                  'fakeduin':'0',
+                  'logintype':'0',
+                  'localtime':str(int(time.time()*1000)),
+                  'resolution':'1080*2400',
+                  'network':'wifi',
+                  'osversion':'16',
+                  'teen-state':'0',
+                  'gender':'0',
+                  'model':'V2505A',
+                  'brand':'vivo',
+                  'os-bit':'64',
+                  'recommend-switch':'2',
+                  'oversea':'1',
+                  'userstate':'1',
+              }
+              h.update(trace_headers())
+              return h
+
+          cases=[]
+          for ch in ('10003','dm306015002'):
+              cases.append((f'min-no-sc-{ch}', {'User-Agent':UA,'version':VERSION,'channel':ch,'fakeduin':'0','logintype':'0'}))
+              x={'User-Agent':UA}; x.update(full_common(ch)); cases.append((f'full-no-sc-{ch}',x))
+              y={'User-Agent':UA,'Accept':'application/json, text/plain, */*'}; y.update(full_common(ch)); cases.append((f'full-accept-no-sc-{ch}',y))
+              z=dict(y)
+              lt=z['localtime']; host='PLACEHOLDER'
+              cases.append((f'full-with-sc-{ch}',z))
+
+          success=False
+          for host in HOSTS:
+              hostname=urllib.parse.urlparse(host).hostname
+              for name,base in cases:
+                  headers=dict(base)
+                  if 'with-sc' in name:
+                      localtime=headers['localtime']
+                      decoded=urllib.parse.unquote(PATH.replace('//','/'))
+                      sc=hashlib.md5((decoded+hostname+'0'+''+localtime+SUFFIX).encode()).hexdigest()
+                      headers['sc']=sc
+                  req=urllib.request.Request(host+PATH,headers=headers,method='GET')
+                  try:
+                      with urllib.request.urlopen(req,timeout=20) as r:
+                          raw=r.read(); status=r.status
+                      root=decode(raw)
+                      code=root.get('errorCode',root.get('error_code'))
+                      msg=root.get('msg',root.get('message',root.get('errorMsg',root.get('error_msg'))))
+                      data=root.get('data')
+                      keys=sorted(data.keys()) if isinstance(data,dict) else []
+                      print(name,host,'http',status,'code',code,'msg',repr(msg),'root_keys',sorted(root.keys()),'data_keys',keys)
+                      if code==2 and isinstance(data,dict) and data:
+                          print('CLASSIFY_LIST_OK',name,host)
+                          success=True
+                          raise SystemExit(0)
+                  except SystemExit:
+                      raise
+                  except Exception as e:
+                      print(name,host,'transport_fail',type(e).__name__,str(e)[:200])
+          raise SystemExit('no classify list variant succeeded')
+          PY
