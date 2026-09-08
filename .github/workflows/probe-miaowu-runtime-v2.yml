@@ -15,40 +15,18 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     steps:
-      - name: Inspect web list routes
+      - name: Install Capstone
+        run: python3 -m pip install --disable-pip-version-check capstone==5.0.9
+      - name: Disassemble Miaowu piclist transform
         shell: bash
         run: |
-          set -euo pipefail
           python3 - <<'PY'
-          import urllib.request, urllib.error, re
-          H={'User-Agent':'Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140.0 Mobile Safari/537.36','Accept':'text/html,application/xhtml+xml,*/*'}
-          def get(url):
-              try:
-                  with urllib.request.urlopen(urllib.request.Request(url,headers=H),timeout=20) as r:
-                      t=r.read(500000).decode('utf-8','replace'); print('\nURL',url,'STATUS',r.status,'LEN',len(t)); return t
-              except urllib.error.HTTPError as e:
-                  print('\nURL',url,'HTTP',e.code); return ''
-          def dump(label,t):
-              print('\n###',label,'TITLE',re.findall(r'<title>(.*?)</title>',t,re.I|re.S)[:1])
-              for mark in ['今日推荐','最新漫画','最近更新','热门','排行','漫画分类','全部','热血','完结']:
-                  p=t.find(mark)
-                  if p>=0: print('MARK',mark, re.sub(r'\s+',' ',t[max(0,p-700):p+2200])[:3000])
-              links=re.findall(r'href=["\']([^"\']+)["\']',t,re.I)
-              print('LINKS', [x for x in links if re.search(r'(custom|rank|category|search|/\d+\.html)',x)][:100])
-          for label,url in [
-              ('home','https://mh.iqtao.cn/'),
-              ('top','https://mh.iqtao.cn/custom/top'),
-              ('ticket','https://mh.iqtao.cn/custom/ticket'),
-              ('categoryroot','https://mh.iqtao.cn/category'),
-              ('categorytags9','https://mh.iqtao.cn/category/tags/9'),
-              ('categoryfinish1','https://mh.iqtao.cn/category/finish/1'),
-          ]:
-              dump(label,get(url))
-
-          # Extract the exact search getmore AJAX block from core.js.
-          js=get('https://npm.elemecdn.com/banwl/maocdn/template/wap/default/js/core.js')
-          p=js.find('search : function')
-          if p<0: p=js.find('search:function')
-          print('\nSEARCH_FUNCTION_START',p)
-          if p>=0: print(js[p:p+10000])
+          import base64
+          from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM
+          base=0x360e80
+          data=base64.b64decode('YAEAVKEDX/ggMAS44AAANjDwXzgR8F84MApQih+CXOpAAABU0p0alAIAABShA1/44AMBqu8DHar9ecGowANf1lGkGpSO+/8X/Xm/qf0DD6rvoQDRUCdA+f8BEOvpCABUQD9A+QAUU/lwI0D5HwAQa2EAAFRiL2T5bZwalKCDH/gB8F/4IXxM0z9wDvHBAwBUcLNm+X4zZPn+QQCp4H4alAACIDehC0D5iUH/l+MDAKriAxaq4QMWqqMDH/gE8F/4hHxM05+oDfGAAABUaHt++WN/fvmimxqUowNf+BYAABRwH375voNf+P7BAKmwC0D58AEA+WQnQPm/kBqU4wMAqg0AABQB8F/4IXxM03AffvngwQCpsAtA+fABAPngAwGqZCdA+R4EQNG+en74wAM/1uMDAKqjgx/4fwAWa2EBAFTgAwOq4gMWquEDFqoE8F/4hHxM05+oDfGAAABUaLNm+WOHfvkzTBeUoINf+O8DHar9ecGowANf1gOkGpS5//8X/Xm/qf0DD6rvwQDRoYMf+FAnQPn/ARDryR0AVHBjRvleU0D5/kEAqUH3FpThAwCqoINf+KGDHvgDcEC4Y4Aci6MDH/hwK2358AEA+SGsGZShg174owNf+OUDAKpiK2351X4WlKCDX/gDsEC4Y4Aci6MDH/hwu1L58AEA+RWsGZShg174owNf+OUDAKpiu1L5yX4WlKCDX/gD8EC4Y4Aci6MDH/hwu3358AEA+QmsGZShg174owNf+OUDAKpiu335vX4WlKCDX/gDMEG4Y4Aci6MDH/hwk2358AEA+f2rGZShg174owNf+OUDAKpik235sX4WlKCDX/gDcEG4Y4Aci6MDH/hwe2358AEA+fGrGZShg174owNf+OUDAKpie235pX4WlKCDX/gDsEG4Y4Aci6MDH/hwb3358AEA+eWrGZShg174owNf+OUDAKpib335mX4WlKCDX/gD8EG4Y4Aci6MDH/hw33358AEA+dmrGZShg174owNf+OUDAKpi3335jX4WlKCDX/gDMEK4Y4Aci6MDH/hw63358AEA+c2rGZShg174owNf+OUDAKpi6335gX4WlKCDX/gDcEK4Y4Aci6MDH/hw93358AEA+cGrGZShg174owNf+OUDAKpi9335dX4WlKCDX/gDsEK4Y4Aci6MDH/hwA3758AEA+bWrGZShg174owNf+OUDAKpiA375aX4WlKCDX/gD8EK4Y4Aci6MDH/h/ABZrYQAAVOMDFqoRAAAUYVtAkSHsQvniAxaq/J8alHCPV/m+A1/4/sEAqeABAPlkJ0D5gQ4GlAFwQLghgByL4gMAqvqX/ZfjAwCqoINf+KMDH/hwD3758AEA+ZSrGZShg174owNf+OUDAKpiD375SH4WlKCDX/gBMEO4IYAciz8AFmthAABU4wMWqgQAABTbNRaU4wMAqqCDX/ijAx/4cCN++fABAPmBqxmUoYNe+KMDX/jlAwCqYiN++TV+FpSgg1/4AXBDuCGAHIs/ABZrYQAAVOMDFqoEAAAU')
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM)
+          for ins in md.disasm(data,base):
+              mark=' <<< piclist_transform' if ins.address==0x360ec8 else ''
+              print(f'{ins.address:#010x}: {ins.mnemonic:<8} {ins.op_str}{mark}')
           PY
