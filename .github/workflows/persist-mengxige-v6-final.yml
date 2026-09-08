@@ -1,0 +1,74 @@
+name: Persist formatted MengXiGe v6 source
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/persist-mengxige-v6-final.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  persist:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: helper
+          fetch-depth: 0
+          persist-credentials: true
+      - uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Overlay patch and format
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf upstream/src/zh/mengxige
+          cp -a source/src/zh/mengxige upstream/src/zh/mengxige
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('upstream/src/zh/mengxige/src/eu/kanade/tachiyomi/extension/zh/mengxige/MengXiGe.kt')
+          s=p.read_text('utf-8')
+          old='''        listOf("list_path", "list_reload_path").forEach { key ->\n            detail?.string(key)\n                ?.let(::catalogUrl)\n                ?.let { add(it) }\n        }\n'''
+          new='''        detail?.string("list_path")\n            ?.let(::catalogUrl)\n            ?.let { add(it) }\n'''
+          if old in s: s=s.replace(old,new,1)
+          elif 'detail?.string("list_path")' not in s: raise SystemExit('catalog block not found')
+          p.write_text(s,'utf-8')
+          PY
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Spotless
+        working-directory: upstream
+        run: ./gradlew :src:zh:mengxige:spotlessApply :src:zh:mengxige:spotlessCheck
+      - name: Persist files
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p helper/formatted-v6/mengxige
+          cp upstream/src/zh/mengxige/src/eu/kanade/tachiyomi/extension/zh/mengxige/MengXiGe.kt helper/formatted-v6/mengxige/MengXiGe.kt
+          cp upstream/src/zh/mengxige/src/eu/kanade/tachiyomi/extension/zh/mengxige/MengXiGeImageDecoderInterceptor.kt helper/formatted-v6/mengxige/MengXiGeImageDecoderInterceptor.kt
+          cd helper
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add formatted-v6/mengxige
+          if ! git diff --cached --quiet; then
+            git commit -m 'build: persist formatted MengXiGe v6 source'
+            git push origin HEAD:main
+          fi
