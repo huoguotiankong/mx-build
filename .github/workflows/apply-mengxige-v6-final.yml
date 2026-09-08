@@ -1,0 +1,68 @@
+name: Apply final MengXiGe v6 source
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/apply-mengxige-v6-final.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout build helper
+        uses: actions/checkout@v5
+        with:
+          path: helper
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout mx-dev with publish token
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          path: dev
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply formatted MengXiGe files
+        shell: bash
+        run: |
+          set -euo pipefail
+          src="helper/formatted-v6/mengxige"
+          dst="dev/src/zh/mengxige/src/eu/kanade/tachiyomi/extension/zh/mengxige"
+          test -s "$src/MengXiGe.kt"
+          test -s "$src/MengXiGeImageDecoderInterceptor.kt"
+          cp "$src/MengXiGe.kt" "$dst/MengXiGe.kt"
+          cp "$src/MengXiGeImageDecoderInterceptor.kt" "$dst/MengXiGeImageDecoderInterceptor.kt"
+          grep -F 'versionCode = 6' dev/src/zh/mengxige/build.gradle.kts
+          grep -F 'IMAGE_HTTP1_FALLBACK_CLIENT' "$dst/MengXiGeImageDecoderInterceptor.kt"
+          grep -F 'detail?.string("list_path")' "$dst/MengXiGe.kt"
+          if sed -n '/private fun chapterListUrls/,/}.distinct()/p' "$dst/MengXiGe.kt" | grep -F 'list_reload_path'; then
+            echo '::error::list_reload_path must not be treated as a chapter-list endpoint'
+            exit 1
+          fi
+
+      - name: Commit and push to mx-dev main
+        working-directory: dev
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/zh/mengxige/src/eu/kanade/tachiyomi/extension/zh/mengxige/MengXiGe.kt \
+                  src/zh/mengxige/src/eu/kanade/tachiyomi/extension/zh/mengxige/MengXiGeImageDecoderInterceptor.kt
+          if git diff --cached --quiet; then
+            echo 'No MengXiGe source changes to commit.'
+            exit 0
+          fi
+          git commit -m 'fix(mengxige): finalize v1.6.6 stability source'
+          git pull --rebase origin main
+          git push origin HEAD:main
