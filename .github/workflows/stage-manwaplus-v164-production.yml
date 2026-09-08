@@ -195,17 +195,19 @@ jobs:
           assert len(items)==1, items
           item=items[0]
           assert item.get('versionName')=='1.6.4', item
-          assert int(item.get('versionCode'))==4, item
+          assert int(item.get('versionCode'))==106004, item
           android=json.loads(Path('prodrepo/index-android.json').read_text('utf-8'))
           a=[x for x in android['extensionList']['extensions'] if x.get('packageName')==package]
           assert len(a)==1, a
-          assert int(a[0].get('versionCode'))==106004, a[0]
+          assert int(a[0].get('versionCode'))==212004, a[0]
           assert Path('prodrepo/tachiyomi-zh.manwaplus-v1.6.4.apk').is_file()
           assert Path('prodrepo/tachiyomi-zh.manwaplus-v1.6.4.jar').is_file()
           assert Path('prodrepo/icon/eu.kanade.tachiyomi.extension.zh.manwaplus-v106004.png').is_file()
           state=json.loads(Path('prodrepo/published-state.json').read_text('utf-8'))
           assert package in state, state.keys()
           assert state[package]['versionName']=='1.6.4', state[package]
+          assert int(state[package]['versionCode'])==106004, state[package]
+          assert int(state[package]['androidVersionCode'])==212004, state[package]
           print('formal Manwa Plus snapshot verified')
           PY
 
