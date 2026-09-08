@@ -1,0 +1,80 @@
+name: Patch MX chapter-content runtime
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/patch-mx-chapter-content-runtime.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout public build scripts
+        uses: actions/checkout@v5
+        with:
+          path: build-control
+          persist-credentials: false
+
+      - name: Checkout private MX App maintenance branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-app
+          ref: fix/chapter-content-safe-whole-manga
+          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply marker runtime and relaxed title matching patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          python3 ../build-control/scripts/patch_mx_chapter_content_runtime.py
+          rm -f .github/workflows/chapter-content-maintenance-patch.yml
+          git diff --check
+
+      - name: Apply Kotlin formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          ./gradlew spotlessApply
+          ./gradlew spotlessCheck
+
+      - name: Run focused matcher tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          ./gradlew testReleaseUnitTest --tests 'eu.kanade.tachiyomi.ui.reader.ChapterContentMatcherTest'
+
+      - name: Compile Preview APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          ./gradlew assemblePreview -Pdisable-code-shrink
+
+      - name: Commit verified maintenance patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            app/src/main/java/eu/kanade/tachiyomi/ui/manga/MangaScreen.kt \
+            app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderViewModel.kt \
+            app/src/main/java/eu/kanade/tachiyomi/ui/reader/ChapterContentMatcher.kt \
+            app/src/test/java/eu/kanade/tachiyomi/ui/reader/ChapterContentMatcherTest.kt \
+            .github/workflows/chapter-content-maintenance-patch.yml
+          git diff --cached --quiet && { echo "Patch produced no source changes"; exit 1; }
+          git commit -m "fix: align replacement markers with reader runtime"
+          git push origin HEAD:fix/chapter-content-safe-whole-manga
