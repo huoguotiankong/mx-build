@@ -47,11 +47,35 @@ jobs:
           done
           cat probe/summary.tsv
 
+      - name: Probe current official lost-page entrypoints
+        shell: bash
+        run: |
+          set -u
+          UA='Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36'
+          entries=(
+            'https://fuwbm.cc'
+            'https://fuwbm.cc/maKapG'
+            'https://mwmissing8.cc'
+            'https://fuwt.cc/mw666'
+          )
+          : > probe/redirects.tsv
+          n=0
+          for url in "${entries[@]}"; do
+            n=$((n+1))
+            body="probe/redirect_${n}.body"
+            headers="probe/redirect_${n}.headers"
+            meta=$(curl -L --compressed --max-time 25 --connect-timeout 8 -A "$UA" -sS -D "$headers" -o "$body" -w '%{http_code}\t%{content_type}\t%{url_effective}' "$url" 2>"probe/redirect_${n}.err" || true)
+            bytes=$(wc -c < "$body" 2>/dev/null || echo 0)
+            printf '%s\t%s\t%s\n' "$url" "$meta" "$bytes" >> probe/redirects.tsv
+          done
+          cat probe/redirects.tsv
+
       - name: Inspect successful responses without logging page contents
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          from urllib.parse import urlparse
           import json, re
           root = Path('probe')
           print('sanitized-response-signals:')
@@ -72,6 +96,17 @@ jobs:
                   'report_marker': text.count('举报'),
               }
               print(p.name, signals)
+          print('lost-page-domain-signals:')
+          allowed_suffixes = ('.cc', '.me', '.top', '.site', '.vip', '.com')
+          for p in sorted(root.glob('redirect_*.body')):
+              text = p.read_text(errors='ignore')
+              urls = re.findall(r'https?://[^\"\'<>\s)]+', text)
+              hosts = []
+              for value in urls:
+                  host = (urlparse(value).hostname or '').lower()
+                  if host and host.endswith(allowed_suffixes) and host not in hosts:
+                      hosts.append(host)
+              print(p.name, hosts[:20])
           PY
 
       - name: Upload sanitized probe diagnostics
@@ -81,6 +116,7 @@ jobs:
           name: manwaplus-site-probe
           path: |
             probe/summary.tsv
+            probe/redirects.tsv
             probe/*.err
           retention-days: 3
           if-no-files-found: warn
