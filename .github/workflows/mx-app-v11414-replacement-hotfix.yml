@@ -1,0 +1,323 @@
+name: MX App 1.14.14 replacement hotfix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/mx-app-v11414-replacement-hotfix.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mx-app-v11414-replacement-hotfix
+  cancel-in-progress: true
+
+jobs:
+  patch-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Check required secrets
+        shell: bash
+        env:
+          MX_APP_SIGNING_BUNDLE: ${{ secrets.MX_APP_SIGNING_BUNDLE }}
+          MX_APP_PUBLISH_TOKEN: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$MX_APP_SIGNING_BUNDLE"
+          test -n "$MX_APP_PUBLISH_TOKEN"
+
+      - name: Checkout maintained v93 hotfix line
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-app
+          ref: hotfix/v93-replacement-state-fuzzy-v94
+          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply runtime replacement-state and edition matching fix
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          ROOT = Path('.')
+
+          def replace_once(path, old, new, label):
+              text = path.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly one match, got {count}')
+              path.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          def regex_replace_once(path, pattern, replacement, label):
+              text = path.read_text(encoding='utf-8')
+              updated, count = re.subn(pattern, replacement, text, count=1, flags=re.S)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly one match, got {count}')
+              path.write_text(updated, encoding='utf-8')
+
+          manga_path = ROOT / 'app/src/main/java/eu/kanade/tachiyomi/ui/manga/MangaScreen.kt'
+          reader_path = ROOT / 'app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderViewModel.kt'
+          prefs_path = ROOT / 'app/src/main/java/eu/kanade/tachiyomi/ui/reader/setting/ReaderPreferences.kt'
+          build_path = ROOT / 'app/build.gradle.kts'
+          docs_path = ROOT / 'docs/CHAPTER_CONTENT.md'
+
+          replace_once(
+              manga_path,
+              '''import eu.kanade.tachiyomi.ui.reader.ReaderViewModel\nimport eu.kanade.tachiyomi.ui.reader.findBestReplacementChapter\nimport eu.kanade.tachiyomi.ui.reader.isWholeMangaReplacementEligible\n''',
+              '''import eu.kanade.tachiyomi.ui.reader.ReaderViewModel\nimport eu.kanade.tachiyomi.ui.reader.chapterContentBindingSignature\nimport eu.kanade.tachiyomi.ui.reader.findBestReplacementChapter\nimport eu.kanade.tachiyomi.ui.reader.isWholeMangaReplacementEligible\nimport eu.kanade.tachiyomi.ui.reader.replacementMangaSearchQueries\nimport eu.kanade.tachiyomi.ui.reader.selectBestReplacementMangaCandidate\n''',
+              'MangaScreen shared replacement imports',
+          )
+
+          replace_once(
+              manga_path,
+              '''        val wholeMangaMatchSignature = remember(\n            wholeMangaBindingSourceId,\n            wholeMangaBindingUrl,\n            wholeMangaBindingTitle,\n            wholeMangaBindingMemo,\n            wholeMangaBindingOffset,\n        ) {\n            listOf(\n                wholeMangaBindingSourceId.toString(),\n                wholeMangaBindingUrl,\n                wholeMangaBindingTitle,\n                wholeMangaBindingMemo,\n                wholeMangaBindingOffset.toString(),\n            ).joinToString("\\u001F")\n        }\n''',
+              '''        val wholeMangaMatchSignature = remember(\n            wholeMangaBindingSourceId,\n            wholeMangaBindingUrl,\n            wholeMangaBindingTitle,\n            wholeMangaBindingMemo,\n            wholeMangaBindingOffset,\n        ) {\n            chapterContentBindingSignature(\n                sourceId = wholeMangaBindingSourceId,\n                mangaUrl = wholeMangaBindingUrl,\n                mangaTitle = wholeMangaBindingTitle,\n                mangaMemo = wholeMangaBindingMemo,\n                chapterOffset = wholeMangaBindingOffset,\n            )\n        }\n''',
+              'MangaScreen binding signature',
+          )
+
+          replace_once(
+              manga_path,
+              '''        var wholeMangaReplacementChapterIds by remember(\n            successState.manga.id,\n            hasWholeMangaContentBinding,\n            wholeMangaMatchSignature,\n        ) {\n            val cachedSignature = readerPreferences\n                .chapterContentWholeMangaMatchSignature(successState.manga.id)\n                .get()\n            val cachedIds = if (hasWholeMangaContentBinding && cachedSignature == wholeMangaMatchSignature) {\n                readerPreferences\n                    .chapterContentWholeMangaMatchedChapterIds(successState.manga.id)\n                    .get()\n                    .mapNotNull { it.toLongOrNull() }\n                    .toSet()\n            } else {\n                emptySet()\n            }\n            mutableStateOf(cachedIds)\n        }\n''',
+              '''        val wholeMangaCatalogMatchSignature by readerPreferences\n            .chapterContentWholeMangaMatchSignature(successState.manga.id)\n            .changes()\n            .collectAsState(\n                initial = readerPreferences.chapterContentWholeMangaMatchSignature(successState.manga.id).get(),\n            )\n        val wholeMangaCatalogMatchedChapterIds by readerPreferences\n            .chapterContentWholeMangaMatchedChapterIds(successState.manga.id)\n            .changes()\n            .collectAsState(\n                initial = readerPreferences.chapterContentWholeMangaMatchedChapterIds(successState.manga.id).get(),\n            )\n        val wholeMangaRuntimeMatchSignature by readerPreferences\n            .chapterContentWholeMangaRuntimeMatchSignature(successState.manga.id)\n            .changes()\n            .collectAsState(\n                initial = readerPreferences.chapterContentWholeMangaRuntimeMatchSignature(successState.manga.id).get(),\n            )\n        val wholeMangaRuntimeMatchedChapterIds by readerPreferences\n            .chapterContentWholeMangaRuntimeMatchedChapterIds(successState.manga.id)\n            .changes()\n            .collectAsState(\n                initial = readerPreferences.chapterContentWholeMangaRuntimeMatchedChapterIds(successState.manga.id).get(),\n            )\n        val wholeMangaReplacementChapterIds = remember(\n            hasWholeMangaContentBinding,\n            wholeMangaMatchSignature,\n            wholeMangaCatalogMatchSignature,\n            wholeMangaCatalogMatchedChapterIds,\n            wholeMangaRuntimeMatchSignature,\n            wholeMangaRuntimeMatchedChapterIds,\n        ) {\n            buildSet {\n                if (hasWholeMangaContentBinding && wholeMangaCatalogMatchSignature == wholeMangaMatchSignature) {\n                    addAll(wholeMangaCatalogMatchedChapterIds.mapNotNull { it.toLongOrNull() })\n                }\n                if (hasWholeMangaContentBinding && wholeMangaRuntimeMatchSignature == wholeMangaMatchSignature) {\n                    addAll(wholeMangaRuntimeMatchedChapterIds.mapNotNull { it.toLongOrNull() })\n                }\n            }\n        }\n''',
+              'MangaScreen reactive marker state',
+          )
+
+          replace_once(
+              manga_path,
+              '''            if (!hasWholeMangaContentBinding) {\n                wholeMangaReplacementChapterIds = emptySet()\n                readerPreferences.clearChapterContentWholeMangaMatchSnapshot(successState.manga.id)\n                return@LaunchedEffect\n            }\n''',
+              '''            if (!hasWholeMangaContentBinding) {\n                readerPreferences.clearChapterContentWholeMangaMatchSnapshot(successState.manga.id)\n                readerPreferences.clearChapterContentWholeMangaRuntimeMatches(successState.manga.id)\n                return@LaunchedEffect\n            }\n''',
+              'MangaScreen binding clear state',
+          )
+
+          replace_once(
+              manga_path,
+              '''            }.onSuccess { verifiedChapterIds ->\n                wholeMangaReplacementChapterIds = verifiedChapterIds\n                readerPreferences.saveChapterContentWholeMangaMatchSnapshot(\n''',
+              '''            }.onSuccess { verifiedChapterIds ->\n                readerPreferences.saveChapterContentWholeMangaMatchSnapshot(\n''',
+              'MangaScreen atomic marker save',
+          )
+
+          replace_once(
+              manga_path,
+              '''    val candidates = linkedMapOf<String, SManga>()\n    for (query in expectedTitles) {\n''',
+              '''    val searchQueries = replacementMangaSearchQueries(expectedTitles)\n    val candidates = linkedMapOf<String, SManga>()\n    for (query in searchQueries) {\n''',
+              'MangaScreen edition search queries',
+          )
+
+          regex_replace_once(
+              manga_path,
+              r'''private fun selectBestChapterListReplacementManga\(\n    candidates: List<SManga>,\n    manga: Manga,\n\): SManga\? \{.*?\n\}\n\nprivate fun findChapterListReplacementChapter''',
+              '''private fun selectBestChapterListReplacementManga(\n    candidates: List<SManga>,\n    manga: Manga,\n): SManga? {\n    val expectedTitles = sequenceOf(manga.title, manga.ogTitle)\n        .map(String::trim)\n        .filter(String::isNotBlank)\n        .distinct()\n        .toList()\n    return selectBestReplacementMangaCandidate(candidates, expectedTitles)\n}\n\nprivate fun findChapterListReplacementChapter''',
+              'MangaScreen fuzzy edition matcher',
+          )
+
+          replace_once(
+              prefs_path,
+              '''    fun clearChapterContentWholeMangaMatchSnapshot(mangaId: Long) {\n        chapterContentWholeMangaMatchSignature(mangaId).delete()\n        chapterContentWholeMangaMatchedChapterIds(mangaId).delete()\n    }\n\n''',
+              '''    fun clearChapterContentWholeMangaMatchSnapshot(mangaId: Long) {\n        chapterContentWholeMangaMatchSignature(mangaId).delete()\n        chapterContentWholeMangaMatchedChapterIds(mangaId).delete()\n    }\n\n    fun chapterContentWholeMangaRuntimeMatchSignature(mangaId: Long) = preferenceStore.getString(\n        Preference.appStateKey("mx_reader_content_whole_runtime_signature_$mangaId"),\n        "",\n    )\n\n    fun chapterContentWholeMangaRuntimeMatchedChapterIds(mangaId: Long) = preferenceStore.getStringSet(\n        Preference.appStateKey("mx_reader_content_whole_runtime_ids_$mangaId"),\n        emptySet(),\n    )\n\n    fun saveChapterContentWholeMangaRuntimeMatches(\n        mangaId: Long,\n        signature: String,\n        chapterIds: Set<Long>,\n    ) {\n        chapterContentWholeMangaRuntimeMatchSignature(mangaId).set(signature)\n        chapterContentWholeMangaRuntimeMatchedChapterIds(mangaId).set(chapterIds.map(Long::toString).toSet())\n    }\n\n    fun clearChapterContentWholeMangaRuntimeMatches(mangaId: Long) {\n        chapterContentWholeMangaRuntimeMatchSignature(mangaId).delete()\n        chapterContentWholeMangaRuntimeMatchedChapterIds(mangaId).delete()\n    }\n\n''',
+              'ReaderPreferences runtime marker state',
+          )
+          replace_once(
+              prefs_path,
+              '''        clearChapterContentWholeMangaMatchSnapshot(mangaId)\n    }\n\n    fun chapterContentReplacement''',
+              '''        clearChapterContentWholeMangaMatchSnapshot(mangaId)\n        clearChapterContentWholeMangaRuntimeMatches(mangaId)\n    }\n\n    fun chapterContentReplacement''',
+              'ReaderPreferences clear runtime markers',
+          )
+
+          replace_once(
+              reader_path,
+              '''        val candidates = linkedMapOf<String, SManga>()\n        for (query in expectedTitles) {\n''',
+              '''        val searchQueries = replacementMangaSearchQueries(expectedTitles)\n        val candidates = linkedMapOf<String, SManga>()\n        for (query in searchQueries) {\n''',
+              'ReaderViewModel edition search queries',
+          )
+
+          regex_replace_once(
+              reader_path,
+              r'''    private fun selectBestReplacementManga\(\n        candidates: List<SManga>,\n        manga: Manga,\n    \): SManga\? \{.*?\n    \}\n\n    private suspend fun getReplacementChapters''',
+              '''    private fun selectBestReplacementManga(\n        candidates: List<SManga>,\n        manga: Manga,\n    ): SManga? {\n        val expectedTitles = sequenceOf(manga.title, manga.ogTitle)\n            .map(String::trim)\n            .filter(String::isNotBlank)\n            .distinct()\n            .toList()\n        return selectBestReplacementMangaCandidate(candidates, expectedTitles)\n    }\n\n    private suspend fun getReplacementChapters''',
+              'ReaderViewModel fuzzy edition matcher',
+          )
+
+          replace_once(
+              reader_path,
+              '''    private fun saveChapterContentBinding(\n        manga: Manga,\n        selection: ReplacementSelection,\n        chapterOffset: Int,\n    ) {\n        readerPreferences.chapterContentBindingSourceId(manga.id).set(selection.source.id)\n        readerPreferences.chapterContentBindingMangaUrl(manga.id).set(selection.manga.url)\n        readerPreferences.chapterContentBindingMangaTitle(manga.id).set(selection.manga.title)\n        readerPreferences.chapterContentBindingMangaMemo(manga.id).set(selection.manga.memo.toString())\n        readerPreferences.chapterContentBindingOffset(manga.id).set(chapterOffset)\n        chapterContentBindingCache = ChapterContentBindingCache(\n            binding = ChapterContentBinding(\n                sourceId = selection.source.id,\n                mangaUrl = selection.manga.url,\n                mangaTitle = selection.manga.title,\n                mangaMemo = selection.manga.memo.toString(),\n                chapterOffset = chapterOffset,\n            ),\n            source = selection.source,\n            chapters = selection.chapters,\n        )\n    }\n''',
+              '''    private fun saveChapterContentBinding(\n        manga: Manga,\n        selection: ReplacementSelection,\n        chapterOffset: Int,\n    ) {\n        val newBinding = ChapterContentBinding(\n            sourceId = selection.source.id,\n            mangaUrl = selection.manga.url,\n            mangaTitle = selection.manga.title,\n            mangaMemo = selection.manga.memo.toString(),\n            chapterOffset = chapterOffset,\n        )\n        if (getChapterContentBinding(manga) != newBinding) {\n            readerPreferences.clearChapterContentWholeMangaMatchSnapshot(manga.id)\n            readerPreferences.clearChapterContentWholeMangaRuntimeMatches(manga.id)\n        }\n        readerPreferences.chapterContentBindingSourceId(manga.id).set(newBinding.sourceId)\n        readerPreferences.chapterContentBindingMangaUrl(manga.id).set(newBinding.mangaUrl)\n        readerPreferences.chapterContentBindingMangaTitle(manga.id).set(newBinding.mangaTitle)\n        readerPreferences.chapterContentBindingMangaMemo(manga.id).set(newBinding.mangaMemo)\n        readerPreferences.chapterContentBindingOffset(manga.id).set(newBinding.chapterOffset)\n        chapterContentBindingCache = ChapterContentBindingCache(\n            binding = newBinding,\n            source = selection.source,\n            chapters = selection.chapters,\n        )\n    }\n''',
+              'ReaderViewModel binding reset',
+          )
+
+          replace_once(
+              reader_path,
+              '''        saveChapterContentBinding(manga, selection, chapterOffset)\n        val binding = getChapterContentBinding(manga)\n        mutableState.update {\n''',
+              '''        saveChapterContentBinding(manga, selection, chapterOffset)\n        val binding = getChapterContentBinding(manga)\n        if (replaceCurrentChapter && binding != null) {\n            currentChapter.chapter.id?.let { chapterId ->\n                recordWholeMangaReplacementSuccess(manga, binding, chapterId)\n            }\n        }\n        mutableState.update {\n''',
+              'ReaderViewModel bind-time runtime success',
+          )
+
+          replace_once(
+              reader_path,
+              '''            loader.loadReplacementChapter(\n                chapter = chapter,\n                replacementSource = cache.source,\n                replacementChapter = targetChapter,\n                page = page,\n            )\n\n            ChapterContentLoadResult(\n''',
+              '''            loader.loadReplacementChapter(\n                chapter = chapter,\n                replacementSource = cache.source,\n                replacementChapter = targetChapter,\n                page = page,\n            )\n            if (manga != null && chapterId != null) {\n                recordWholeMangaReplacementSuccess(manga, binding, chapterId)\n            }\n\n            ChapterContentLoadResult(\n''',
+              'ReaderViewModel runtime replacement success',
+          )
+
+          replace_once(
+              reader_path,
+              '''    private fun getPreferredReplacementManga(\n        mangaId: Long,\n        sourceId: Long,\n    ): SManga? {\n''',
+              '''    private fun recordWholeMangaReplacementSuccess(\n        manga: Manga,\n        binding: ChapterContentBinding,\n        chapterId: Long,\n    ) {\n        val signature = chapterContentBindingSignature(\n            sourceId = binding.sourceId,\n            mangaUrl = binding.mangaUrl,\n            mangaTitle = binding.mangaTitle,\n            mangaMemo = binding.mangaMemo,\n            chapterOffset = binding.chapterOffset,\n        )\n        val storedSignature = readerPreferences.chapterContentWholeMangaRuntimeMatchSignature(manga.id).get()\n        val storedIds = if (storedSignature == signature) {\n            readerPreferences.chapterContentWholeMangaRuntimeMatchedChapterIds(manga.id)\n                .get()\n                .mapNotNull { it.toLongOrNull() }\n                .toSet()\n        } else {\n            emptySet()\n        }\n        readerPreferences.saveChapterContentWholeMangaRuntimeMatches(\n            mangaId = manga.id,\n            signature = signature,\n            chapterIds = storedIds + chapterId,\n        )\n    }\n\n    private fun getPreferredReplacementManga(\n        mangaId: Long,\n        sourceId: Long,\n    ): SManga? {\n''',
+              'ReaderViewModel runtime marker helper',
+          )
+
+          replace_once(
+              build_path,
+              '''        versionCode = 93\n        versionName = "1.14.13"\n''',
+              '''        versionCode = 94\n        versionName = "1.14.14"\n''',
+              'v94 version bump',
+          )
+
+          docs = docs_path.read_text(encoding='utf-8')
+          section = '''\n\n## 2026-09-08 runtime-confirmed replacement state and fuzzy edition matching\n\n- A whole-manga chapter that has actually loaded replacement pages is persisted as a runtime-confirmed match for the current binding. The chapter list observes this state directly, so a successfully replaced/readable chapter no longer remains `🔒` just because a separate catalog availability refresh is stale or failed.\n- Catalog-derived matches and runtime-confirmed matches are stored separately and unioned for presentation. Catalog refreshes can update availability without erasing known successful runtime replacements. Both sets are scoped to source, target manga URL/title/memo, and chapter offset and are cleared when the binding changes or is removed.\n- Replacement manga discovery searches both the provider title and a conservative edition-suffix-stripped title when applicable, increasing the chance that alternate language/color/official editions appear in the picker.\n- Automatic target-edition selection uses a guarded fuzzy matcher instead of requiring exact normalized equality/containment. Strong unique partial/LCS/bigram matches are accepted; ambiguous near-equal editions still fall back to the explicit picker rather than being guessed.\n- Explicit user selection remains authoritative: once a candidate edition is chosen from the picker, no exact-title gate is applied.\n'''
+          if 'runtime-confirmed replacement state and fuzzy edition matching' not in docs:
+              docs_path.write_text(docs.rstrip() + section + '\n', encoding='utf-8')
+
+          temp_workflow = ROOT / '.github/workflows/temp-apply-replacement-v94.yml'
+          if temp_workflow.exists():
+              temp_workflow.unlink()
+
+          print('replacement v94 source patch applied')
+          PY
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          build-root-directory: source
+
+      - name: Format and verify
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew spotlessApply
+          git diff --check
+          ./gradlew spotlessCheck
+          ./gradlew testReleaseUnitTest
+
+      - name: Commit verified source patch
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git commit -m "fix: sync runtime replacement markers and relax edition matching"
+            git push origin HEAD:hotfix/v93-replacement-state-fuzzy-v94
+          fi
+          echo "SOURCE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Prepare stable signing key
+        shell: bash
+        env:
+          MX_APP_SIGNING_BUNDLE: ${{ secrets.MX_APP_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, json, os
+          from pathlib import Path
+          bundle = json.loads(os.environ['MX_APP_SIGNING_BUNDLE'])
+          required = ('signingKey', 'alias', 'storePassword')
+          missing = [key for key in required if not bundle.get(key)]
+          if missing:
+              raise SystemExit(f"Signing bundle missing fields: {', '.join(missing)}")
+          path = Path(os.environ['RUNNER_TEMP']) / 'mx-app.jks'
+          path.write_bytes(base64.b64decode(bundle['signingKey']))
+          with Path(os.environ['GITHUB_ENV']).open('a', encoding='utf-8') as f:
+              for name, value in {
+                  'MX_KEYSTORE_PATH': str(path),
+                  'MX_KEY_ALIAS': str(bundle['alias']),
+                  'MX_KEYSTORE_PASSWORD': str(bundle['storePassword']),
+                  'MX_KEY_PASSWORD': str(bundle['storePassword']),
+              }.items():
+                  print(f'::add-mask::{value}')
+                  f.write(f'{name}<<__MX_EOF__\n{value}\n__MX_EOF__\n')
+          PY
+
+      - name: Verify stable signing identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="c230be9c78bf5d28a101c2cb785923b899aa569ead15961309dea8bbcb34ec33"
+          actual="$(keytool -exportcert -alias "$MX_KEY_ALIAS" -keystore "$MX_KEYSTORE_PATH" -storepass "$MX_KEYSTORE_PASSWORD" | sha256sum | awk '{print $1}')"
+          test "$actual" = "$expected"
+
+      - name: Build signed Preview APK
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew assemblePreview \
+            -Pdisable-code-shrink \
+            --no-configuration-cache \
+            -Pandroid.injected.signing.store.file="$MX_KEYSTORE_PATH" \
+            -Pandroid.injected.signing.store.password="$MX_KEYSTORE_PASSWORD" \
+            -Pandroid.injected.signing.key.alias="$MX_KEY_ALIAS" \
+            -Pandroid.injected.signing.key.password="$MX_KEY_PASSWORD"
+
+      - name: Normalize and verify APK identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_cert="c230be9c78bf5d28a101c2cb785923b899aa569ead15961309dea8bbcb34ec33"
+          aapt_bin="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          found=0
+          while IFS= read -r apk; do
+            found=1
+            signed="${apk%.apk}.mx-signed.apk"
+            "$apksigner" sign \
+              --ks "$MX_KEYSTORE_PATH" \
+              --ks-key-alias "$MX_KEY_ALIAS" \
+              --ks-pass env:MX_KEYSTORE_PASSWORD \
+              --key-pass env:MX_KEY_PASSWORD \
+              --out "$signed" "$apk"
+            mv "$signed" "$apk"
+            badging="$("$aapt_bin" dump badging "$apk")"
+            package_name="$(printf '%s\n' "$badging" | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n 1)"
+            version_code="$(printf '%s\n' "$badging" | sed -n "s/^package:.*versionCode='\([^']*\)'.*/\1/p" | head -n 1)"
+            version_name="$(printf '%s\n' "$badging" | sed -n "s/^package:.*versionName='\([^']*\)'.*/\1/p" | head -n 1)"
+            app_label="$(printf '%s\n' "$badging" | sed -n "s/^application-label:'\([^']*\)'.*/\1/p" | head -n 1)"
+            test "$package_name" = "com.huoguotiankong.mx.beta"
+            test "$app_label" = "MX漫画"
+            test "$version_code" = "94"
+            [[ "$version_name" == 1.14.14-* ]]
+            cert_output="$("$apksigner" verify --print-certs "$apk" 2>&1)"
+            normalized="$(printf '%s' "$cert_output" | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')"
+            [[ "$normalized" == *"$expected_cert"* ]]
+          done < <(find source/app/build/outputs/apk/preview -type f -name '*.apk' | sort)
+          test "$found" -eq 1
+
+      - name: Upload signed Preview APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: mx-app-v11414-replacement-preview
+          path: source/app/build/outputs/apk/preview/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Cleanup signing material
+        if: always()
+        run: rm -f "$RUNNER_TEMP/mx-app.jks"
