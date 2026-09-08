@@ -49,26 +49,8 @@ jobs:
           rm -rf upstream/src/zh/manwaplus
           cp -a source/src/zh/manwaplus upstream/src/zh/manwaplus
 
-      - name: Probe known compile fix in transient checkout
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('upstream/src/zh/manwaplus/src/eu/kanade/tachiyomi/extension/zh/manwaplus/ManwaPlus.kt')
-          s = p.read_text()
-          needle = '                    is TagCheckBoxFilterGroup -> filter.setParamPair(builder)\n'
-          if needle in s:
-              after = s.split(needle, 1)[1]
-              if not after.lstrip().startswith('else -> Unit'):
-                  s = s.replace(needle, needle + '                    else -> Unit\n', 1)
-                  p.write_text(s)
-          PY
-
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-
-      - name: Format transient checkout for compile diagnostics
-        working-directory: upstream
-        run: ./gradlew :src:zh:manwaplus:spotlessApply
 
       - name: Spotless, debug build, release lint
         working-directory: upstream
