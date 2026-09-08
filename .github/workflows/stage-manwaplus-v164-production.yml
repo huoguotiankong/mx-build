@@ -1,0 +1,272 @@
+name: Stage Manwa Plus v1.6.4 production handoff
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/stage-manwaplus-v164-production.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stage-manwaplus-v164-production
+  cancel-in-progress: false
+
+jobs:
+  stage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check required secrets
+        shell: bash
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          test -n "$MX_PRIVATE_READ_TOKEN"
+          test -n "$MANGA_SIGNING_BUNDLE"
+
+      - name: Checkout build helper
+        uses: actions/checkout@v5
+        with:
+          ref: main
+          path: helper
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Checkout exact Manwa Plus source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: 3c28b041abd94d2ae70b6f7a742c818ab3a3510f
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: dev
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout current Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          ref: main
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Validate and overlay Manwa Plus
+        shell: bash
+        run: |
+          set -euo pipefail
+          module='dev/src/zh/manwaplus'
+          grep -Fq 'versionCode = 4' "$module/build.gradle.kts"
+          grep -Fq 'name = "漫蛙 Plus"' "$module/build.gradle.kts"
+          grep -Fq 'baseUrl = "https://manwa.me"' "$module/build.gradle.kts"
+          find "$module/res" -type f -name 'ic_launcher.*' | grep -q .
+          python3 dev/scripts/validate_sources.py
+          git -C dev diff --check
+          rm -rf upstream/src/zh/manwaplus
+          cp -a "$module" upstream/src/zh/manwaplus
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Format and validate source
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:manwaplus:spotlessApply
+          ./gradlew :src:zh:manwaplus:spotlessCheck
+
+      - name: Sync formatted module
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dev/src/zh/manwaplus
+          rsync -a --exclude build/ upstream/src/zh/manwaplus/ dev/src/zh/manwaplus/
+          python3 dev/scripts/validate_sources.py
+          git -C dev diff --check
+
+      - name: Prepare stable signing key
+        shell: bash
+        env:
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, json, os
+          from pathlib import Path
+          bundle=json.loads(os.environ['MANGA_SIGNING_BUNDLE'])
+          Path('upstream/signingkey.jks').write_bytes(base64.b64decode(bundle['signingKey']))
+          with Path(os.environ['GITHUB_ENV']).open('a', encoding='utf-8') as f:
+              for env_name,key in [('ALIAS','alias'),('KEY_STORE_PASSWORD','storePassword'),('KEY_PASSWORD','keyPassword')]:
+                  value=str(bundle[key])
+                  print(f'::add-mask::{value}')
+                  f.write(f'{env_name}<<EOF_SIGN\n{value}\nEOF_SIGN\n')
+          PY
+
+      - name: Verify stable signing identity
+        id: signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620'
+          actual="$(keytool -exportcert -alias "$ALIAS" -keystore upstream/signingkey.jks -storepass "$KEY_STORE_PASSWORD" | sha256sum | awk '{print $1}' | tr '[:upper:]' '[:lower:]')"
+          test "$actual" = "$expected"
+          echo "fingerprint=$actual" >> "$GITHUB_OUTPUT"
+
+      - name: Build Debug Release and lint
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:manwaplus:assembleDebug :src:zh:manwaplus:assembleRelease :src:zh:manwaplus:lintRelease
+
+      - name: Verify signed artifacts and MX ABI
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="$(find upstream/src/zh/manwaplus -path '*/build/outputs/apk/release/*.apk' -type f | head -n1)"
+          jar="$(find upstream/src/zh/manwaplus -path '*/build/outputs/jar/release/*.jar' -type f | head -n1)"
+          info="$(find upstream/src/zh/manwaplus -path '*/build/keiyoushi-source-info.json' -type f | head -n1)"
+          test -f "$apk"; test -f "$jar"; test -f "$info"
+          test "$(basename "$apk")" = 'tachiyomi-zh.manwaplus-v1.6.4.apk'
+          test "$(basename "$jar")" = 'tachiyomi-zh.manwaplus-v1.6.4.jar'
+          apksigner="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n1)"
+          cert="$("$apksigner" verify --print-certs "$apk" 2>&1 | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')"
+          [[ "$cert" == *'1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620'* ]]
+          jarsigner -verify "$jar" >/dev/null
+          rm -rf /tmp/manwa-dex && mkdir -p /tmp/manwa-dex
+          unzip -qq "$apk" 'classes*.dex' -d /tmp/manwa-dex
+          strings /tmp/manwa-dex/classes*.dex > /tmp/manwa-strings.txt
+          grep -Fq 'eu/kanade/tachiyomi/source/mx/CommentSource' /tmp/manwa-strings.txt
+          grep -Fq 'commentCapabilities' /tmp/manwa-strings.txt
+          grep -Fq '/commentmore' /tmp/manwa-strings.txt
+          INFO="$info" python3 - <<'PY'
+          import json, os
+          d=json.load(open(os.environ['INFO'], encoding='utf-8'))
+          assert int(d['versionCode']) == 4, d
+          assert d['versionName'] == '1.6.4', d
+          s=d['sources'][0]
+          assert s['lang']=='zh', s
+          assert s['name']=='漫蛙 Plus', s
+          print('verified source metadata:', d['versionName'], d['versionCode'], s['name'])
+          PY
+
+      - name: Checkout formal repository snapshot
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-repo
+          ref: repo
+          path: prodrepo
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Generate formal Manwa Plus v1.6.4 snapshot
+        shell: bash
+        env:
+          SIGNING_FINGERPRINT: ${{ steps.signing.outputs.fingerprint }}
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check protobuf >/dev/null
+          python3 dev/scripts/publish_repo.py \
+            --artifacts-root upstream/src \
+            --source-root dev \
+            --repo-dir prodrepo \
+            --owner huoguotiankong \
+            --repository mx-repo \
+            --signing-key "$SIGNING_FINGERPRINT" \
+            --upstream-root upstream
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          package='eu.kanade.tachiyomi.extension.zh.manwaplus'
+          normal=json.loads(Path('prodrepo/index.json').read_text('utf-8'))
+          items=[x for x in normal['extensionList']['extensions'] if x.get('packageName')==package]
+          assert len(items)==1, items
+          item=items[0]
+          assert item.get('versionName')=='1.6.4', item
+          assert int(item.get('versionCode'))==4, item
+          android=json.loads(Path('prodrepo/index-android.json').read_text('utf-8'))
+          a=[x for x in android['extensionList']['extensions'] if x.get('packageName')==package]
+          assert len(a)==1, a
+          assert int(a[0].get('versionCode'))==106004, a[0]
+          assert Path('prodrepo/tachiyomi-zh.manwaplus-v1.6.4.apk').is_file()
+          assert Path('prodrepo/tachiyomi-zh.manwaplus-v1.6.4.jar').is_file()
+          assert Path('prodrepo/icon/eu.kanade.tachiyomi.extension.zh.manwaplus-v106004.png').is_file()
+          state=json.loads(Path('prodrepo/published-state.json').read_text('utf-8'))
+          assert package in state, state.keys()
+          assert state[package]['versionName']=='1.6.4', state[package]
+          print('formal Manwa Plus snapshot verified')
+          PY
+
+      - name: Export production handoff
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/manwaplus-v1.6.4"
+          rm -rf "$out"
+          mkdir -p "$out"
+          while IFS= read -r line; do
+            rel="${line:3}"
+            [[ -n "$rel" ]] || continue
+            if [[ -f "prodrepo/$rel" ]]; then
+              mkdir -p "$out/$(dirname "$rel")"
+              cp -a "prodrepo/$rel" "$out/$rel"
+            fi
+          done < <(git -C prodrepo status --porcelain=v1)
+          printf '%s\n' '3c28b041abd94d2ae70b6f7a742c818ab3a3510f' > "$out/SOURCE_SHA.txt"
+          test -f "$out/tachiyomi-zh.manwaplus-v1.6.4.apk"
+          test -f "$out/tachiyomi-zh.manwaplus-v1.6.4.jar"
+          test -f "$out/index.json"
+          test -f "$out/index.pb"
+          test -f "$out/published-state.json"
+
+      - name: Checkout extension staging branch
+        uses: actions/checkout@v5
+        with:
+          ref: extension-staging
+          path: staging
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Save production handoff to staging
+        shell: bash
+        run: |
+          set -euo pipefail
+          target='staging/production-handoff/manwaplus-v1.6.4'
+          rm -rf "$target"
+          mkdir -p "$target"
+          cp -a "$RUNNER_TEMP/manwaplus-v1.6.4/." "$target/"
+          git -C staging config user.name 'github-actions[bot]'
+          git -C staging config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C staging add production-handoff/manwaplus-v1.6.4
+          git -C staging diff --cached --check
+          if git -C staging diff --cached --quiet; then
+            echo 'Manwa Plus production handoff already current'
+          else
+            git -C staging commit -m 'Stage Manwa Plus v1.6.4 production handoff'
+            git -C staging pull --rebase origin extension-staging
+            git -C staging push origin HEAD:extension-staging
+          fi
+
+      - name: Upload signed production APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: manwaplus-v164-production-apk
+          path: upstream/src/zh/manwaplus/**/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Cleanup signing material
+        if: always()
+        run: rm -f upstream/signingkey.jks
