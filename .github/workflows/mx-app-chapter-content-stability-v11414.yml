@@ -1,18 +1,18 @@
-name: Verify MX 1.14.14 chapter marker stability
+name: Verify MX 1.14.14 chapter replacement reliability
 
 on:
   push:
     branches: [main]
     paths:
       - ".github/workflows/mx-app-chapter-content-stability-v11414.yml"
-      - "scripts/patch_mx_chapter_content_stability_v11414.py"
+      - "scripts/patch_mx_chapter_content_reliability_v11414.py"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: mx-app-chapter-content-stability-v11414
+  group: mx-app-chapter-content-reliability-v11414
   cancel-in-progress: false
 
 jobs:
@@ -49,16 +49,17 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
-      - name: Apply atomic marker stability patch
+      - name: Apply guarded chapter replacement reliability patch
         shell: bash
         run: |
           set -euo pipefail
-          python3 helper/scripts/patch_mx_chapter_content_stability_v11414.py source
+          python3 helper/scripts/patch_mx_chapter_content_reliability_v11414.py source
           git -C source diff --check
           grep -F 'versionCode = 94' source/app/build.gradle.kts
           grep -F 'versionName = "1.14.14"' source/app/build.gradle.kts
           grep -F 'keeping last verified markers' source/app/src/main/java/eu/kanade/tachiyomi/ui/manga/MangaScreen.kt
-          grep -F 'chapterContentWholeMangaMatchSignature' source/app/src/main/java/eu/kanade/tachiyomi/ui/reader/setting/ReaderPreferences.kt
+          grep -F 'markChapterContentWholeMangaMatch' source/app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderViewModel.kt
+          grep -F 'AUTO_MANGA_MATCH_THRESHOLD' source/app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReplacementMangaMatcher.kt
 
       - name: Set up Java
         uses: actions/setup-java@v5
@@ -83,16 +84,17 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add app/build.gradle.kts \
             app/src/main/java/eu/kanade/tachiyomi/ui/manga/MangaScreen.kt \
+            app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderViewModel.kt \
+            app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReplacementMangaMatcher.kt \
             app/src/main/java/eu/kanade/tachiyomi/ui/reader/setting/ReaderPreferences.kt \
-            docs/CHAPTER_CONTENT.md \
-            docs/CAPABILITY_MATRIX.md \
-            docs/MX_EXTENSION_CHANGELOG.md
+            app/src/test/java/eu/kanade/tachiyomi/ui/reader/ReplacementMangaMatcherTest.kt \
+            docs/CHAPTER_CONTENT.md
           git diff --cached --check
           if git diff --cached --quiet; then
-            echo "::error::No chapter marker stability changes to commit"
+            echo "::error::No chapter replacement reliability changes to commit"
             exit 1
           fi
-          git commit -m "fix: keep whole-manga replacement markers stable"
+          git commit -m "fix: stabilize replacement markers and edition matching"
           echo "MX_SOURCE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
       - name: Verify clean formatted source
@@ -103,9 +105,12 @@ jobs:
           ./gradlew spotlessCheck
           git diff --exit-code
 
-      - name: Run chapter matcher regression tests
+      - name: Run chapter replacement regression tests
         working-directory: source
-        run: ./gradlew :app:testReleaseUnitTest --tests 'eu.kanade.tachiyomi.ui.reader.ChapterContentMatcherTest'
+        run: |
+          ./gradlew :app:testReleaseUnitTest \
+            --tests 'eu.kanade.tachiyomi.ui.reader.ChapterContentMatcherTest' \
+            --tests 'eu.kanade.tachiyomi.ui.reader.ReplacementMangaMatcherTest'
 
       - name: Run full Release unit tests
         working-directory: source
@@ -196,7 +201,7 @@ jobs:
       - name: Upload device-test APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mx-1.14.14-v94-chapter-marker-stability
+          name: mx-1.14.14-v94-chapter-replacement-reliability
           path: source/app/build/outputs/apk/preview/*.apk
           if-no-files-found: error
           retention-days: 7
@@ -217,8 +222,11 @@ jobs:
             echo ""
             echo "- Source commit: $(git rev-parse HEAD)"
             echo "- Branch: fix/chapter-content-safe-whole-manga"
+            echo "- Marker snapshot stability: patched"
+            echo "- Reader-success marker authority: patched"
+            echo "- Relaxed edition matching: patched"
             echo "- Spotless: passed"
-            echo "- Chapter matcher regression tests: passed"
+            echo "- Focused replacement tests: passed"
             echo "- Full Release unit tests: passed"
             echo "- Signed Preview APK: passed"
             echo "- APK identity/version/certificate: passed"
