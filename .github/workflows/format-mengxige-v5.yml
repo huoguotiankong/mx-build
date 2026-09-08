@@ -1,0 +1,143 @@
+name: Format and Validate MengXiGe v5
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/format-mengxige-v5.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: format-mengxige-v5
+  cancel-in-progress: false
+
+jobs:
+  format-validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check private source token
+        shell: bash
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]] || { echo "::error::Missing MX_PRIVATE_READ_TOKEN"; exit 1; }
+
+      - name: Checkout private source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Fix recursive path-array predicate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("source/src/zh/mengxige/src/eu/kanade/tachiyomi/extension/zh/mengxige/MengXiGe.kt")
+          text = path.read_text()
+          old = '''        if (this is JsonArray) {
+              if (any { element ->
+                      val item = element as? JsonObject
+                      !item?.string("path").isNullOrBlank()
+                  }
+              ) {
+                  return this
+              }
+          }
+          '''
+          new = '''        if (this is JsonArray) {
+              val hasPathRows = any { element ->
+                  (element as? JsonObject)?.string("path")?.isNotBlank() == true
+              }
+              if (hasPathRows) return this
+          }
+          '''
+          if old not in text:
+              raise SystemExit("Expected recursive path-array predicate not found")
+          path.write_text(text.replace(old, new, 1))
+          PY
+
+      - name: Checkout current Keiyoushi
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          ref: main
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Overlay MengXiGe module
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf upstream/src/zh/mengxige
+          cp -a source/src/zh/mengxige upstream/src/zh/mengxige
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Apply current Keiyoushi formatting
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:mengxige:spotlessApply --stacktrace
+          ./gradlew :src:zh:mengxige:spotlessCheck --stacktrace
+
+      - name: Build debug APK
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:mengxige:assembleDebug --stacktrace
+
+      - name: Copy validated formatting back
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf source/src/zh/mengxige
+          cp -a upstream/src/zh/mengxige source/src/zh/mengxige
+
+          cd source
+          changed="$(git status --short -- src/zh/mengxige)"
+          if [[ -z "$changed" ]]; then
+            echo "No source changes to push"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/zh/mengxige
+          git commit -m "style(mengxige): validate v5 with current Keiyoushi"
+          git push origin HEAD:main
+
+      - name: Record result
+        shell: bash
+        run: |
+          {
+            echo "### MengXiGe v5 formatting and validation"
+            echo
+            echo "- Recursive path-array predicate repaired"
+            echo "- Keiyoushi spotlessApply: passed"
+            echo "- Keiyoushi spotlessCheck: passed"
+            echo "- Debug APK compilation: passed"
+            echo "- Validated source pushed back to mx-dev/main"
+            echo "- Android real-device behavior remains a separate validation step"
+          } >> "$GITHUB_STEP_SUMMARY"
