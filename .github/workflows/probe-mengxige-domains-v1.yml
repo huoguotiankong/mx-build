@@ -1,0 +1,38 @@
+name: Probe MengXiGe Domains v1
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-mengxige-domains-v1.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Probe official and legacy domain families
+        shell: bash
+        run: |
+          set -euo pipefail
+          for domain in xiangxung.com folongteng.com; do
+            echo "=== $domain ==="
+            for url in \
+              "https://conf.$domain/state.jpg" \
+              "https://book.$domain/book_city/v7/comics/1/0/1.html" \
+              "https://c-catalog.$domain/" \
+              "https://c-pic.$domain/" \
+              "https://c-chapter.$domain/" \
+              "https://c-res.$domain/"; do
+              printf '%s -> ' "$url"
+              curl -L --compressed --connect-timeout 5 --max-time 12 \
+                -A 'OPPO_R821T/1.0 Linux/3.4.5 Android/4.2.2' \
+                -sS -o /tmp/mx-probe-body \
+                -w 'http=%{http_code} ip=%{remote_ip} connect=%{time_connect} start=%{time_starttransfer} total=%{time_total}\n' \
+                "$url" || echo 'curl_failed'
+            done
+          done
