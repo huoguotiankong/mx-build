@@ -1,4 +1,5 @@
 name: Patch Manwa Plus lint
+# One-shot source maintenance workflow.
 
 on:
   push:
