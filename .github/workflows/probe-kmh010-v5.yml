@@ -1,0 +1,59 @@
+name: Probe K Manga JSON endpoints
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-kmh010-v5.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Probe endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          ua='Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 Chrome/126 Mobile Safari/537.36'
+          root="$RUNNER_TEMP/kmh-v5"; mkdir -p "$root"
+          urls=(
+            'https://kmh010.net/api/comic?tag=&status=&current=1'
+            'https://kmh010.net/api/comic?tag=&status=ongoing&current=1'
+            'https://kmh010.net/api/comic?tag=&status=complete&current=1'
+            'https://kmh010.net/api/comic?key=%E6%81%8B%E7%88%B1%E4%BD%9C%E5%BC%8A%E7%99%BE%E7%A7%91&current=1'
+            'https://kmh010.net/api/search?key=%E6%81%8B%E7%88%B1%E4%BD%9C%E5%BC%8A%E7%99%BE%E7%A7%91&current=1'
+            'https://kmh010.net/search?key=%E6%81%8B%E7%88%B1%E4%BD%9C%E5%BC%8A%E7%99%BE%E7%A7%91'
+            'https://kmh010.net/weekly?page=1'
+          )
+          i=0
+          for u in "${urls[@]}"; do
+            out="$root/$i.out"
+            code="$(curl -L --compressed --connect-timeout 8 --max-time 25 -A "$ua" -sS -D "$out.headers" -o "$out" -w '%{http_code}' "$u" || true)"
+            printf '\n=== %d %s ===\nstatus=%s bytes=%s\n' "$i" "$u" "$code" "$(wc -c < "$out" 2>/dev/null || echo 0)"
+            head -c 6000 "$out" || true
+            printf '\n'
+            i=$((i+1))
+          done
+          img='https://www.jjmhw8.top/static/upload/book/1227/57285/4816998.jpg'
+          for mode in none kmh source; do
+            case "$mode" in
+              none) ref=;;
+              kmh) ref='https://kmh010.net/chapter/6a83386d5a9ef7f6dacc5eda';;
+              source) ref='https://www.wzd1.cc/chapter/57285';;
+            esac
+            args=(); [[ -n "$ref" ]] && args=(-e "$ref")
+            code="$(curl -L --connect-timeout 8 --max-time 20 -A "$ua" "${args[@]}" -o /dev/null -sS -w '%{http_code} %{content_type} %{size_download}' "$img" || true)"
+            echo "image $mode -> $code"
+          done
+
+      - name: Upload probe
+        uses: actions/upload-artifact@v4
+        with:
+          name: kmh010-json-probe
+          path: ${{ runner.temp }}/kmh-v5
+          retention-days: 3
