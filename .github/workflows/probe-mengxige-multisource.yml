@@ -1,0 +1,145 @@
+name: Probe MengXiGe multi-source API
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-mengxige-multisource.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout private source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Probe official search/detail/source endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, hashlib, json, re, subprocess, time, urllib.parse, urllib.request
+          from pathlib import Path
+
+          src = Path('source/src/zh/mengxige/src/eu/kanade/tachiyomi/extension/zh/mengxige/MengXiGe.kt').read_text('utf-8')
+          def constant(name):
+              m = re.search(rf'private const val {name} = "([^"]*)"', src)
+              if not m:
+                  raise SystemExit(f'missing {name}')
+              return m.group(1)
+
+          package = constant('APP_PACKAGE')
+          secret = constant('APP_SECRET')
+          version = constant('APP_VERSION')
+          channel = constant('APP_CHANNEL')
+          app_id = constant('APP_ID')
+
+          def headers():
+              now = str(int(time.time()))
+              sign = hashlib.md5((package + '' + '1' + now + secret).encode()).hexdigest()
+              return {
+                  'User-Agent': 'OPPO_R821T/1.0 Linux/3.4.5 Android/4.2.2 Release/03.26.2013 Browser/AppleWebKit534.30 Mobile Safari/534.30 MBBMS/2.2 System/Android 4.2.2_' + package,
+                  'Accept': '*/*',
+                  'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.7',
+                  'Referer': 'https://book.folongteng.com/',
+                  'pt': '1',
+                  'version': version,
+                  'channel': channel,
+                  'uuid': 'probe-00000000-0000-0000-0000-000000000001',
+                  'xf-appid': app_id,
+                  'fc-session-id': '',
+                  'package': package,
+                  'time': now,
+                  'stamp': '',
+                  'sign': sign,
+              }
+
+          def fetch(url):
+              req = urllib.request.Request(url, headers=headers())
+              with urllib.request.urlopen(req, timeout=20) as r:
+                  return r.status, r.read().decode('utf-8', 'replace')
+
+          def decode(raw):
+              try:
+                  root = json.loads(raw)
+              except Exception:
+                  return raw
+              data = root.get('data') if isinstance(root, dict) else None
+              if not isinstance(data, dict) or str(data.get('ver')) != '1' or not data.get('content'):
+                  return raw
+              allb = base64.b64decode(data['content'])
+              if len(allb) < 32:
+                  return raw
+              headb, tailb = allb[:16], allb[-16:]
+              key = hashlib.sha256(headb).digest()
+              md5hex = hashlib.md5(tailb).hexdigest().encode('ascii')
+              iv = bytes((~(md5hex[i] ^ tailb[i])) & 0xff for i in range(16))
+              body = allb[16:-16]
+              p = subprocess.run(['openssl','enc','-d','-aes-256-cbc','-K',key.hex(),'-iv',iv.hex()], input=body, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+              if p.returncode != 0:
+                  return raw
+              return p.stdout.decode('utf-8','replace')
+
+          def walk_ids(x):
+              out=[]
+              if isinstance(x, dict):
+                  bid=x.get('book_id') or x.get('id')
+                  title=x.get('name') or x.get('book_name') or x.get('title')
+                  if bid and title:
+                      out.append((str(bid), str(title)))
+                  for v in x.values(): out.extend(walk_ids(v))
+              elif isinstance(x, list):
+                  for v in x: out.extend(walk_ids(v))
+              return out
+
+          q = urllib.parse.quote('咒术回战')
+          search_url = f'https://s.folongteng.com/v4/1/lists.api?keyword={q}&form=3'
+          status, raw = fetch(search_url)
+          decoded = decode(raw)
+          print('SEARCH_STATUS', status)
+          try:
+              sj=json.loads(decoded)
+          except Exception:
+              print('SEARCH_DECODE_PREFIX', decoded[:600])
+              raise
+          ids=[]
+          seen=set()
+          for bid,title in walk_ids(sj):
+              if bid not in seen:
+                  seen.add(bid); ids.append((bid,title))
+          print('SEARCH_MATCHES', json.dumps(ids[:20], ensure_ascii=False))
+          if not ids:
+              raise SystemExit('no search matches')
+          bid=ids[0][0]
+          floor=int(bid)//1000
+          print('SELECTED_BOOK', bid, ids[0][1])
+
+          endpoints={
+              'DETAIL': f'https://book.folongteng.com/comics/details/v4/{floor}/{bid}.html',
+              'SOURCE': f'https://book.folongteng.com/book/source/v4/{floor}/{bid}',
+          }
+          for label,url in endpoints.items():
+              try:
+                  status, raw=fetch(url)
+                  body=decode(raw)
+                  print(label+'_STATUS', status)
+                  try:
+                      obj=json.loads(body)
+                      print(label+'_JSON', json.dumps(obj, ensure_ascii=False)[:12000])
+                  except Exception:
+                      print(label+'_BODY', body[:4000])
+              except Exception as e:
+                  print(label+'_ERROR', type(e).__name__, str(e))
+          PY
