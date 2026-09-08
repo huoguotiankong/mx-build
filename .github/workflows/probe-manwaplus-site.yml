@@ -1,0 +1,86 @@
+name: Probe Manwa Plus Site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/manwaplus-site-probe-trigger"
+      - ".github/workflows/probe-manwaplus-site.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Probe mirrors and core endpoints
+        shell: bash
+        run: |
+          set -u
+          UA='Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36'
+          mkdir -p probe
+          mirrors=(
+            'https://manwa.me'
+            'https://manwagf.cc'
+            'https://manwagc.cc'
+            'https://manwagd.cc'
+            'https://manwass.cc'
+            'https://manwatg.cc'
+            'https://manwast.cc'
+            'https://manwasy.cc'
+          )
+          : > probe/summary.tsv
+          n=0
+          for base in "${mirrors[@]}"; do
+            n=$((n+1))
+            for spec in 'home:/' 'rank:/rank' 'latest:/getUpdate?page=0&date=' 'browse:/booklist' 'detail:/book/509384'; do
+              name="${spec%%:*}"
+              path="${spec#*:}"
+              body="probe/${n}_${name}.body"
+              meta=$(curl -L --compressed --max-time 20 --connect-timeout 8 -A "$UA" -e "$base/" -sS -o "$body" -w '%{http_code}\t%{content_type}\t%{url_effective}' "$base$path" 2>"probe/${n}_${name}.err" || true)
+              bytes=$(wc -c < "$body" 2>/dev/null || echo 0)
+              printf '%s\t%s\t%s\t%s\n' "$base" "$name" "$meta" "$bytes" >> probe/summary.tsv
+            done
+          done
+          cat probe/summary.tsv
+
+      - name: Inspect successful responses without logging page contents
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json, re
+          root = Path('probe')
+          print('sanitized-response-signals:')
+          for p in sorted(root.glob('*_latest.body')):
+              try:
+                  obj = json.loads(p.read_text(errors='ignore'))
+                  books = obj.get('books', []) if isinstance(obj, dict) else []
+                  print(p.name, 'json=yes', 'books=', len(books), 'total=', obj.get('total') if isinstance(obj, dict) else None)
+              except Exception:
+                  print(p.name, 'json=no')
+          for p in sorted(root.glob('*_detail.body')):
+              text = p.read_text(errors='ignore')
+              signals = {
+                  'detail_title': text.count('detail-main-info-title'),
+                  'chapter_links': len(re.findall(r'/chapter/', text)),
+                  'comment_container': text.count('detail-list-comment'),
+                  'reply_marker': text.count('查看更多回复数'),
+                  'report_marker': text.count('举报'),
+              }
+              print(p.name, signals)
+          PY
+
+      - name: Upload sanitized probe diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: manwaplus-site-probe
+          path: |
+            probe/summary.tsv
+            probe/*.err
+          retention-days: 3
+          if-no-files-found: warn
