@@ -1,0 +1,83 @@
+name: Probe Current Manwa Domain
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-manwaplus-current.yml"
+      - ".github/manwaplus-current-probe-trigger"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Probe discovered domain
+        shell: bash
+        run: |
+          set -u
+          BASE='https://manwaxzaw.cc'
+          UA='Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36'
+          mkdir -p probe
+          : > probe/summary.tsv
+          for spec in 'home:/' 'rank:/rank' 'latest:/getUpdate?page=0&date=' 'update:/update' 'browse:/booklist' 'detail:/book/509384'; do
+            name="${spec%%:*}"
+            path="${spec#*:}"
+            body="probe/${name}.body"
+            meta=$(curl --compressed --max-redirs 0 --max-time 20 --connect-timeout 8 -A "$UA" -e "$BASE/" -sS -o "$body" -D "probe/${name}.headers" -w '%{http_code}\t%{content_type}\t%{redirect_url}' "$BASE$path" 2>"probe/${name}.err" || true)
+            bytes=$(wc -c < "$body" 2>/dev/null || echo 0)
+            printf '%s\t%s\t%s\n' "$name" "$meta" "$bytes" >> probe/summary.tsv
+          done
+          cat probe/summary.tsv
+
+      - name: Inspect response structure
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json, re
+          root=Path('probe')
+          def text(name):
+              p=root/f'{name}.body'
+              return p.read_text(errors='ignore') if p.exists() else ''
+          latest=text('latest')
+          try:
+              obj=json.loads(latest)
+              print('latest-json', {'keys': sorted(obj.keys()) if isinstance(obj,dict) else [], 'books': len(obj.get('books',[])) if isinstance(obj,dict) else 0, 'total_type': type(obj.get('total')).__name__ if isinstance(obj,dict) else None})
+          except Exception as e:
+              print('latest-json', 'no', type(e).__name__)
+          for name in ['home','rank','update','browse','detail']:
+              s=text(name)
+              print(name, {
+                  'detail_title': s.count('detail-main-info-title'),
+                  'book_links': len(re.findall(r'/book/\d+', s)),
+                  'chapter_links': len(re.findall(r'/chapter/', s)),
+                  'comment_list': s.count('detail-list-comment'),
+                  'reply_marker': s.count('查看更多回复数'),
+                  'report_marker': s.count('举报'),
+                  'img_host_modal': s.count('img-host-modal'),
+                  'filter_tags': s.count('manga-filter-row tags'),
+                  'cloudflare': int('cloudflare' in s.lower()),
+              })
+          detail=text('detail')
+          print('detail-comment-class-candidates', sorted(set(re.findall(r'class=[\"\'][^\"\']*comment[^\"\']*[\"\']', detail, flags=re.I)))[:30])
+          print('detail-data-comment-attrs', sorted(set(re.findall(r'data-[a-zA-Z0-9_-]*comment[a-zA-Z0-9_-]*=', detail, flags=re.I)))[:30])
+          print('detail-comment-endpoints', sorted(set(re.findall(r'[\"\'](/[^\"\']*comment[^\"\']*)[\"\']', detail, flags=re.I)))[:30])
+          print('browse-filter-data-attrs', sorted(set(re.findall(r'data-(?:val|value|type|id)=[\"\'][^\"\']+[\"\']', text('browse'))))[:30])
+          PY
+
+      - name: Upload request metadata
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: manwaplus-current-probe
+          path: |
+            probe/summary.tsv
+            probe/*.headers
+            probe/*.err
+          retention-days: 3
+          if-no-files-found: warn
