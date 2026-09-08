@@ -63,8 +63,14 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-        with:
-          build-root-directory: upstream
+
+      - name: Apply formatter for diagnostic build
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:manwaplus:spotlessApply
+          git diff -- src/zh/manwaplus || true
 
       - name: Compile Manwa Plus
         working-directory: upstream
@@ -78,5 +84,6 @@ jobs:
             echo "### Manwa Plus v1"
             echo "- mx-dev commit: \`${SOURCE_SHA:-unknown}\`"
             echo "- Target: \`:src:zh:manwaplus:assembleDebug\`"
+            echo "- Spotless is applied only inside this diagnostic workspace."
             echo "- This public workflow does not upload private source files or APK artifacts."
           } >> "$GITHUB_STEP_SUMMARY"
