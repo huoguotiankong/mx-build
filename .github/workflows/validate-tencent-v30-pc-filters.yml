@@ -1,0 +1,108 @@
+name: Validate Tencent v30 PC filters
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/validate-tencent-v30-pc-filters.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check private source token
+        shell: bash
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]]
+
+      - name: Checkout Tencent v30 branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: fix/tencentcomics-filter-v30-final
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: dev
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Validate v30 source anchors
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 dev/scripts/validate_sources.py
+          grep -F 'versionCode = 30' dev/src/zh/tencentcomics/build.gradle.kts
+          grep -F 'TencentClassifyApi(client, headers).fetch(page, filters)' dev/src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+          grep -F 'PC_BASE_URL = "https://ac.qq.com"' dev/src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentClassifyApi.kt
+          grep -F 'query.isBlank()' dev/src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
+          ! grep -Fq 'Classify/comicClassifyList' dev/src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentClassifyApi.kt
+          git -C dev diff --check
+
+      - name: Probe live PC filter combinations
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import re, urllib.request
+          paths=[
+            '/Comic/all/theme/105/search/hot/page/1',
+            '/Comic/all/theme/105/search/time/page/1',
+            '/Comic/all/theme/105/finish/1/search/hot/vip/1/page/1',
+            '/Comic/all/theme/105/finish/1/search/hot/vip/2/page/1',
+            '/Comic/all/theme/105/finish/2/search/hot/vip/1/page/1',
+          ]
+          ua='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/139.0.0.0 Safari/537.36'
+          for path in paths:
+            req=urllib.request.Request('https://ac.qq.com'+path,headers={'User-Agent':ua})
+            with urllib.request.urlopen(req,timeout=20) as r:
+              text=r.read().decode('utf-8','ignore')
+              if r.status != 200:
+                raise SystemExit(f'{path}: HTTP {r.status}')
+            match=re.search(r'<ul[^>]+class=["\'][^"\']*ret-search-list[^"\']*["\'][^>]*>(.*?)</ul>',text,re.I|re.S)
+            block=match.group(1) if match else ''
+            items=re.findall(r'<li\b',block,re.I)
+            ids=re.findall(r'/Comic/comicInfo/id/(\d+)',block,re.I)
+            if len(items) != 12 or not ids:
+              raise SystemExit(f'{path}: expected 12 items and comic ids, got items={len(items)} ids={len(ids)}')
+            print('PC_FILTER_OK',path,'items',len(items),'first_id',ids[0])
+          PY
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Checkout current Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Overlay Tencent extension
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf upstream/src/zh/tencentcomics
+          cp -a dev/src/zh/tencentcomics upstream/src/zh/tencentcomics
+
+      - name: Spotless
+        working-directory: upstream
+        run: ./gradlew :src:zh:tencentcomics:spotlessCheck
+
+      - name: Build debug and release
+        working-directory: upstream
+        run: ./gradlew :src:zh:tencentcomics:assembleDebug :src:zh:tencentcomics:assembleRelease
+
+      - name: Lint release
+        working-directory: upstream
+        run: ./gradlew :src:zh:tencentcomics:lintRelease
