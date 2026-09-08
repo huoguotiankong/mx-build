@@ -49,6 +49,26 @@ jobs:
           rm -rf upstream/src/zh/manwaplus
           cp -a source/src/zh/manwaplus upstream/src/zh/manwaplus
 
+      - name: Probe known compile fix in transient checkout
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('upstream/src/zh/manwaplus/src/eu/kanade/tachiyomi/extension/zh/manwaplus/ManwaPlus.kt')
+          s = p.read_text()
+          old = '''                when (filter) {
+                    is UriPartFilter -> filter.setParamPair(builder)
+                    is TagCheckBoxFilterGroup -> filter.setParamPair(builder)
+                }'''
+          new = '''                when (filter) {
+                    is UriPartFilter -> filter.setParamPair(builder)
+                    is TagCheckBoxFilterGroup -> filter.setParamPair(builder)
+                    else -> Unit
+                }'''
+          if old not in s:
+              raise SystemExit('expected filter when block not found')
+          p.write_text(s.replace(old, new, 1))
+          PY
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
