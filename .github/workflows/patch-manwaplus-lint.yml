@@ -1,0 +1,65 @@
+name: Patch Manwa Plus lint
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/patch-manwaplus-lint.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout private source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Fix mixed-condition lint
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('source/src/zh/manwaplus/src/eu/kanade/tachiyomi/extension/zh/manwaplus/ManwaPlus.kt')
+          text = path.read_text('utf-8')
+          old = '''        return sample.contains("cf-chl-", true) ||
+            sample.contains("Just a moment", true) ||
+            sample.contains("Cloudflare", true) && sample.contains("challenge", true)
+'''
+          new = '''        return sample.contains("cf-chl-", true) ||
+            sample.contains("Just a moment", true) ||
+            (sample.contains("Cloudflare", true) && sample.contains("challenge", true))
+'''
+          if old not in text:
+              raise SystemExit('Expected mixed-condition block not found; source changed')
+          path.write_text(text.replace(old, new, 1), 'utf-8')
+          PY
+          python3 source/scripts/validate_sources.py
+          git -C source diff --check
+
+      - name: Commit source fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C source config user.name "github-actions[bot]"
+          git -C source config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C source add src/zh/manwaplus/src/eu/kanade/tachiyomi/extension/zh/manwaplus/ManwaPlus.kt
+          if git -C source diff --cached --quiet; then
+            echo 'Manwa Plus lint fix already applied'
+          else
+            git -C source commit -m 'style(manwaplus): clarify block-page condition'
+            git -C source pull --rebase origin main
+            git -C source push origin HEAD:main
+          fi
