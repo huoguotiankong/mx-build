@@ -1,6 +1,6 @@
 source=huoguotiankong/mx-dev
 ref=main
 module=mengxige
-version=1.6.6
-canonicalVersionCode=106006
-androidVersionCode=212006
+version=1.6.7
+canonicalVersionCode=106007
+androidVersionCode=212007
