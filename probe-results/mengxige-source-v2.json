@@ -1,0 +1,2380 @@
+{
+  "selected": {
+    "bookId": "5002663",
+    "title": "双王",
+    "sourceCount": 3,
+    "detail": {
+      "book_id": 5002663,
+      "related_data": [],
+      "name": "双王",
+      "author": "唐不醒",
+      "form": 3,
+      "image": "bodong/368/ab/81/467",
+      "area": {
+        "area_id": 0,
+        "area_name": ""
+      },
+      "tags": [
+        {
+          "tags_id": 3,
+          "tags_name": "恋爱",
+          "tags_desc": "恋爱"
+        },
+        {
+          "tags_id": 23,
+          "tags_name": "励志",
+          "tags_desc": "励志"
+        },
+        {
+          "tags_id": 38,
+          "tags_name": "现代",
+          "tags_desc": "现代"
+        },
+        {
+          "tags_id": 55,
+          "tags_name": "蔷薇",
+          "tags_desc": "蔷薇"
+        },
+        {
+          "tags_id": 112,
+          "tags_name": "明星",
+          "tags_desc": "明星"
+        },
+        {
+          "tags_id": 134,
+          "tags_name": "剧情",
+          "tags_desc": "剧情"
+        },
+        {
+          "tags_id": 172,
+          "tags_name": "娱乐圈",
+          "tags_desc": "娱乐圈"
+        },
+        {
+          "tags_id": 212,
+          "tags_name": "其它",
+          "tags_desc": "其它"
+        }
+      ],
+      "status": 2,
+      "remark": "当红小生顶撞过气影帝，双方粉丝撕的热火朝天的同时，正主居然宣布要演双男主电影？（年下！！！）\n不出意外是每周一更新，如有变动，可看看微博@唐不醒三西或者作品评论区的通知",
+      "sex": 0,
+      "fav_count": 232712,
+      "comment_number": 1274,
+      "chapter_count": 133,
+      "last_chapter_name": "此生长",
+      "last_crawler_book_id": 467,
+      "updated_at": "2023-02-10 01:43:21",
+      "source_count": 3,
+      "author_book": [
+        {
+          "book_id": 5003318,
+          "name": "出柜通告",
+          "author": "唐不醒",
+          "form": 3,
+          "image": "bodong/208/8e/bd/611",
+          "remark": "当红原创歌手沈墨因为同性恋事件曝光受到社会以及媒体的抨击，走投无路的他被迫化名沈潇筱男扮女装重新出道。原本骄傲自满的巨星不得不忍辱负重重新来过，未来究竟将何去何从.......？",
+          "chapter_count": 68,
+          "score": "8.98",
+          "status": 1
+        }
+      ],
+      "relevant_book": [
+        {
+          "book_id": 5181036,
+          "name": "小白杨",
+          "author": "水千丞（原著）+Koowa内容团队",
+          "form": 3,
+          "image": "colamh/30/b7/bb/631",
+          "remark": "好吃懒做的草包富二代被家人扔给俞风城改造，在这个环境艰苦的地方，白小少爷求救无门，哭哭唧唧地被迫接受了自己的命运。每天忍受繁重的操练和自尊心的打击已经够让他痛苦了，为什么这人处处找他麻烦？这煞星长得人模狗样，却一肚子坏水，他白小爷绝不会屈服！",
+          "chapter_count": 101,
+          "score": "9.62",
+          "status": 2
+        },
+        {
+          "book_id": 5184659,
+          "name": "明明是猫，却被狼族收养了？",
+          "author": "未知",
+          "form": 3,
+          "image": "qimiaomh/425/f7/17/44",
+          "remark": "小猫基蒂亚成了孤儿，一只年幼的猫咪独自生活是很可怕的事！基蒂亚想方设法前往了狼的领地，\"你好？我叫基蒂亚，虽然年纪小，但我是很勇敢的狼\"“...肯定是狼”",
+          "chapter_count": 76,
+          "score": "8.87",
+          "status": 2
+        },
+        {
+          "book_id": 5179127,
+          "name": "反派家族反对独立",
+          "author": "Lee Huin",
+          "form": 3,
+          "image": "bilibili/437/dc/51/1990",
+          "remark": "\"魂穿小说恶役女配，\n想逃跑却逃不掉？！\n爱洛迪是一个恶人家族中的私生女。某天她突然觉醒了前世记忆并发现自己这一世是穿越到了一本小说中！而且3年后小说女主就会登场，届时自己必定难逃死亡的命运。于是她打算在此之前抓紧赚钱，从此跟这一家人断绝关系!可是…“是谁怂恿你这么做的?”“姐姐，你该不会是想离家出走吧?”她的家人却十分反对?！\"",
+          "chapter_count": 105,
+          "score": "8.75",
+          "status": 2
+        },
+        {
+          "book_id": 5019231,
+          "name": "我亲爱的法医小姐",
+          "author": "酒暖春深（原著）+鲸元社（画面）+ 欲言文化（编剧）",
+          "form": 3,
+          "image": "kuaikan/247/a7/33/623",
+          "remark": "“冷艳骄恣女法医”林厌遇上“正直藏锋女刑警”宋余杭，从水火不容到相遇相知，一路见证了众多小人物的人生：努力生活却无辜枉死的少女、在深山等待罪犯儿子归来的老母亲、虽然胆小却舍身面对持枪匪徒的小警察...她们为生者权，替死者言，誓要将沉默多年的真相一一揭破。【独家/7月28日上线责编：毛拽拽】",
+          "chapter_count": 134,
+          "score": "9.50",
+          "status": 2
+        },
+        {
+          "book_id": 5138737,
+          "name": "我就想蹭你的气运",
+          "author": "明桂载酒（原著）+林打歪（主笔）+二宝（编剧）",
+          "form": 3,
+          "image": "colamh/213/8d/7d/428",
+          "remark": "重生后的赵明溪为了避开绝症活下去，不得不去蹭傅氏太子爷身上的气运。这位太子爷每次看到她，明明耳朵快红得滴血，还要装出酷炫狂霸拽的样子：“你能不能别缠我？”第二天赵明溪就真的去找别人蹭气运了。:)小狼狗头低了下来，委委屈屈：“给你缠还不行吗？”",
+          "chapter_count": 121,
+          "score": "8.75",
+          "status": 2
+        },
+        {
+          "book_id": 5003098,
+          "name": "白箐箐的异世界冒险",
+          "author": "阅文漫画",
+          "form": 3,
+          "image": "up/455/5003098.jpeg?time=1674897309",
+          "remark": "一跤跌到兽人世界，被一头花豹强掳回家，白箐箐的心情是崩溃的。这个世界的雄性个个长的跟花孔雀一样华丽英俊，雌性却丑到人神共愤。身为拥有四分之一俄罗斯血统的新时代优良女性白箐箐从此坐拥后宫美男，走向人生新巅峰。",
+          "chapter_count": 752,
+          "score": "7.30",
+          "status": 2
+        }
+      ],
+      "score": "9.41",
+      "score_number": 234808,
+      "view_count": 2539138,
+      "list_path": "app/299/4f/b8/5002663.html",
+      "list_reload_path": "app/299/4f/b8/5002663_reload.html",
+      "is_related": 0,
+      "notice_data": null,
+      "shield_data": []
+    }
+  },
+  "source": {
+    "url": "https://book.folongteng.com/book/source/v4/5002/5002663.html",
+    "error": "HTTPError: HTTP Error 404: Not Found"
+  },
+  "config": {
+    "book": {
+      "url": "https://book.folongteng.com/v4/source/site.html",
+      "error": "HTTPError: HTTP Error 404: Not Found"
+    },
+    "conf": {
+      "url": "https://conf.folongteng.com/v4/source/site.html",
+      "status": 200,
+      "json": [
+        {
+          "site_id": "kjyy",
+          "url_state": 0,
+          "url": "https://kjyy.com",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107375,
+          "is_excellent": 1
+        },
+        {
+          "site_id": "merge",
+          "url_state": 0,
+          "url": "https://www.google.com/",
+          "regular": [
+            {
+              "regular_key": "起点|黑岩|17k|纵横|掌阅|云起|潇湘|创世|[qQ]{2}阅读|[Qq][Ii][Dd][Ii][Aa][Nn]",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "@无限好文，尽在晋江文学城",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "微信搜索公众号「掌中云文学」，清爽无广告，还可阅读更多章节。",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "微信搜索公众号[掌中云文学]，更多章节，更快更新。",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "微信搜索",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "公众号",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "掌中云文学",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "掌中云",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "清爽无广告",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "交流好书.{1,50}?书友大本营.{1,50}?红包！",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "【领现金红包】.{1,50}?书友大本营.{1,50}?等你拿！",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "书友大本营",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "因特殊原因[\\s\\S]+?订阅观看",
+              "regular_value": "请稍后刷新再试"
+            },
+            {
+              "regular_key": "<[\\na-z/]+?[\\s\\S]*?>",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107432,
+          "is_excellent": 1
+        },
+        {
+          "site_id": "slsy",
+          "url_state": 0,
+          "url": "https://hkslg.nett",
+          "regular": [
+            {
+              "regular_key": "以下是：.*?为你提供的.*?小说.*?正文，敬请欣赏！",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1583917658,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "sy",
+          "url_state": 0,
+          "url": "http://shengyan.com",
+          "regular": [],
+          "regular_time": 0,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "qimao",
+          "url_state": 0,
+          "url": "https://api-bc.wtzw.com",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107582,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "qxs",
+          "url_state": 0,
+          "url": "https://qxs.la/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107265,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "rz",
+          "url_state": 0,
+          "url": "https://www.rzlib.net/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107316,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "db",
+          "url_state": 0,
+          "url": "https://www.xklxsw.la/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107444,
+          "is_excellent": 1
+        },
+        {
+          "site_id": "db55",
+          "url_state": 0,
+          "url": "https://www.55duba.com/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107256,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "idj",
+          "url_state": 0,
+          "url": "http://idejian.com/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107505,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "lc",
+          "url_state": 0,
+          "url": "http://localhost",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107582,
+          "is_excellent": 1
+        },
+        {
+          "site_id": "qbyq",
+          "url_state": 0,
+          "url": "http://www.qbyq.net/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107289,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "wyy",
+          "url_state": 0,
+          "url": "https://yuedu.163.com",
+          "regular": [],
+          "regular_time": 0,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "xhs",
+          "url_state": 0,
+          "url": "https://www.xhs.com/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107571,
+          "is_excellent": 1
+        },
+        {
+          "site_id": "lk",
+          "url_state": 0,
+          "url": "https://www.lk.com",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107384,
+          "is_excellent": 1
+        },
+        {
+          "site_id": "qk",
+          "url_state": 0,
+          "url": "http://www.qk.net/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107298,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "qu",
+          "url_state": 0,
+          "url": "https://www.jx.la/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107307,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "uzi",
+          "url_state": 0,
+          "url": "https://www.uzi.com/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107554,
+          "is_excellent": 1
+        },
+        {
+          "site_id": "vodtw",
+          "url_state": 0,
+          "url": "https://www.vodtw.la/",
+          "regular": [
+            {
+              "regular_key": "起点|黑岩|17k|纵横|掌阅|云起|潇湘|创世",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "看最全！更新最快的小说",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "手机阅读",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "本书来自",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "手机端",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "\\(\\)",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "八.{0,3}?八.{0,3}?读.{0,3}?书",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "�[0-9]{0,2}",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "≦看 最 新≧≦章 节≧≦百 度≧ ≦搜 索≧ ≦ 品 ≧≦ 书 ≧≦ 網 ≧",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "复制网址访问 http://%77%77%77%2e%76%6f%64%74%77%2e%63%6f%6d新·匕匕·····首·发xin.",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "复制网址访问",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "匕匕·····首·发",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "／*",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "\\(品.{0,3}?[書|书].{0,3}?[網|网]\\)|品.{0,3}?[書|书].{0,3}?[網|网]",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "[ＷｗWw].{0,3}?[ＷｗWw].{0,3}?[ＷｗWw].{0,3}?[vV].{0,3}?[oO].{0,3}?[dD].{0,3}?[tT].{0,3}?[wW].{0,3}?[ＣｃcC].{0,3}?[ＯｏoO].{0,3}?[ＭMmｍ]",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "[ＷｗWw].{0,3}?[ＷｗWw].{0,3}?[ＷｗWw].{0,3}?[vV].{0,3}?[oO].{0,3}?[dD].{0,3}?[tT].{0,3}?[wW].{0,3}?[lL].{0,3}?[aA]",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "[mM].{0,3}?[vV].{0,3}?[oO].{0,3}?[dD].{0,3}?[tT].{0,3}?[wW].{0,3}?[ＣｃcC].{0,3}?[ＯｏoO].{0,3}?[ＭMmｍ]",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "[mM].{0,3}?[vV].{0,3}?[oO].{0,3}?[dD].{0,3}?[tT].{0,3}?[wW].{0,3}?[lL].{0,3}?[aA]",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "(https|http)://.{0,30}?%2e%63%6f%6d",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "(https|http)://",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "<|>",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "想.{0,1}?免.{0,1}?费.{0,1}?看.{0,1}?完.{0,1}?整.{0,1}?版.{0,1}?请.{0,1}?百.{0,1}?度.{0,1}?搜",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "m.vodt.com",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107279,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "fsrxzs",
+          "url_state": 0,
+          "url": "https://www.fsrxzs.com",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107534,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "rr",
+          "url_state": 0,
+          "url": "https://www.rr.com/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107523,
+          "is_excellent": 1
+        },
+        {
+          "site_id": "whzh",
+          "url_state": 0,
+          "url": "https://www.whzh-cw.com/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107563,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "wsg",
+          "url_state": 0,
+          "url": "https://wangshugu.com",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107411,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "tr",
+          "url_state": 0,
+          "url": "https://tr.com",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107403,
+          "is_excellent": 1
+        },
+        {
+          "site_id": "xsjtxt",
+          "url_state": 0,
+          "url": "https://www.xsjtxt.com/",
+          "regular": [
+            {
+              "regular_key": "最新网址：",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107343,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "zl",
+          "url_state": 0,
+          "url": "https://www.baidu.com/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107582,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "bqgeee",
+          "url_state": 0,
+          "url": "https://www.bqgeee.com",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107359,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "fs",
+          "url_state": 0,
+          "url": "https://fangshu.com",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107367,
+          "is_excellent": 1
+        },
+        {
+          "site_id": "sc",
+          "url_state": 0,
+          "url": "https://www.sc.com/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107534,
+          "is_excellent": 1
+        },
+        {
+          "site_id": "sky",
+          "url_state": 0,
+          "url": "https://top.skyxiaoshuo.com/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107534,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "sq",
+          "url_state": 0,
+          "url": "https://sq.com",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107393,
+          "is_excellent": 1
+        },
+        {
+          "site_id": "zw45",
+          "url_state": 0,
+          "url": "https://www.45zw.la/",
+          "regular": [],
+          "regular_time": 0,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "fr",
+          "url_state": 0,
+          "url": "https://www.fr.com/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107497,
+          "is_excellent": 1
+        },
+        {
+          "site_id": "HQ",
+          "url_state": 0,
+          "url": "http://www.baidu.com/",
+          "regular": [
+            {
+              "regular_key": "起点|黑岩|17k|纵横|掌阅|云起|潇湘|创世",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "看最全！更新最快的小说",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "手机阅读",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "本书来自",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "手机端",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "八.{0,3}?八.{0,3}?读.{0,3}?书",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "�[0-9]{0,2}",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "\\s*?app[0-9]\\(\\);\\n*",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "笔.{0,3}?趣.{0,3}?看.{0,3}?小.{0,3}?说.{0,3}?网|笔.{0,3}?趣.{0,3}?看",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "[ＷｗWw].{0,3}?[ＷｗWw].{0,3}?[ＷｗWw].{0,3}?[bB].{0,3}?[iI].{0,3}?[qQ].{0,3}?[uU].{0,3}?[kK].{0,3}?[aA].{0,3}?[nN].{0,3}?[ＣｃcC].{0,3}?[ＯｏoO].{0,3}?[ＭMmｍ]",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "[mM].{0,3}?[bB].{0,3}?[iI].{0,3}?[qQ].{0,3}?[uU].{0,3}?[kK].{0,3}?[aA].{0,3}?[nN].{0,3}?[ＣｃcC].{0,3}?[ＯｏoO].{0,3}?[ＭMmｍ]",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107233,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "starfire",
+          "url_state": 0,
+          "url": "https://www.zbcxw.cn",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107534,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "us23",
+          "url_state": 0,
+          "url": "https://www.baidu.com/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107333,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "yy",
+          "url_state": 0,
+          "url": "https://yy.com",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107420,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "slmh",
+          "url_state": 0,
+          "url": "https://www.slmh.com/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107497,
+          "is_excellent": 1
+        },
+        {
+          "site_id": "yq360",
+          "url_state": 0,
+          "url": "http://www.yanqing360.com/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107351,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "ai",
+          "url_state": 0,
+          "url": "https://www.google.com/",
+          "regular": [
+            {
+              "regular_key": "起点|黑岩|17k|纵横|掌阅|云起|潇湘|创世|[qQ]{2}阅读|[Qq][Ii][Dd][Ii][Aa][Nn]",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "@无限好文，尽在晋江文学城",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "微信搜索公众号「掌中云文学」，清爽无广告，还可阅读更多章节。",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "微信搜索公众号[掌中云文学]，更多章节，更快更新。",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "微信搜索",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "公众号",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "掌中云文学",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "掌中云",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "清爽无广告",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "交流好书.{1,50}?书友大本营.{1,50}?红包！",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "【领现金红包】.{1,50}?书友大本营.{1,50}?等你拿！",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "书友大本营",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "因特殊原因[\\s\\S]+?订阅观看",
+              "regular_value": "请稍后刷新再试"
+            },
+            {
+              "regular_key": "<[\\na-z/]+?[\\s\\S]*?>",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107432,
+          "is_excellent": 1
+        },
+        {
+          "site_id": "bbqsk",
+          "url_state": 0,
+          "url": "http://www.bbqsk.com/",
+          "regular": [
+            {
+              "regular_key": "起点|黑岩|17k|纵横|掌阅|云起|潇湘|创世",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "看最全！更新最快的小说",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "手机阅读",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "本书来自",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "手机端",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "八.{0,3}?八.{0,3}?读.{0,3}?书",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "�[0-9]{0,2}",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "\\s*?app[0-9]\\(\\);\\n*",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "笔.{0,3}?趣.{0,3}?看.{0,3}?小.{0,3}?说.{0,3}?网|笔.{0,3}?趣.{0,3}?看",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "[ＷｗWw].{0,3}?[ＷｗWw].{0,3}?[ＷｗWw].{0,3}?[bB].{0,3}?[iI].{0,3}?[qQ].{0,3}?[uU].{0,3}?[kK].{0,3}?[aA].{0,3}?[nN].{0,3}?[ＣｃcC].{0,3}?[ＯｏoO].{0,3}?[ＭMmｍ]",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "[mM].{0,3}?[bB].{0,3}?[iI].{0,3}?[qQ].{0,3}?[uU].{0,3}?[kK].{0,3}?[aA].{0,3}?[nN].{0,3}?[ＣｃcC].{0,3}?[ＯｏoO].{0,3}?[ＭMmｍ]",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107233,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "df",
+          "url_state": 0,
+          "url": "https://www.df.la/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107489,
+          "is_excellent": 1
+        },
+        {
+          "site_id": "qg",
+          "url_state": 0,
+          "url": "https://www.qingoo.cn/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107515,
+          "is_excellent": 1
+        },
+        {
+          "site_id": "shubl",
+          "url_state": 0,
+          "url": "https://www.shubl.com",
+          "regular": [],
+          "regular_time": 0,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "bqk",
+          "url_state": 0,
+          "url": "https://www.biqukan.com/",
+          "regular": [
+            {
+              "regular_key": "起点|黑岩|17k|纵横|掌阅|云起|潇湘|创世",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "看最全！更新最快的小说",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "手机阅读",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "本书来自",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "手机端",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "八.{0,3}?八.{0,3}?读.{0,3}?书",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "�[0-9]{0,2}",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "\\s*?app[0-9]\\(\\);\\n*",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "笔.{0,3}?趣.{0,3}?看.{0,3}?小.{0,3}?说.{0,3}?网|笔.{0,3}?趣.{0,3}?看",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "[ＷｗWw].{0,3}?[ＷｗWw].{0,3}?[ＷｗWw].{0,3}?[bB].{0,3}?[iI].{0,3}?[qQ].{0,3}?[uU].{0,3}?[kK].{0,3}?[aA].{0,3}?[nN].{0,3}?[ＣｃcC].{0,3}?[ＯｏoO].{0,3}?[ＭMmｍ]",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "[mM].{0,3}?[bB].{0,3}?[iI].{0,3}?[qQ].{0,3}?[uU].{0,3}?[kK].{0,3}?[aA].{0,3}?[nN].{0,3}?[ＣｃcC].{0,3}?[ＯｏoO].{0,3}?[ＭMmｍ]",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107233,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "tbyy",
+          "url_state": 0,
+          "url": "http://tbyy.com/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107543,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "txt23",
+          "url_state": 0,
+          "url": "https://www.23txt.com/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107325,
+          "is_excellent": 0
+        }
+      ]
+    },
+    "c-catalog": {
+      "url": "https://c-catalog.folongteng.com/v4/source/site.html",
+      "status": 200,
+      "json": [
+        {
+          "site_id": "qu",
+          "url_state": 0,
+          "url": "https://www.jx.la/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107307,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "tr",
+          "url_state": 0,
+          "url": "https://tr.com",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107403,
+          "is_excellent": 1
+        },
+        {
+          "site_id": "zw45",
+          "url_state": 0,
+          "url": "https://www.45zw.la/",
+          "regular": [],
+          "regular_time": 0,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "idj",
+          "url_state": 0,
+          "url": "http://idejian.com/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107505,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "kjyy",
+          "url_state": 0,
+          "url": "https://kjyy.com",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107375,
+          "is_excellent": 1
+        },
+        {
+          "site_id": "xhs",
+          "url_state": 0,
+          "url": "https://www.xhs.com/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107571,
+          "is_excellent": 1
+        },
+        {
+          "site_id": "yy",
+          "url_state": 0,
+          "url": "https://yy.com",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107420,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "db55",
+          "url_state": 0,
+          "url": "https://www.55duba.com/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107256,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "df",
+          "url_state": 0,
+          "url": "https://www.df.la/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107489,
+          "is_excellent": 1
+        },
+        {
+          "site_id": "sky",
+          "url_state": 0,
+          "url": "https://top.skyxiaoshuo.com/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107534,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "starfire",
+          "url_state": 0,
+          "url": "https://www.zbcxw.cn",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107534,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "txt23",
+          "url_state": 0,
+          "url": "https://www.23txt.com/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107325,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "shubl",
+          "url_state": 0,
+          "url": "https://www.shubl.com",
+          "regular": [],
+          "regular_time": 0,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "slsy",
+          "url_state": 0,
+          "url": "https://hkslg.nett",
+          "regular": [
+            {
+              "regular_key": "以下是：.*?为你提供的.*?小说.*?正文，敬请欣赏！",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1583917658,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "sy",
+          "url_state": 0,
+          "url": "http://shengyan.com",
+          "regular": [],
+          "regular_time": 0,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "whzh",
+          "url_state": 0,
+          "url": "https://www.whzh-cw.com/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107563,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "xsjtxt",
+          "url_state": 0,
+          "url": "https://www.xsjtxt.com/",
+          "regular": [
+            {
+              "regular_key": "最新网址：",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107343,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "yq360",
+          "url_state": 0,
+          "url": "http://www.yanqing360.com/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107351,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "zl",
+          "url_state": 0,
+          "url": "https://www.baidu.com/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107582,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "db",
+          "url_state": 0,
+          "url": "https://www.xklxsw.la/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107444,
+          "is_excellent": 1
+        },
+        {
+          "site_id": "fr",
+          "url_state": 0,
+          "url": "https://www.fr.com/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107497,
+          "is_excellent": 1
+        },
+        {
+          "site_id": "lk",
+          "url_state": 0,
+          "url": "https://www.lk.com",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107384,
+          "is_excellent": 1
+        },
+        {
+          "site_id": "slmh",
+          "url_state": 0,
+          "url": "https://www.slmh.com/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107497,
+          "is_excellent": 1
+        },
+        {
+          "site_id": "vodtw",
+          "url_state": 0,
+          "url": "https://www.vodtw.la/",
+          "regular": [
+            {
+              "regular_key": "起点|黑岩|17k|纵横|掌阅|云起|潇湘|创世",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "看最全！更新最快的小说",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "手机阅读",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "本书来自",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "手机端",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "\\(\\)",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "八.{0,3}?八.{0,3}?读.{0,3}?书",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "�[0-9]{0,2}",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "≦看 最 新≧≦章 节≧≦百 度≧ ≦搜 索≧ ≦ 品 ≧≦ 书 ≧≦ 網 ≧",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "复制网址访问 http://%77%77%77%2e%76%6f%64%74%77%2e%63%6f%6d新·匕匕·····首·发xin.",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "复制网址访问",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "匕匕·····首·发",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "／*",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "\\(品.{0,3}?[書|书].{0,3}?[網|网]\\)|品.{0,3}?[書|书].{0,3}?[網|网]",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "[ＷｗWw].{0,3}?[ＷｗWw].{0,3}?[ＷｗWw].{0,3}?[vV].{0,3}?[oO].{0,3}?[dD].{0,3}?[tT].{0,3}?[wW].{0,3}?[ＣｃcC].{0,3}?[ＯｏoO].{0,3}?[ＭMmｍ]",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "[ＷｗWw].{0,3}?[ＷｗWw].{0,3}?[ＷｗWw].{0,3}?[vV].{0,3}?[oO].{0,3}?[dD].{0,3}?[tT].{0,3}?[wW].{0,3}?[lL].{0,3}?[aA]",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "[mM].{0,3}?[vV].{0,3}?[oO].{0,3}?[dD].{0,3}?[tT].{0,3}?[wW].{0,3}?[ＣｃcC].{0,3}?[ＯｏoO].{0,3}?[ＭMmｍ]",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "[mM].{0,3}?[vV].{0,3}?[oO].{0,3}?[dD].{0,3}?[tT].{0,3}?[wW].{0,3}?[lL].{0,3}?[aA]",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "(https|http)://.{0,30}?%2e%63%6f%6d",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "(https|http)://",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "<|>",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "想.{0,1}?免.{0,1}?费.{0,1}?看.{0,1}?完.{0,1}?整.{0,1}?版.{0,1}?请.{0,1}?百.{0,1}?度.{0,1}?搜",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "m.vodt.com",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107279,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "bqgeee",
+          "url_state": 0,
+          "url": "https://www.bqgeee.com",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107359,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "fs",
+          "url_state": 0,
+          "url": "https://fangshu.com",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107367,
+          "is_excellent": 1
+        },
+        {
+          "site_id": "lc",
+          "url_state": 0,
+          "url": "http://localhost",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107582,
+          "is_excellent": 1
+        },
+        {
+          "site_id": "tbyy",
+          "url_state": 0,
+          "url": "http://tbyy.com/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107543,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "wyy",
+          "url_state": 0,
+          "url": "https://yuedu.163.com",
+          "regular": [],
+          "regular_time": 0,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "qimao",
+          "url_state": 0,
+          "url": "https://api-bc.wtzw.com",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107582,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "qk",
+          "url_state": 0,
+          "url": "http://www.qk.net/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107298,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "qxs",
+          "url_state": 0,
+          "url": "https://qxs.la/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107265,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "ai",
+          "url_state": 0,
+          "url": "https://www.google.com/",
+          "regular": [
+            {
+              "regular_key": "起点|黑岩|17k|纵横|掌阅|云起|潇湘|创世|[qQ]{2}阅读|[Qq][Ii][Dd][Ii][Aa][Nn]",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "@无限好文，尽在晋江文学城",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "微信搜索公众号「掌中云文学」，清爽无广告，还可阅读更多章节。",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "微信搜索公众号[掌中云文学]，更多章节，更快更新。",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "微信搜索",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "公众号",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "掌中云文学",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "掌中云",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "清爽无广告",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "交流好书.{1,50}?书友大本营.{1,50}?红包！",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "【领现金红包】.{1,50}?书友大本营.{1,50}?等你拿！",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "书友大本营",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "因特殊原因[\\s\\S]+?订阅观看",
+              "regular_value": "请稍后刷新再试"
+            },
+            {
+              "regular_key": "<[\\na-z/]+?[\\s\\S]*?>",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107432,
+          "is_excellent": 1
+        },
+        {
+          "site_id": "bbqsk",
+          "url_state": 0,
+          "url": "http://www.bbqsk.com/",
+          "regular": [
+            {
+              "regular_key": "起点|黑岩|17k|纵横|掌阅|云起|潇湘|创世",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "看最全！更新最快的小说",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "手机阅读",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "本书来自",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "手机端",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "八.{0,3}?八.{0,3}?读.{0,3}?书",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "�[0-9]{0,2}",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "\\s*?app[0-9]\\(\\);\\n*",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "笔.{0,3}?趣.{0,3}?看.{0,3}?小.{0,3}?说.{0,3}?网|笔.{0,3}?趣.{0,3}?看",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "[ＷｗWw].{0,3}?[ＷｗWw].{0,3}?[ＷｗWw].{0,3}?[bB].{0,3}?[iI].{0,3}?[qQ].{0,3}?[uU].{0,3}?[kK].{0,3}?[aA].{0,3}?[nN].{0,3}?[ＣｃcC].{0,3}?[ＯｏoO].{0,3}?[ＭMmｍ]",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "[mM].{0,3}?[bB].{0,3}?[iI].{0,3}?[qQ].{0,3}?[uU].{0,3}?[kK].{0,3}?[aA].{0,3}?[nN].{0,3}?[ＣｃcC].{0,3}?[ＯｏoO].{0,3}?[ＭMmｍ]",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107233,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "bqk",
+          "url_state": 0,
+          "url": "https://www.biqukan.com/",
+          "regular": [
+            {
+              "regular_key": "起点|黑岩|17k|纵横|掌阅|云起|潇湘|创世",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "看最全！更新最快的小说",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "手机阅读",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "本书来自",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "手机端",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "八.{0,3}?八.{0,3}?读.{0,3}?书",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "�[0-9]{0,2}",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "\\s*?app[0-9]\\(\\);\\n*",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "笔.{0,3}?趣.{0,3}?看.{0,3}?小.{0,3}?说.{0,3}?网|笔.{0,3}?趣.{0,3}?看",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "[ＷｗWw].{0,3}?[ＷｗWw].{0,3}?[ＷｗWw].{0,3}?[bB].{0,3}?[iI].{0,3}?[qQ].{0,3}?[uU].{0,3}?[kK].{0,3}?[aA].{0,3}?[nN].{0,3}?[ＣｃcC].{0,3}?[ＯｏoO].{0,3}?[ＭMmｍ]",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "[mM].{0,3}?[bB].{0,3}?[iI].{0,3}?[qQ].{0,3}?[uU].{0,3}?[kK].{0,3}?[aA].{0,3}?[nN].{0,3}?[ＣｃcC].{0,3}?[ＯｏoO].{0,3}?[ＭMmｍ]",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107233,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "qbyq",
+          "url_state": 0,
+          "url": "http://www.qbyq.net/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107289,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "qg",
+          "url_state": 0,
+          "url": "https://www.qingoo.cn/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107515,
+          "is_excellent": 1
+        },
+        {
+          "site_id": "sq",
+          "url_state": 0,
+          "url": "https://sq.com",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107393,
+          "is_excellent": 1
+        },
+        {
+          "site_id": "us23",
+          "url_state": 0,
+          "url": "https://www.baidu.com/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107333,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "sc",
+          "url_state": 0,
+          "url": "https://www.sc.com/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107534,
+          "is_excellent": 1
+        },
+        {
+          "site_id": "uzi",
+          "url_state": 0,
+          "url": "https://www.uzi.com/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107554,
+          "is_excellent": 1
+        },
+        {
+          "site_id": "wsg",
+          "url_state": 0,
+          "url": "https://wangshugu.com",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107411,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "fsrxzs",
+          "url_state": 0,
+          "url": "https://www.fsrxzs.com",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107534,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "HQ",
+          "url_state": 0,
+          "url": "http://www.baidu.com/",
+          "regular": [
+            {
+              "regular_key": "起点|黑岩|17k|纵横|掌阅|云起|潇湘|创世",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "看最全！更新最快的小说",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "手机阅读",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "本书来自",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "手机端",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "八.{0,3}?八.{0,3}?读.{0,3}?书",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "�[0-9]{0,2}",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "\\s*?app[0-9]\\(\\);\\n*",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "笔.{0,3}?趣.{0,3}?看.{0,3}?小.{0,3}?说.{0,3}?网|笔.{0,3}?趣.{0,3}?看",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "[ＷｗWw].{0,3}?[ＷｗWw].{0,3}?[ＷｗWw].{0,3}?[bB].{0,3}?[iI].{0,3}?[qQ].{0,3}?[uU].{0,3}?[kK].{0,3}?[aA].{0,3}?[nN].{0,3}?[ＣｃcC].{0,3}?[ＯｏoO].{0,3}?[ＭMmｍ]",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "[mM].{0,3}?[bB].{0,3}?[iI].{0,3}?[qQ].{0,3}?[uU].{0,3}?[kK].{0,3}?[aA].{0,3}?[nN].{0,3}?[ＣｃcC].{0,3}?[ＯｏoO].{0,3}?[ＭMmｍ]",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107233,
+          "is_excellent": 0
+        },
+        {
+          "site_id": "merge",
+          "url_state": 0,
+          "url": "https://www.google.com/",
+          "regular": [
+            {
+              "regular_key": "起点|黑岩|17k|纵横|掌阅|云起|潇湘|创世|[qQ]{2}阅读|[Qq][Ii][Dd][Ii][Aa][Nn]",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "@无限好文，尽在晋江文学城",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "微信搜索公众号「掌中云文学」，清爽无广告，还可阅读更多章节。",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "微信搜索公众号[掌中云文学]，更多章节，更快更新。",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "微信搜索",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "公众号",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "掌中云文学",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "掌中云",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "清爽无广告",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "交流好书.{1,50}?书友大本营.{1,50}?红包！",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "【领现金红包】.{1,50}?书友大本营.{1,50}?等你拿！",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "书友大本营",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "因特殊原因[\\s\\S]+?订阅观看",
+              "regular_value": "请稍后刷新再试"
+            },
+            {
+              "regular_key": "<[\\na-z/]+?[\\s\\S]*?>",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107432,
+          "is_excellent": 1
+        },
+        {
+          "site_id": "rr",
+          "url_state": 0,
+          "url": "https://www.rr.com/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107523,
+          "is_excellent": 1
+        },
+        {
+          "site_id": "rz",
+          "url_state": 0,
+          "url": "https://www.rzlib.net/",
+          "regular": [
+            {
+              "regular_key": "免费看新内容",
+              "regular_value": ""
+            },
+            {
+              "regular_key": "爱阅",
+              "regular_value": ""
+            }
+          ],
+          "regular_time": 1655107316,
+          "is_excellent": 0
+        }
+      ]
+    }
+  }
+}
