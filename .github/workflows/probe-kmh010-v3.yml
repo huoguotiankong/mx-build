@@ -1,0 +1,62 @@
+name: Inspect K Manga route bundles
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-kmh010-v3.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Inspect bundles
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/kmh-v3"
+          mkdir -p "$root"
+          base='https://kmh010.net'
+          urls=(
+            '/_next/static/chunks/856-92726e584c1cc115.js'
+            '/_next/static/chunks/598-9b640cd4bb6fc4ad.js'
+            '/_next/static/chunks/app/(pages)/comic/%5Bid%5D/page-c4df1d26bfd489ac.js'
+            '/_next/static/chunks/app/(pages)/category/page-02640d7e4db46966.js'
+            '/_next/static/chunks/app/(pages)/search/page-3e9411a415f0107e.js'
+          )
+          i=0
+          for u in "${urls[@]}"; do
+            curl -L --compressed --connect-timeout 10 --max-time 25 -A 'Mozilla/5.0' -sS -o "$root/$i.js" "$base$u"
+            printf '%s\t%s\t%s\n' "$i" "$(wc -c < "$root/$i.js")" "$u"
+            i=$((i+1))
+          done
+          python3 - "$root" <<'PY'
+          from pathlib import Path
+          import re, sys
+          root=Path(sys.argv[1])
+          needles=['comicID','chapterID','chapter','ordinal','router.push','push(','href','fetch(','/api','covers','pages','images','content','episode','read','viewer','_id','cid','favorite','shelf','searchParams','tag','status']
+          for p in sorted(root.glob('*.js')):
+              text=p.read_text('utf-8',errors='ignore')
+              print('\n===== FILE',p.name,'BYTES',len(text.encode()),'=====')
+              for needle in needles:
+                  pos=0; shown=0
+                  while True:
+                      idx=text.find(needle,pos)
+                      if idx<0 or shown>=8: break
+                      print('\n---',needle,'---')
+                      print(text[max(0,idx-700):idx+1400])
+                      pos=idx+len(needle); shown+=1
+          PY
+
+      - name: Upload bundles
+        uses: actions/upload-artifact@v4
+        with:
+          name: kmh010-route-bundles
+          path: ${{ runner.temp }}/kmh-v3
+          if-no-files-found: error
+          retention-days: 3
