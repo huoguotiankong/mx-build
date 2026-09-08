@@ -1,0 +1,47 @@
+name: Patch MX 1.14.13 marker docs
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/patch-mx-v93-marker-docs.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout public build scripts
+        uses: actions/checkout@v5
+        with:
+          path: build-control
+          persist-credentials: false
+
+      - name: Checkout private MX App marker-stability branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-app
+          ref: hotfix/v92-marker-stability-v93
+          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Update chapter-content documentation and push
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp build-control/scripts/patch_mx_v93_marker_docs.py source/.mx-v93-docs.py
+          cd source
+          python3 .mx-v93-docs.py
+          rm .mx-v93-docs.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/CHAPTER_CONTENT.md
+          git diff --cached --quiet && exit 1
+          git commit -m "docs: record stable replacement marker behavior"
+          git push origin HEAD:hotfix/v92-marker-stability-v93
