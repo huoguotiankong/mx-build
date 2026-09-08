@@ -1,0 +1,62 @@
+name: Probe Tencent PC filter routes v30
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-tencent-pc-filters-v30.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Probe current PC filter routes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import re, urllib.request, urllib.error
+
+          base='https://ac.qq.com'
+          paths=[
+              '/Comic/all/search/hot/page/1',
+              '/Comic/all/search/time/page/1',
+              '/Comic/all/theme/105/page/1',
+              '/Comic/all/finish/1/page/1',
+              '/Comic/all/finish/2/page/1',
+              '/Comic/all/vip/1/page/1',
+              '/Comic/all/vip/2/page/1',
+              '/Comic/all/theme/105/search/hot/page/1',
+              '/Comic/all/theme/105/search/time/page/1',
+              '/Comic/all/theme/105/finish/1/page/1',
+              '/Comic/all/theme/105/finish/1/search/hot/page/1',
+              '/Comic/all/theme/105/finish/1/search/time/page/1',
+              '/Comic/all/theme/105/finish/1/search/hot/vip/1/page/1',
+              '/Comic/all/theme/105/finish/1/search/hot/vip/2/page/1',
+              '/Comic/all/theme/105/finish/2/search/hot/vip/1/page/1',
+          ]
+          ua='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/139.0.0.0 Safari/537.36'
+          for p in paths:
+              req=urllib.request.Request(base+p,headers={'User-Agent':ua,'Accept':'text/html,application/xhtml+xml'})
+              try:
+                  with urllib.request.urlopen(req,timeout=20) as r:
+                      raw=r.read(); status=r.status; final=r.geturl()
+                  text=raw.decode('utf-8','ignore')
+                  # Count list items specifically inside ret-search-list where possible.
+                  m=re.search(r'<ul[^>]+class=["\'][^"\']*ret-search-list[^"\']*["\'][^>]*>(.*?)</ul>',text,re.I|re.S)
+                  block=m.group(1) if m else ''
+                  li_count=len(re.findall(r'<li\b',block,re.I))
+                  href_ids=re.findall(r'/Comic/comicInfo/id/(\d+)',block,re.I)
+                  total_match=re.search(r'共\s*([0-9]+)\s*个结果',text)
+                  total=total_match.group(1) if total_match else '?'
+                  title_match=re.search(r'<title>(.*?)</title>',text,re.I|re.S)
+                  title=re.sub(r'\s+',' ',title_match.group(1)).strip()[:80] if title_match else ''
+                  print('ROUTE',p,'status',status,'final',final,'li',li_count,'ids',href_ids[:3],'total',total,'title',repr(title))
+              except Exception as e:
+                  print('ROUTE_FAIL',p,type(e).__name__,str(e)[:200])
+          PY
