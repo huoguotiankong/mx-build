@@ -1,4 +1,4 @@
 mx-dev ref: main
 requested: 2026-09-08
-source head: ede07c3f4a0cd57b353770346984036fdda95790
-reason: rerun Manwa Plus after current Keiyoushi Spotless filter formatting fix
+source head: 0c98ec7a8e28114b8150573d3b1208884c53e5c7
+reason: rerun Manwa Plus after mixed-condition lint fix
