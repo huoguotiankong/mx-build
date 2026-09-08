@@ -253,6 +253,28 @@
         ]
       },
       {
+        "name": "MengXiGe",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.mengxige",
+        "resources": {
+          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.mengxige-v1.6.5.apk",
+          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.mengxige-v106005.png"
+        },
+        "extensionLib": "1.6",
+        "versionCode": 106005,
+        "versionName": "1.6.5",
+        "contentWarning": "SAFE",
+        "sources": [
+          {
+            "id": 987416804290845544,
+            "name": "梦溪阁",
+            "language": "zh",
+            "homeUrl": "https://book.folongteng.com",
+            "mirrorUrls": [],
+            "message": null
+          }
+        ]
+      },
+      {
         "name": "Miaoqu Manhua Plus",
         "packageName": "eu.kanade.tachiyomi.extension.zh.miaoqumanhuaplus",
         "resources": {
