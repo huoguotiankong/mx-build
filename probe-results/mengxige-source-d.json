@@ -1,7 +1,2475 @@
 {
   "configAttempts": {
-    "folongteng.com": {
-      "url": "https://conf.folongteng.com/v4/android/com.mengxigeyd.novel/baidu_tlmh",
+    "https://conf.folongteng.com/v4/android/com.mengxigeyd.novel/baidu_tlmh": {
+      "status": 200,
+      "json": {
+        "phone_reg": 1,
+        "data_conf": 1,
+        "hot_book": {
+          "book_default": [
+            1276639,
+            1276364,
+            1270554,
+            990338,
+            1268479,
+            1277226,
+            1277890,
+            1277188,
+            1267833
+          ],
+          "book_male": [
+            1276639,
+            1276364,
+            1270554,
+            990338,
+            1268479,
+            1277226,
+            1277890,
+            1277188,
+            1267833
+          ],
+          "book_female": [
+            1277860,
+            1277673,
+            1276816,
+            1277716,
+            1271463,
+            1277669,
+            1277718,
+            1277719
+          ],
+          "book_comics": [
+            5007764,
+            5004684,
+            5004346,
+            5180779,
+            5010419,
+            5181769,
+            5010450,
+            5004753,
+            5017985
+          ]
+        },
+        "wechat": "test",
+        "qq": "",
+        "notify": {
+          "notify_content": "官网地址：https://mxgxs.com/",
+          "notify_url": "https://mxgxs.com/",
+          "notify_open_type": 1,
+          "notify_tips_type": 1
+        },
+        "urls": {
+          "baidu_tts_url": "",
+          "iflytek_tts_url": "",
+          "domain": "folongteng.com",
+          "diversion_url": "",
+          "website_url": "https://mxgxs.com/",
+          "qr_code_url": "qr/7/1770800483.png",
+          "page_url": ""
+        },
+        "game": {
+          "game_switch": 0,
+          "game_interval_seconds": 0
+        },
+        "force": {
+          "ad_alone": 0,
+          "is_alone": 1,
+          "disclaimer": "免责声明：数据由各大搜索引擎数据提供，若有侵权，请在个人中心反馈告知我们屏蔽。",
+          "source_tips": "书源内容来源于网络搜索引擎，当选择书源不能观看时，请选择其他书源观看。",
+          "source_switch": 0,
+          "source_url1": "",
+          "source_url2": "",
+          "app_network_switch": 0,
+          "read_network_switch": 0,
+          "read_ad_switch": 0,
+          "read_ad_tips_switch": 0,
+          "show_author": 1,
+          "self_switch": 0,
+          "share_switch": 0,
+          "score_switch": 0,
+          "score_day": 7,
+          "update_switch": 0,
+          "ad_polling_second": 60,
+          "ad_polling_iphone_second": 60,
+          "ad_polling_iphone": 10,
+          "asking_book_switch": 0,
+          "novice_switch": 1,
+          "novice_count": 1,
+          "novice_type": 1,
+          "novice_day": 0,
+          "novice_read": 60,
+          "fission_switch": 0,
+          "https_switch": 0,
+          "slide_switch": 0,
+          "topon_switch": 0,
+          "horizontal_switch": 0,
+          "csj_switch": 0,
+          "gm_switch": 0,
+          "lr_switch": 0,
+          "ks_switch": 0,
+          "gdt_switch": 0,
+          "google_switch": 0,
+          "google_volume": 0,
+          "chapter_switch": 0,
+          "chapter_count": 5,
+          "pay_switch": 0,
+          "pay_tips_switch": 999,
+          "pay_tips_count": 5,
+          "shield_switch": 0,
+          "vip_splash_screen_switch": 0,
+          "vip_ad_init_switch": 0,
+          "guest_book_number": 20,
+          "login_book_number": 150,
+          "down_speed": 100,
+          "start_main": 4,
+          "read_second": 100,
+          "read_ad_content": "",
+          "read_ad_content1": "",
+          "read_ad_content2": [
+            "我们的官网：https://mxgxs.com/"
+          ],
+          "read_ad_content_page": 5,
+          "invalid_request_min": 5,
+          "icon_style": 0,
+          "ad_night_switch": 1,
+          "read_bottom_switch": 1,
+          "content_interval_page": 0,
+          "click_down_switch": 1,
+          "end_tips_ad_switch": 1,
+          "search_start_up": 100,
+          "search_read": 10,
+          "search_start_up1": 100,
+          "search_read1": 10,
+          "search_type": 0,
+          "book_status": 1,
+          "bdid": "",
+          "bdk": "",
+          "bds": "",
+          "bdsn": "",
+          "bdid1": "",
+          "bdk1": "",
+          "bds1": "",
+          "bdsn1": "",
+          "bdk1source": 1,
+          "xfid": "",
+          "zgid": "",
+          "bmob": "",
+          "ad_err_code": "40018,40021,107006,107030,330004,44406",
+          "comics_switch": 0,
+          "read_time": 10000,
+          "read_start_up": 10000,
+          "comics_fav_switch": 1,
+          "comics_related_switch": 1,
+          "jg_switch": 0,
+          "um_switch": 0,
+          "bug_switch": 0,
+          "no_network_count": 5,
+          "no_network_type": 0,
+          "sdk_init_time": 2,
+          "ad_popup_switch": 0,
+          "excitation_loading_switch": 0,
+          "ad_chapter_count": 100,
+          "excitation_delay_time": 2,
+          "record_switch": 0,
+          "ifh_big": 0,
+          "ifh_small": 0,
+          "max_ad_count": 5,
+          "max_exempt_ad_switch": 1,
+          "interval_ad_second": 60,
+          "interval_ad_switch": 0,
+          "interval_ad_next_switch": 0,
+          "ad_cache_code": "A",
+          "source_open_switch": 0,
+          "kf_url": "",
+          "tterr_pk": "",
+          "ad_version": "1",
+          "comics_barrage_switch": 0,
+          "source_import": 0,
+          "hide_source_switch": 0,
+          "show_image_switch": 0,
+          "comment_switch": 0,
+          "stamp": "NEg5MVJLVFRKQzhQRFlUSC7rIY4RH+0+sRTj72jueBtVVFM1QjRXNjVLRVRBRTJH"
+        },
+        "migrate_data": null,
+        "exempt_ad": {
+          "interval_count": 5,
+          "interval_min": 20,
+          "stochastic": [],
+          "signin": {
+            "data": [
+              {
+                "min": 180
+              },
+              {
+                "min": 180
+              },
+              {
+                "min": 180
+              },
+              {
+                "min": 180
+              },
+              {
+                "min": 180
+              },
+              {
+                "min": 180
+              },
+              {
+                "min": 180
+              }
+            ],
+            "double_min": 180,
+            "week_min": 720,
+            "ad_switch": 0,
+            "ad_switch1": 0
+          }
+        },
+        "comics_exempt_ad": {
+          "interval_count": 5,
+          "interval_min": 20,
+          "stochastic": [],
+          "signin": {
+            "data": null,
+            "double_min": 0,
+            "week_min": 0,
+            "ad_switch": 0,
+            "ad_switch1": 0
+          }
+        },
+        "listening_book": {
+          "interval_count": 10,
+          "interval_min": 60,
+          "stochastic": [
+            {
+              "platform": "gdt_new",
+              "style": 7
+            }
+          ]
+        },
+        "welfare_center": {
+          "stochastic": []
+        },
+        "down_cache": {
+          "total_count": 10,
+          "stochastic": [
+            {
+              "platform": "gdt_new",
+              "style": 7
+            }
+          ]
+        },
+        "asking_book": {
+          "total_count": 3,
+          "stochastic": []
+        },
+        "splash_screen": {
+          "second": 10,
+          "interval_count": 1,
+          "video_count": 1,
+          "stochastic": [
+            {
+              "platform": "gdt_new",
+              "style": 1
+            }
+          ]
+        },
+        "splash_screen_err": {
+          "stochastic": []
+        },
+        "awaken": {
+          "scheme": 2,
+          "second": 5,
+          "interval_count": 1,
+          "interval_min": 1,
+          "stochastic": [
+            {
+              "platform": "gdt_new",
+              "style": 1
+            }
+          ]
+        },
+        "awaken_err": {
+          "stochastic": []
+        },
+        "chapter": {
+          "next_button_switch": 0,
+          "interface_top": {
+            "stochastic": []
+          },
+          "content_end": {
+            "stochastic": []
+          },
+          "content_bottom": {
+            "stochastic": [],
+            "mutex_content_page": 0
+          },
+          "content_page": {
+            "lv": 1,
+            "style": 0,
+            "interval_count": 10,
+            "stochastic": []
+          },
+          "content_page_2": {
+            "lv": 2,
+            "style": 0,
+            "interval_count": 30,
+            "stochastic": []
+          },
+          "content_page1": {
+            "style": 0,
+            "interval_count": 10,
+            "stochastic": []
+          },
+          "read_ad_lock": {
+            "interval_min": 60,
+            "stochastic": [
+              {
+                "platform": "gdt_new",
+                "style": 7
+              }
+            ],
+            "scheme": 0,
+            "loading": 0,
+            "play": 0,
+            "back": 0
+          }
+        },
+        "comics_chapter": {
+          "next_button_switch": 0,
+          "interface_top": {
+            "stochastic": []
+          },
+          "content_end": {
+            "stochastic": []
+          },
+          "content_bottom": {
+            "stochastic": [],
+            "mutex_content_page": 0
+          },
+          "content_page": {
+            "lv": 1,
+            "style": 0,
+            "interval_count": 10,
+            "stochastic": []
+          },
+          "content_page_2": {
+            "lv": 2,
+            "style": 0,
+            "interval_count": 30,
+            "stochastic": []
+          },
+          "content_page1": {
+            "style": 0,
+            "interval_count": 10,
+            "stochastic": []
+          },
+          "read_ad_lock": {
+            "interval_min": 60,
+            "stochastic": [
+              {
+                "platform": "gdt_new",
+                "style": 7
+              }
+            ],
+            "scheme": 1,
+            "loading": 0,
+            "play": 0,
+            "back": 0
+          }
+        },
+        "ad_data": {
+          "google": null,
+          "csj": null,
+          "csj_new": {
+            "a": "0",
+            "aa1": "0",
+            "ai": "5786317",
+            "b": "104476016",
+            "c": "104476016",
+            "d": "987228749",
+            "e": "0",
+            "ecode": "0",
+            "ecode1": "40006,40009,40016,40018,40021",
+            "f": "0",
+            "g": "0",
+            "h": "0",
+            "i": "0",
+            "j": "987228749",
+            "k": "0",
+            "l": "0",
+            "m": "0",
+            "n": "987228749",
+            "o": "987228749",
+            "p": "0",
+            "q": "0",
+            "r": "0",
+            "s": "0",
+            "sound_switch": 0,
+            "t": "0",
+            "u": "0",
+            "v": "0"
+          },
+          "csj_arr": null,
+          "csj_city": {
+            "b_big": "0",
+            "b_small": "0",
+            "i_big_black": "0",
+            "i_big_white": "0",
+            "i_small_black": "0",
+            "i_small_white": "0"
+          },
+          "csj_read": {
+            "a": "0",
+            "b": "0",
+            "b_small": "0",
+            "b_small_black": "0",
+            "b_small_white": "0",
+            "c": "987228749",
+            "p_big": "0",
+            "p_big_black": "0",
+            "p_big_white": "0",
+            "p_small": "0",
+            "p_small_black": "0",
+            "p_small_white": "0"
+          },
+          "csj_comics_read": {
+            "b_small": "0",
+            "b_small_white": "0",
+            "h_c_img": "0",
+            "h_c_video": "0",
+            "h_s_img": "0",
+            "h_s_video": "0",
+            "p_big": "0",
+            "p_big_white": "0",
+            "p_small": "0",
+            "p_small_white": "0"
+          },
+          "csj_lists": {
+            "b_black": "0",
+            "b_small": "0",
+            "b_small_black": "0",
+            "b_small_white": "0",
+            "c_black": "0",
+            "c_small": "0",
+            "c_small_black": "0",
+            "c_small_white": "0"
+          },
+          "csj_bottom_bg": null,
+          "csj_big_picture_bg": null,
+          "gdt": null,
+          "gdt_new": {
+            "a": "0",
+            "ai": "1218902091",
+            "b": "1314255618778180",
+            "c": "1314255618778180",
+            "d": "5304752658888533",
+            "e": "0",
+            "ecode": "0",
+            "ecode1": "100133,100007,106001,107005,107006",
+            "f": "0",
+            "g": "5304752658888533",
+            "h": "5304752658888533",
+            "i": "5304752658888533",
+            "j": "5304752658888533",
+            "k": "5304752658888533",
+            "n": "5304752658888533",
+            "o": "5304752658888533",
+            "p": "0",
+            "q": "0",
+            "r": "0",
+            "s": "0",
+            "sound_switch": 0,
+            "t": "0",
+            "u": "5304752658888533",
+            "v": "0"
+          },
+          "gdt_read": {
+            "a": "0",
+            "b": "0",
+            "banner2": "0",
+            "c": "5304752658888533",
+            "cbanner2": "0",
+            "cp_big": "0",
+            "cp_small": "0",
+            "csr_big": "0",
+            "csr_ps": "0",
+            "csr_small": "0",
+            "h_c_img": "0",
+            "h_c_video": "0",
+            "h_s_img": "0",
+            "p_big": "0",
+            "p_small": "0",
+            "sr_big": "0",
+            "sr_ps": "0",
+            "sr_small": "0"
+          },
+          "gdt_lists": {
+            "b_banner2": "0",
+            "b_small_black": "0",
+            "b_small_sr": "0",
+            "b_small_white": "0",
+            "c_banner2": "0",
+            "c_big_black": "0",
+            "c_big_sr": "0",
+            "c_big_white": "0",
+            "c_small_black": "0",
+            "c_small_sr": "0",
+            "c_small_white": "0"
+          },
+          "gdt_bottom_bg": null,
+          "gdt_big_picture_bg": null,
+          "bd": null,
+          "lm": {
+            "a": "MTc3MDI3ODA0MzI4OQ==",
+            "ai": null,
+            "banner": "0",
+            "d": "MTc3MDI3ODA5ODA5Nw==",
+            "e": "0",
+            "h": "MTc3MDI3ODA5ODA5Nw==",
+            "i": "MTc3MDI3ODA5ODA5Nw==",
+            "info_big": "MTc3MDI3ODE0MTU5MA==",
+            "info_small": "MTc3MDI3ODE0MTU5MA==",
+            "j": "MTc3MDI3ODA5ODA5Nw==",
+            "n": "MTc3MDI3ODA5ODA5Nw==",
+            "o": "MTc3MDI3ODA5ODA5Nw==",
+            "read_banner": "0",
+            "read_big": "MTc3MDI3ODE0MTU5MA==",
+            "read_small": "MTc3MDI3ODE0MTU5MA=="
+          },
+          "js": null,
+          "topon": null,
+          "topon_global": null,
+          "topon_read": null,
+          "ks": null,
+          "ks_lists": null,
+          "ks_city": null,
+          "ks_read": null,
+          "ks_comics_read": null,
+          "gp": null,
+          "gm": {
+            "a": "104476016",
+            "aid": null,
+            "b": "0",
+            "c": "0",
+            "d": "0",
+            "e": "0",
+            "f": "0",
+            "g": "0",
+            "h": "0",
+            "i": "0",
+            "j": "987228749",
+            "k": "987228749"
+          },
+          "topon_new": null
+        },
+        "bd_data": null,
+        "bookself": {
+          "top": {
+            "stochastic": []
+          },
+          "center": {
+            "interval_count": 3,
+            "stochastic": []
+          },
+          "table_plaque": {
+            "interval_count": 3,
+            "stochastic": []
+          }
+        },
+        "book": {
+          "top": {
+            "stochastic": []
+          },
+          "center": {
+            "stochastic": []
+          },
+          "bottom": {
+            "stochastic": []
+          },
+          "table_plaque": {
+            "interval_count": 3,
+            "stochastic": []
+          },
+          "source": {
+            "stochastic": []
+          }
+        },
+        "book_city": {
+          "table_plaque": {
+            "interval_count": 3,
+            "stochastic": []
+          },
+          "top": {
+            "stochastic": []
+          },
+          "center": {
+            "stochastic": []
+          },
+          "bottom": {
+            "stochastic": []
+          }
+        },
+        "book_city_male": {
+          "top": {
+            "stochastic": []
+          },
+          "center": {
+            "stochastic": []
+          },
+          "bottom": {
+            "stochastic": []
+          }
+        },
+        "book_city_female": {
+          "top": {
+            "stochastic": []
+          },
+          "center": {
+            "stochastic": []
+          },
+          "bottom": {
+            "stochastic": []
+          }
+        },
+        "book_city_end": {
+          "index": {
+            "stochastic": []
+          },
+          "top": {
+            "stochastic": []
+          },
+          "center": {
+            "stochastic": []
+          },
+          "bottom": {
+            "stochastic": []
+          }
+        },
+        "book_city_classification": {
+          "index": {
+            "stochastic": []
+          },
+          "top": {
+            "stochastic": []
+          },
+          "center": {
+            "stochastic": []
+          },
+          "bottom": {
+            "stochastic": []
+          }
+        },
+        "lists": {
+          "stochastic": []
+        },
+        "rank": {
+          "stochastic": []
+        },
+        "search": {
+          "stochastic": []
+        },
+        "comment_lists": {
+          "interval_count": 3,
+          "stochastic": []
+        },
+        "secondary_domain": {
+          "ad": "",
+          "avatar": "",
+          "book": "",
+          "c_catalog": "",
+          "c_chapter": "",
+          "c_pic": "",
+          "c_res": "",
+          "catalog": "",
+          "chapter": "",
+          "conf": "",
+          "d": "",
+          "my": "",
+          "res": "",
+          "s": ""
+        },
+        "download": [
+          {
+            "id": 1,
+            "name": "后面50章",
+            "count": 50,
+            "thread_time": 400
+          },
+          {
+            "id": 2,
+            "name": "后面100章",
+            "count": 100,
+            "thread_time": 400
+          },
+          {
+            "id": 3,
+            "name": "后面全部",
+            "count": 0,
+            "thread_time": 400
+          }
+        ],
+        "font": [
+          {
+            "id": 1,
+            "fontname": "方正新楷体",
+            "font_suffix_name": "楷体",
+            "font_en_name": "FZXK_GBK.ttf",
+            "fontmd5": "6566f93a5cc72f3753c07d20cec72935",
+            "url": "https://res.chuangke.tv/font/方正新楷体/FZXK_GBK.ttf",
+            "size": 1.8,
+            "img": "https://res.chuangke.tv/font/方正新楷体/zku_pic5c30a5dc1ab3f.png"
+          },
+          {
+            "id": 2,
+            "fontname": "方正细圆简体",
+            "font_suffix_name": "细圆",
+            "font_en_name": "FZXYJJW.TTF",
+            "fontmd5": "9d0258aed22c170504592405bb41d1a5",
+            "url": "https://res.chuangke.tv/font/方正细圆简体/FZXYJJW.TTF",
+            "size": 1.2,
+            "img": "https://res.chuangke.tv/font/方正细圆简体/zku_pic5c2dd5c720805.png"
+          },
+          {
+            "id": 3,
+            "fontname": "方正俊黑简体",
+            "font_suffix_name": "俊黑",
+            "font_en_name": "FZJunHJW.ttf",
+            "fontmd5": "d2f32d3a923c2af54992281aef8c4a6a",
+            "url": "https://res.chuangke.tv/font/方正俊黑简体/FZJunHJW.ttf",
+            "size": 1.9,
+            "img": "https://res.chuangke.tv/font/方正俊黑简体/zku_pic5c3346f957bcf.png"
+          },
+          {
+            "id": 4,
+            "fontname": "方正宋黑繁体",
+            "font_suffix_name": "宋繁",
+            "font_en_name": "fangzhengsongheiFT.ttf",
+            "fontmd5": "cca5b9c6557f8615b33747e8dba9bbb6",
+            "url": "https://res.chuangke.tv/font/方正宋黑繁体/fangzhengsongheiFT.ttf",
+            "size": 4.2,
+            "img": "https://res.chuangke.tv/font/方正宋黑繁体/zku_pic5c17834f4c4b4.png"
+          },
+          {
+            "id": 5,
+            "fontname": "方正宋一简体",
+            "font_suffix_name": "宋简",
+            "font_en_name": "fzstys-gb18030.ttf",
+            "fontmd5": "6447add079b7166a3ce4ad4b47aecc1b",
+            "url": "https://res.chuangke.tv/font/方正宋简体/fzstys-gb18030.ttf",
+            "size": 3.3,
+            "img": "https://res.chuangke.tv/font/方正宋简体/zku_pic5c2dd8a092f13.png"
+          },
+          {
+            "id": 6,
+            "fontname": "华康娃娃",
+            "font_suffix_name": "娃娃",
+            "font_en_name": "DFWaWaGB-W5.ttf",
+            "fontmd5": "4d2c2017153787714f6b9b703449d729",
+            "url": "https://res.chuangke.tv/font/华康娃娃/DFWaWaGB-W5.otf",
+            "size": 3.1,
+            "img": "https://res.chuangke.tv/font/华康娃娃/zku_pic5c31c91f9c671.png"
+          },
+          {
+            "id": 7,
+            "fontname": "一加莹黑",
+            "font_suffix_name": "莹黑",
+            "font_en_name": "yjyh.ttf",
+            "fontmd5": "f253e98c9d66378b0f7cce40fcf849a7",
+            "url": "https://res.chuangke.tv/font/一加莹黑/yjyh.ttf",
+            "size": 7.25,
+            "img": "https://res.chuangke.tv/font/一加莹黑/zku_pic5e0d4dc1d267a.png"
+          }
+        ],
+        "fission": [],
+        "signin_ad": null,
+        "err_ad": {
+          "interval_min": 30,
+          "interval_count": -2,
+          "stochastic": []
+        },
+        "err_phone": {
+          "phone_list": "",
+          "stochastic": []
+        },
+        "push_data": {
+          "appkey": "UEVNVEVYVVhUNlhaU00yN50opY8VgrMUjTvPYgYBrFU2VUEyNzlDSjg0UzdVUzhB",
+          "master_secret": "UVFYTjVLNE5XUk45WDM2WJZ+bvftfR9HIjZod6NK0SVZREhCUUJGWlRVVzRTUjhG",
+          "um_key": "RTY4MktKUFdYWksyN1NUTc+P6y6hyvCjjq3PpbrXdBtBel7ed7X91D/C1N8CqekhQjVYRFZCVkFKQlBDS1pVNw==",
+          "um_master_secret": "R1YyMTlKSENXQ1c5RVM3Ml2mHBJd3KxVYmpY8tm7GExqR1VsaVhKSIr4bQxUiAIUOMEMDCq1utj/cXKWAX4voFFWMlZNWTMzOVBRSjU1RlE=",
+          "um_message_secret": "SzRWVFAxWFI2TlUzRjdNNmdAMttRsVVtPslgDXHQGeAQKbfKwI/3We4cmrlNvxuEyGSaoB4MfCd8rNmuHcYgV1hCVFMzV1hWMUVIVzQ3OFE=",
+          "bug_key": "Vlg0QURDOVpIVDJNM1I5SwR2wXLsqRQcleH350Zd3RRGVzJQRjFQNllQTTVCVUZI",
+          "tt_id": "RlhYWkVYUkNUR1dDUDRWRC3bAxs+KgmI7McVPvC7CMBTUjRCU1VWTlQ3WkRONjdV",
+          "bd_id": "MThFVjZGNlRGVVlCM1Q4Wi46k5UrO15uKMbNfnEw1gpVUFU1V0I0QVVGR0EzTVlH"
+        },
+        "video_add_book": {
+          "stochastic": [],
+          "add_count": 1,
+          "interval_min": 1,
+          "today_count": 5,
+          "total_count": 150
+        },
+        "interval_min_arr": {
+          "Awaken": [],
+          "ChapterRead": [],
+          "ComicsChapterRead": [],
+          "ComicsExemptAd": [],
+          "ErrAd": [],
+          "ExemptAd": [],
+          "ListeningBook": [],
+          "VideoAddBook": []
+        },
+        "ad_array": "",
+        "ad_user_list": ""
+      }
+    },
+    "https://conf.folongteng.com/v4/android/com.mengxigeyd.novel/baidu_tlmh?t=1788870248": {
+      "status": 200,
+      "json": {
+        "phone_reg": 1,
+        "data_conf": 1,
+        "hot_book": {
+          "book_default": [
+            1276639,
+            1276364,
+            1270554,
+            990338,
+            1268479,
+            1277226,
+            1277890,
+            1277188,
+            1267833
+          ],
+          "book_male": [
+            1276639,
+            1276364,
+            1270554,
+            990338,
+            1268479,
+            1277226,
+            1277890,
+            1277188,
+            1267833
+          ],
+          "book_female": [
+            1277860,
+            1277673,
+            1276816,
+            1277716,
+            1271463,
+            1277669,
+            1277718,
+            1277719
+          ],
+          "book_comics": [
+            5007764,
+            5004684,
+            5004346,
+            5180779,
+            5010419,
+            5181769,
+            5010450,
+            5004753,
+            5017985
+          ]
+        },
+        "wechat": "test",
+        "qq": "",
+        "notify": {
+          "notify_content": "官网地址：https://mxgxs.com/",
+          "notify_url": "https://mxgxs.com/",
+          "notify_open_type": 1,
+          "notify_tips_type": 1
+        },
+        "urls": {
+          "baidu_tts_url": "",
+          "iflytek_tts_url": "",
+          "domain": "folongteng.com",
+          "diversion_url": "",
+          "website_url": "https://mxgxs.com/",
+          "qr_code_url": "qr/7/1770800483.png",
+          "page_url": ""
+        },
+        "game": {
+          "game_switch": 0,
+          "game_interval_seconds": 0
+        },
+        "force": {
+          "ad_alone": 0,
+          "is_alone": 1,
+          "disclaimer": "免责声明：数据由各大搜索引擎数据提供，若有侵权，请在个人中心反馈告知我们屏蔽。",
+          "source_tips": "书源内容来源于网络搜索引擎，当选择书源不能观看时，请选择其他书源观看。",
+          "source_switch": 0,
+          "source_url1": "",
+          "source_url2": "",
+          "app_network_switch": 0,
+          "read_network_switch": 0,
+          "read_ad_switch": 0,
+          "read_ad_tips_switch": 0,
+          "show_author": 1,
+          "self_switch": 0,
+          "share_switch": 0,
+          "score_switch": 0,
+          "score_day": 7,
+          "update_switch": 0,
+          "ad_polling_second": 60,
+          "ad_polling_iphone_second": 60,
+          "ad_polling_iphone": 10,
+          "asking_book_switch": 0,
+          "novice_switch": 1,
+          "novice_count": 1,
+          "novice_type": 1,
+          "novice_day": 0,
+          "novice_read": 60,
+          "fission_switch": 0,
+          "https_switch": 0,
+          "slide_switch": 0,
+          "topon_switch": 0,
+          "horizontal_switch": 0,
+          "csj_switch": 0,
+          "gm_switch": 0,
+          "lr_switch": 0,
+          "ks_switch": 0,
+          "gdt_switch": 0,
+          "google_switch": 0,
+          "google_volume": 0,
+          "chapter_switch": 0,
+          "chapter_count": 5,
+          "pay_switch": 0,
+          "pay_tips_switch": 999,
+          "pay_tips_count": 5,
+          "shield_switch": 0,
+          "vip_splash_screen_switch": 0,
+          "vip_ad_init_switch": 0,
+          "guest_book_number": 20,
+          "login_book_number": 150,
+          "down_speed": 100,
+          "start_main": 4,
+          "read_second": 100,
+          "read_ad_content": "",
+          "read_ad_content1": "",
+          "read_ad_content2": [
+            "我们的官网：https://mxgxs.com/"
+          ],
+          "read_ad_content_page": 5,
+          "invalid_request_min": 5,
+          "icon_style": 0,
+          "ad_night_switch": 1,
+          "read_bottom_switch": 1,
+          "content_interval_page": 0,
+          "click_down_switch": 1,
+          "end_tips_ad_switch": 1,
+          "search_start_up": 100,
+          "search_read": 10,
+          "search_start_up1": 100,
+          "search_read1": 10,
+          "search_type": 0,
+          "book_status": 1,
+          "bdid": "",
+          "bdk": "",
+          "bds": "",
+          "bdsn": "",
+          "bdid1": "",
+          "bdk1": "",
+          "bds1": "",
+          "bdsn1": "",
+          "bdk1source": 1,
+          "xfid": "",
+          "zgid": "",
+          "bmob": "",
+          "ad_err_code": "40018,40021,107006,107030,330004,44406",
+          "comics_switch": 0,
+          "read_time": 10000,
+          "read_start_up": 10000,
+          "comics_fav_switch": 1,
+          "comics_related_switch": 1,
+          "jg_switch": 0,
+          "um_switch": 0,
+          "bug_switch": 0,
+          "no_network_count": 5,
+          "no_network_type": 0,
+          "sdk_init_time": 2,
+          "ad_popup_switch": 0,
+          "excitation_loading_switch": 0,
+          "ad_chapter_count": 100,
+          "excitation_delay_time": 2,
+          "record_switch": 0,
+          "ifh_big": 0,
+          "ifh_small": 0,
+          "max_ad_count": 5,
+          "max_exempt_ad_switch": 1,
+          "interval_ad_second": 60,
+          "interval_ad_switch": 0,
+          "interval_ad_next_switch": 0,
+          "ad_cache_code": "A",
+          "source_open_switch": 0,
+          "kf_url": "",
+          "tterr_pk": "",
+          "ad_version": "1",
+          "comics_barrage_switch": 0,
+          "source_import": 0,
+          "hide_source_switch": 0,
+          "show_image_switch": 0,
+          "comment_switch": 0,
+          "stamp": "NEg5MVJLVFRKQzhQRFlUSC7rIY4RH+0+sRTj72jueBtVVFM1QjRXNjVLRVRBRTJH"
+        },
+        "migrate_data": null,
+        "exempt_ad": {
+          "interval_count": 5,
+          "interval_min": 20,
+          "stochastic": [],
+          "signin": {
+            "data": [
+              {
+                "min": 180
+              },
+              {
+                "min": 180
+              },
+              {
+                "min": 180
+              },
+              {
+                "min": 180
+              },
+              {
+                "min": 180
+              },
+              {
+                "min": 180
+              },
+              {
+                "min": 180
+              }
+            ],
+            "double_min": 180,
+            "week_min": 720,
+            "ad_switch": 0,
+            "ad_switch1": 0
+          }
+        },
+        "comics_exempt_ad": {
+          "interval_count": 5,
+          "interval_min": 20,
+          "stochastic": [],
+          "signin": {
+            "data": null,
+            "double_min": 0,
+            "week_min": 0,
+            "ad_switch": 0,
+            "ad_switch1": 0
+          }
+        },
+        "listening_book": {
+          "interval_count": 10,
+          "interval_min": 60,
+          "stochastic": [
+            {
+              "platform": "gdt_new",
+              "style": 7
+            }
+          ]
+        },
+        "welfare_center": {
+          "stochastic": []
+        },
+        "down_cache": {
+          "total_count": 10,
+          "stochastic": [
+            {
+              "platform": "gdt_new",
+              "style": 7
+            }
+          ]
+        },
+        "asking_book": {
+          "total_count": 3,
+          "stochastic": []
+        },
+        "splash_screen": {
+          "second": 10,
+          "interval_count": 1,
+          "video_count": 1,
+          "stochastic": [
+            {
+              "platform": "gdt_new",
+              "style": 1
+            }
+          ]
+        },
+        "splash_screen_err": {
+          "stochastic": []
+        },
+        "awaken": {
+          "scheme": 2,
+          "second": 5,
+          "interval_count": 1,
+          "interval_min": 1,
+          "stochastic": [
+            {
+              "platform": "gdt_new",
+              "style": 1
+            }
+          ]
+        },
+        "awaken_err": {
+          "stochastic": []
+        },
+        "chapter": {
+          "next_button_switch": 0,
+          "interface_top": {
+            "stochastic": []
+          },
+          "content_end": {
+            "stochastic": []
+          },
+          "content_bottom": {
+            "stochastic": [],
+            "mutex_content_page": 0
+          },
+          "content_page": {
+            "lv": 1,
+            "style": 0,
+            "interval_count": 10,
+            "stochastic": []
+          },
+          "content_page_2": {
+            "lv": 2,
+            "style": 0,
+            "interval_count": 30,
+            "stochastic": []
+          },
+          "content_page1": {
+            "style": 0,
+            "interval_count": 10,
+            "stochastic": []
+          },
+          "read_ad_lock": {
+            "interval_min": 60,
+            "stochastic": [
+              {
+                "platform": "gdt_new",
+                "style": 7
+              }
+            ],
+            "scheme": 0,
+            "loading": 0,
+            "play": 0,
+            "back": 0
+          }
+        },
+        "comics_chapter": {
+          "next_button_switch": 0,
+          "interface_top": {
+            "stochastic": []
+          },
+          "content_end": {
+            "stochastic": []
+          },
+          "content_bottom": {
+            "stochastic": [],
+            "mutex_content_page": 0
+          },
+          "content_page": {
+            "lv": 1,
+            "style": 0,
+            "interval_count": 10,
+            "stochastic": []
+          },
+          "content_page_2": {
+            "lv": 2,
+            "style": 0,
+            "interval_count": 30,
+            "stochastic": []
+          },
+          "content_page1": {
+            "style": 0,
+            "interval_count": 10,
+            "stochastic": []
+          },
+          "read_ad_lock": {
+            "interval_min": 60,
+            "stochastic": [
+              {
+                "platform": "gdt_new",
+                "style": 7
+              }
+            ],
+            "scheme": 1,
+            "loading": 0,
+            "play": 0,
+            "back": 0
+          }
+        },
+        "ad_data": {
+          "google": null,
+          "csj": null,
+          "csj_new": {
+            "a": "0",
+            "aa1": "0",
+            "ai": "5786317",
+            "b": "104476016",
+            "c": "104476016",
+            "d": "987228749",
+            "e": "0",
+            "ecode": "0",
+            "ecode1": "40006,40009,40016,40018,40021",
+            "f": "0",
+            "g": "0",
+            "h": "0",
+            "i": "0",
+            "j": "987228749",
+            "k": "0",
+            "l": "0",
+            "m": "0",
+            "n": "987228749",
+            "o": "987228749",
+            "p": "0",
+            "q": "0",
+            "r": "0",
+            "s": "0",
+            "sound_switch": 0,
+            "t": "0",
+            "u": "0",
+            "v": "0"
+          },
+          "csj_arr": null,
+          "csj_city": {
+            "b_big": "0",
+            "b_small": "0",
+            "i_big_black": "0",
+            "i_big_white": "0",
+            "i_small_black": "0",
+            "i_small_white": "0"
+          },
+          "csj_read": {
+            "a": "0",
+            "b": "0",
+            "b_small": "0",
+            "b_small_black": "0",
+            "b_small_white": "0",
+            "c": "987228749",
+            "p_big": "0",
+            "p_big_black": "0",
+            "p_big_white": "0",
+            "p_small": "0",
+            "p_small_black": "0",
+            "p_small_white": "0"
+          },
+          "csj_comics_read": {
+            "b_small": "0",
+            "b_small_white": "0",
+            "h_c_img": "0",
+            "h_c_video": "0",
+            "h_s_img": "0",
+            "h_s_video": "0",
+            "p_big": "0",
+            "p_big_white": "0",
+            "p_small": "0",
+            "p_small_white": "0"
+          },
+          "csj_lists": {
+            "b_black": "0",
+            "b_small": "0",
+            "b_small_black": "0",
+            "b_small_white": "0",
+            "c_black": "0",
+            "c_small": "0",
+            "c_small_black": "0",
+            "c_small_white": "0"
+          },
+          "csj_bottom_bg": null,
+          "csj_big_picture_bg": null,
+          "gdt": null,
+          "gdt_new": {
+            "a": "0",
+            "ai": "1218902091",
+            "b": "1314255618778180",
+            "c": "1314255618778180",
+            "d": "5304752658888533",
+            "e": "0",
+            "ecode": "0",
+            "ecode1": "100133,100007,106001,107005,107006",
+            "f": "0",
+            "g": "5304752658888533",
+            "h": "5304752658888533",
+            "i": "5304752658888533",
+            "j": "5304752658888533",
+            "k": "5304752658888533",
+            "n": "5304752658888533",
+            "o": "5304752658888533",
+            "p": "0",
+            "q": "0",
+            "r": "0",
+            "s": "0",
+            "sound_switch": 0,
+            "t": "0",
+            "u": "5304752658888533",
+            "v": "0"
+          },
+          "gdt_read": {
+            "a": "0",
+            "b": "0",
+            "banner2": "0",
+            "c": "5304752658888533",
+            "cbanner2": "0",
+            "cp_big": "0",
+            "cp_small": "0",
+            "csr_big": "0",
+            "csr_ps": "0",
+            "csr_small": "0",
+            "h_c_img": "0",
+            "h_c_video": "0",
+            "h_s_img": "0",
+            "p_big": "0",
+            "p_small": "0",
+            "sr_big": "0",
+            "sr_ps": "0",
+            "sr_small": "0"
+          },
+          "gdt_lists": {
+            "b_banner2": "0",
+            "b_small_black": "0",
+            "b_small_sr": "0",
+            "b_small_white": "0",
+            "c_banner2": "0",
+            "c_big_black": "0",
+            "c_big_sr": "0",
+            "c_big_white": "0",
+            "c_small_black": "0",
+            "c_small_sr": "0",
+            "c_small_white": "0"
+          },
+          "gdt_bottom_bg": null,
+          "gdt_big_picture_bg": null,
+          "bd": null,
+          "lm": {
+            "a": "MTc3MDI3ODA0MzI4OQ==",
+            "ai": null,
+            "banner": "0",
+            "d": "MTc3MDI3ODA5ODA5Nw==",
+            "e": "0",
+            "h": "MTc3MDI3ODA5ODA5Nw==",
+            "i": "MTc3MDI3ODA5ODA5Nw==",
+            "info_big": "MTc3MDI3ODE0MTU5MA==",
+            "info_small": "MTc3MDI3ODE0MTU5MA==",
+            "j": "MTc3MDI3ODA5ODA5Nw==",
+            "n": "MTc3MDI3ODA5ODA5Nw==",
+            "o": "MTc3MDI3ODA5ODA5Nw==",
+            "read_banner": "0",
+            "read_big": "MTc3MDI3ODE0MTU5MA==",
+            "read_small": "MTc3MDI3ODE0MTU5MA=="
+          },
+          "js": null,
+          "topon": null,
+          "topon_global": null,
+          "topon_read": null,
+          "ks": null,
+          "ks_lists": null,
+          "ks_city": null,
+          "ks_read": null,
+          "ks_comics_read": null,
+          "gp": null,
+          "gm": {
+            "a": "104476016",
+            "aid": null,
+            "b": "0",
+            "c": "0",
+            "d": "0",
+            "e": "0",
+            "f": "0",
+            "g": "0",
+            "h": "0",
+            "i": "0",
+            "j": "987228749",
+            "k": "987228749"
+          },
+          "topon_new": null
+        },
+        "bd_data": null,
+        "bookself": {
+          "top": {
+            "stochastic": []
+          },
+          "center": {
+            "interval_count": 3,
+            "stochastic": []
+          },
+          "table_plaque": {
+            "interval_count": 3,
+            "stochastic": []
+          }
+        },
+        "book": {
+          "top": {
+            "stochastic": []
+          },
+          "center": {
+            "stochastic": []
+          },
+          "bottom": {
+            "stochastic": []
+          },
+          "table_plaque": {
+            "interval_count": 3,
+            "stochastic": []
+          },
+          "source": {
+            "stochastic": []
+          }
+        },
+        "book_city": {
+          "table_plaque": {
+            "interval_count": 3,
+            "stochastic": []
+          },
+          "top": {
+            "stochastic": []
+          },
+          "center": {
+            "stochastic": []
+          },
+          "bottom": {
+            "stochastic": []
+          }
+        },
+        "book_city_male": {
+          "top": {
+            "stochastic": []
+          },
+          "center": {
+            "stochastic": []
+          },
+          "bottom": {
+            "stochastic": []
+          }
+        },
+        "book_city_female": {
+          "top": {
+            "stochastic": []
+          },
+          "center": {
+            "stochastic": []
+          },
+          "bottom": {
+            "stochastic": []
+          }
+        },
+        "book_city_end": {
+          "index": {
+            "stochastic": []
+          },
+          "top": {
+            "stochastic": []
+          },
+          "center": {
+            "stochastic": []
+          },
+          "bottom": {
+            "stochastic": []
+          }
+        },
+        "book_city_classification": {
+          "index": {
+            "stochastic": []
+          },
+          "top": {
+            "stochastic": []
+          },
+          "center": {
+            "stochastic": []
+          },
+          "bottom": {
+            "stochastic": []
+          }
+        },
+        "lists": {
+          "stochastic": []
+        },
+        "rank": {
+          "stochastic": []
+        },
+        "search": {
+          "stochastic": []
+        },
+        "comment_lists": {
+          "interval_count": 3,
+          "stochastic": []
+        },
+        "secondary_domain": {
+          "ad": "",
+          "avatar": "",
+          "book": "",
+          "c_catalog": "",
+          "c_chapter": "",
+          "c_pic": "",
+          "c_res": "",
+          "catalog": "",
+          "chapter": "",
+          "conf": "",
+          "d": "",
+          "my": "",
+          "res": "",
+          "s": ""
+        },
+        "download": [
+          {
+            "id": 1,
+            "name": "后面50章",
+            "count": 50,
+            "thread_time": 400
+          },
+          {
+            "id": 2,
+            "name": "后面100章",
+            "count": 100,
+            "thread_time": 400
+          },
+          {
+            "id": 3,
+            "name": "后面全部",
+            "count": 0,
+            "thread_time": 400
+          }
+        ],
+        "font": [
+          {
+            "id": 1,
+            "fontname": "方正新楷体",
+            "font_suffix_name": "楷体",
+            "font_en_name": "FZXK_GBK.ttf",
+            "fontmd5": "6566f93a5cc72f3753c07d20cec72935",
+            "url": "https://res.chuangke.tv/font/方正新楷体/FZXK_GBK.ttf",
+            "size": 1.8,
+            "img": "https://res.chuangke.tv/font/方正新楷体/zku_pic5c30a5dc1ab3f.png"
+          },
+          {
+            "id": 2,
+            "fontname": "方正细圆简体",
+            "font_suffix_name": "细圆",
+            "font_en_name": "FZXYJJW.TTF",
+            "fontmd5": "9d0258aed22c170504592405bb41d1a5",
+            "url": "https://res.chuangke.tv/font/方正细圆简体/FZXYJJW.TTF",
+            "size": 1.2,
+            "img": "https://res.chuangke.tv/font/方正细圆简体/zku_pic5c2dd5c720805.png"
+          },
+          {
+            "id": 3,
+            "fontname": "方正俊黑简体",
+            "font_suffix_name": "俊黑",
+            "font_en_name": "FZJunHJW.ttf",
+            "fontmd5": "d2f32d3a923c2af54992281aef8c4a6a",
+            "url": "https://res.chuangke.tv/font/方正俊黑简体/FZJunHJW.ttf",
+            "size": 1.9,
+            "img": "https://res.chuangke.tv/font/方正俊黑简体/zku_pic5c3346f957bcf.png"
+          },
+          {
+            "id": 4,
+            "fontname": "方正宋黑繁体",
+            "font_suffix_name": "宋繁",
+            "font_en_name": "fangzhengsongheiFT.ttf",
+            "fontmd5": "cca5b9c6557f8615b33747e8dba9bbb6",
+            "url": "https://res.chuangke.tv/font/方正宋黑繁体/fangzhengsongheiFT.ttf",
+            "size": 4.2,
+            "img": "https://res.chuangke.tv/font/方正宋黑繁体/zku_pic5c17834f4c4b4.png"
+          },
+          {
+            "id": 5,
+            "fontname": "方正宋一简体",
+            "font_suffix_name": "宋简",
+            "font_en_name": "fzstys-gb18030.ttf",
+            "fontmd5": "6447add079b7166a3ce4ad4b47aecc1b",
+            "url": "https://res.chuangke.tv/font/方正宋简体/fzstys-gb18030.ttf",
+            "size": 3.3,
+            "img": "https://res.chuangke.tv/font/方正宋简体/zku_pic5c2dd8a092f13.png"
+          },
+          {
+            "id": 6,
+            "fontname": "华康娃娃",
+            "font_suffix_name": "娃娃",
+            "font_en_name": "DFWaWaGB-W5.ttf",
+            "fontmd5": "4d2c2017153787714f6b9b703449d729",
+            "url": "https://res.chuangke.tv/font/华康娃娃/DFWaWaGB-W5.otf",
+            "size": 3.1,
+            "img": "https://res.chuangke.tv/font/华康娃娃/zku_pic5c31c91f9c671.png"
+          },
+          {
+            "id": 7,
+            "fontname": "一加莹黑",
+            "font_suffix_name": "莹黑",
+            "font_en_name": "yjyh.ttf",
+            "fontmd5": "f253e98c9d66378b0f7cce40fcf849a7",
+            "url": "https://res.chuangke.tv/font/一加莹黑/yjyh.ttf",
+            "size": 7.25,
+            "img": "https://res.chuangke.tv/font/一加莹黑/zku_pic5e0d4dc1d267a.png"
+          }
+        ],
+        "fission": [],
+        "signin_ad": null,
+        "err_ad": {
+          "interval_min": 30,
+          "interval_count": -2,
+          "stochastic": []
+        },
+        "err_phone": {
+          "phone_list": "",
+          "stochastic": []
+        },
+        "push_data": {
+          "appkey": "UEVNVEVYVVhUNlhaU00yN50opY8VgrMUjTvPYgYBrFU2VUEyNzlDSjg0UzdVUzhB",
+          "master_secret": "UVFYTjVLNE5XUk45WDM2WJZ+bvftfR9HIjZod6NK0SVZREhCUUJGWlRVVzRTUjhG",
+          "um_key": "RTY4MktKUFdYWksyN1NUTc+P6y6hyvCjjq3PpbrXdBtBel7ed7X91D/C1N8CqekhQjVYRFZCVkFKQlBDS1pVNw==",
+          "um_master_secret": "R1YyMTlKSENXQ1c5RVM3Ml2mHBJd3KxVYmpY8tm7GExqR1VsaVhKSIr4bQxUiAIUOMEMDCq1utj/cXKWAX4voFFWMlZNWTMzOVBRSjU1RlE=",
+          "um_message_secret": "SzRWVFAxWFI2TlUzRjdNNmdAMttRsVVtPslgDXHQGeAQKbfKwI/3We4cmrlNvxuEyGSaoB4MfCd8rNmuHcYgV1hCVFMzV1hWMUVIVzQ3OFE=",
+          "bug_key": "Vlg0QURDOVpIVDJNM1I5SwR2wXLsqRQcleH350Zd3RRGVzJQRjFQNllQTTVCVUZI",
+          "tt_id": "RlhYWkVYUkNUR1dDUDRWRC3bAxs+KgmI7McVPvC7CMBTUjRCU1VWTlQ3WkRONjdV",
+          "bd_id": "MThFVjZGNlRGVVlCM1Q4Wi46k5UrO15uKMbNfnEw1gpVUFU1V0I0QVVGR0EzTVlH"
+        },
+        "video_add_book": {
+          "stochastic": [],
+          "add_count": 1,
+          "interval_min": 1,
+          "today_count": 5,
+          "total_count": 150
+        },
+        "interval_min_arr": {
+          "Awaken": [],
+          "ChapterRead": [],
+          "ComicsChapterRead": [],
+          "ComicsExemptAd": [],
+          "ErrAd": [],
+          "ExemptAd": [],
+          "ListeningBook": [],
+          "VideoAddBook": []
+        },
+        "ad_array": "",
+        "ad_user_list": ""
+      }
+    },
+    "https://conf.xiangxung.com/v4/android/com.mengxigeyd.novel/baidu_tlmh": {
+      "status": 200,
+      "json": {
+        "phone_reg": 1,
+        "data_conf": 1,
+        "hot_book": {
+          "book_default": [
+            1276639,
+            1276364,
+            1270554,
+            990338,
+            1268479,
+            1277226,
+            1277890,
+            1277188,
+            1267833
+          ],
+          "book_male": [
+            1276639,
+            1276364,
+            1270554,
+            990338,
+            1268479,
+            1277226,
+            1277890,
+            1277188,
+            1267833
+          ],
+          "book_female": [
+            1277860,
+            1277673,
+            1276816,
+            1277716,
+            1271463,
+            1277669,
+            1277718,
+            1277719
+          ],
+          "book_comics": [
+            5007764,
+            5004684,
+            5004346,
+            5180779,
+            5010419,
+            5181769,
+            5010450,
+            5004753,
+            5017985
+          ]
+        },
+        "wechat": "test",
+        "qq": "",
+        "notify": {
+          "notify_content": "官网地址：https://mxgxs.com/",
+          "notify_url": "https://mxgxs.com/",
+          "notify_open_type": 1,
+          "notify_tips_type": 1
+        },
+        "urls": {
+          "baidu_tts_url": "",
+          "iflytek_tts_url": "",
+          "domain": "folongteng.com",
+          "diversion_url": "",
+          "website_url": "https://mxgxs.com/",
+          "qr_code_url": "qr/7/1770800483.png",
+          "page_url": ""
+        },
+        "game": {
+          "game_switch": 0,
+          "game_interval_seconds": 0
+        },
+        "force": {
+          "ad_alone": 0,
+          "is_alone": 1,
+          "disclaimer": "免责声明：数据由各大搜索引擎数据提供，若有侵权，请在个人中心反馈告知我们屏蔽。",
+          "source_tips": "书源内容来源于网络搜索引擎，当选择书源不能观看时，请选择其他书源观看。",
+          "source_switch": 0,
+          "source_url1": "",
+          "source_url2": "",
+          "app_network_switch": 0,
+          "read_network_switch": 0,
+          "read_ad_switch": 0,
+          "read_ad_tips_switch": 0,
+          "show_author": 1,
+          "self_switch": 0,
+          "share_switch": 0,
+          "score_switch": 0,
+          "score_day": 7,
+          "update_switch": 0,
+          "ad_polling_second": 60,
+          "ad_polling_iphone_second": 60,
+          "ad_polling_iphone": 10,
+          "asking_book_switch": 0,
+          "novice_switch": 1,
+          "novice_count": 1,
+          "novice_type": 1,
+          "novice_day": 0,
+          "novice_read": 60,
+          "fission_switch": 0,
+          "https_switch": 0,
+          "slide_switch": 0,
+          "topon_switch": 0,
+          "horizontal_switch": 0,
+          "csj_switch": 0,
+          "gm_switch": 0,
+          "lr_switch": 0,
+          "ks_switch": 0,
+          "gdt_switch": 0,
+          "google_switch": 0,
+          "google_volume": 0,
+          "chapter_switch": 0,
+          "chapter_count": 5,
+          "pay_switch": 0,
+          "pay_tips_switch": 999,
+          "pay_tips_count": 5,
+          "shield_switch": 0,
+          "vip_splash_screen_switch": 0,
+          "vip_ad_init_switch": 0,
+          "guest_book_number": 20,
+          "login_book_number": 150,
+          "down_speed": 100,
+          "start_main": 4,
+          "read_second": 100,
+          "read_ad_content": "",
+          "read_ad_content1": "",
+          "read_ad_content2": [
+            "我们的官网：https://mxgxs.com/"
+          ],
+          "read_ad_content_page": 5,
+          "invalid_request_min": 5,
+          "icon_style": 0,
+          "ad_night_switch": 1,
+          "read_bottom_switch": 1,
+          "content_interval_page": 0,
+          "click_down_switch": 1,
+          "end_tips_ad_switch": 1,
+          "search_start_up": 100,
+          "search_read": 10,
+          "search_start_up1": 100,
+          "search_read1": 10,
+          "search_type": 0,
+          "book_status": 1,
+          "bdid": "",
+          "bdk": "",
+          "bds": "",
+          "bdsn": "",
+          "bdid1": "",
+          "bdk1": "",
+          "bds1": "",
+          "bdsn1": "",
+          "bdk1source": 1,
+          "xfid": "",
+          "zgid": "",
+          "bmob": "",
+          "ad_err_code": "40018,40021,107006,107030,330004,44406",
+          "comics_switch": 0,
+          "read_time": 10000,
+          "read_start_up": 10000,
+          "comics_fav_switch": 1,
+          "comics_related_switch": 1,
+          "jg_switch": 0,
+          "um_switch": 0,
+          "bug_switch": 0,
+          "no_network_count": 5,
+          "no_network_type": 0,
+          "sdk_init_time": 2,
+          "ad_popup_switch": 0,
+          "excitation_loading_switch": 0,
+          "ad_chapter_count": 100,
+          "excitation_delay_time": 2,
+          "record_switch": 0,
+          "ifh_big": 0,
+          "ifh_small": 0,
+          "max_ad_count": 5,
+          "max_exempt_ad_switch": 1,
+          "interval_ad_second": 60,
+          "interval_ad_switch": 0,
+          "interval_ad_next_switch": 0,
+          "ad_cache_code": "A",
+          "source_open_switch": 0,
+          "kf_url": "",
+          "tterr_pk": "",
+          "ad_version": "1",
+          "comics_barrage_switch": 0,
+          "source_import": 0,
+          "hide_source_switch": 0,
+          "show_image_switch": 0,
+          "comment_switch": 0,
+          "stamp": "NEg5MVJLVFRKQzhQRFlUSC7rIY4RH+0+sRTj72jueBtVVFM1QjRXNjVLRVRBRTJH"
+        },
+        "migrate_data": null,
+        "exempt_ad": {
+          "interval_count": 5,
+          "interval_min": 20,
+          "stochastic": [],
+          "signin": {
+            "data": [
+              {
+                "min": 180
+              },
+              {
+                "min": 180
+              },
+              {
+                "min": 180
+              },
+              {
+                "min": 180
+              },
+              {
+                "min": 180
+              },
+              {
+                "min": 180
+              },
+              {
+                "min": 180
+              }
+            ],
+            "double_min": 180,
+            "week_min": 720,
+            "ad_switch": 0,
+            "ad_switch1": 0
+          }
+        },
+        "comics_exempt_ad": {
+          "interval_count": 5,
+          "interval_min": 20,
+          "stochastic": [],
+          "signin": {
+            "data": null,
+            "double_min": 0,
+            "week_min": 0,
+            "ad_switch": 0,
+            "ad_switch1": 0
+          }
+        },
+        "listening_book": {
+          "interval_count": 10,
+          "interval_min": 60,
+          "stochastic": [
+            {
+              "platform": "gdt_new",
+              "style": 7
+            }
+          ]
+        },
+        "welfare_center": {
+          "stochastic": []
+        },
+        "down_cache": {
+          "total_count": 10,
+          "stochastic": [
+            {
+              "platform": "gdt_new",
+              "style": 7
+            }
+          ]
+        },
+        "asking_book": {
+          "total_count": 3,
+          "stochastic": []
+        },
+        "splash_screen": {
+          "second": 10,
+          "interval_count": 1,
+          "video_count": 1,
+          "stochastic": [
+            {
+              "platform": "gdt_new",
+              "style": 1
+            }
+          ]
+        },
+        "splash_screen_err": {
+          "stochastic": []
+        },
+        "awaken": {
+          "scheme": 2,
+          "second": 5,
+          "interval_count": 1,
+          "interval_min": 1,
+          "stochastic": [
+            {
+              "platform": "gdt_new",
+              "style": 1
+            }
+          ]
+        },
+        "awaken_err": {
+          "stochastic": []
+        },
+        "chapter": {
+          "next_button_switch": 0,
+          "interface_top": {
+            "stochastic": []
+          },
+          "content_end": {
+            "stochastic": []
+          },
+          "content_bottom": {
+            "stochastic": [],
+            "mutex_content_page": 0
+          },
+          "content_page": {
+            "lv": 1,
+            "style": 0,
+            "interval_count": 10,
+            "stochastic": []
+          },
+          "content_page_2": {
+            "lv": 2,
+            "style": 0,
+            "interval_count": 30,
+            "stochastic": []
+          },
+          "content_page1": {
+            "style": 0,
+            "interval_count": 10,
+            "stochastic": []
+          },
+          "read_ad_lock": {
+            "interval_min": 60,
+            "stochastic": [
+              {
+                "platform": "gdt_new",
+                "style": 7
+              }
+            ],
+            "scheme": 0,
+            "loading": 0,
+            "play": 0,
+            "back": 0
+          }
+        },
+        "comics_chapter": {
+          "next_button_switch": 0,
+          "interface_top": {
+            "stochastic": []
+          },
+          "content_end": {
+            "stochastic": []
+          },
+          "content_bottom": {
+            "stochastic": [],
+            "mutex_content_page": 0
+          },
+          "content_page": {
+            "lv": 1,
+            "style": 0,
+            "interval_count": 10,
+            "stochastic": []
+          },
+          "content_page_2": {
+            "lv": 2,
+            "style": 0,
+            "interval_count": 30,
+            "stochastic": []
+          },
+          "content_page1": {
+            "style": 0,
+            "interval_count": 10,
+            "stochastic": []
+          },
+          "read_ad_lock": {
+            "interval_min": 60,
+            "stochastic": [
+              {
+                "platform": "gdt_new",
+                "style": 7
+              }
+            ],
+            "scheme": 1,
+            "loading": 0,
+            "play": 0,
+            "back": 0
+          }
+        },
+        "ad_data": {
+          "google": null,
+          "csj": null,
+          "csj_new": {
+            "a": "0",
+            "aa1": "0",
+            "ai": "5786317",
+            "b": "104476016",
+            "c": "104476016",
+            "d": "987228749",
+            "e": "0",
+            "ecode": "0",
+            "ecode1": "40006,40009,40016,40018,40021",
+            "f": "0",
+            "g": "0",
+            "h": "0",
+            "i": "0",
+            "j": "987228749",
+            "k": "0",
+            "l": "0",
+            "m": "0",
+            "n": "987228749",
+            "o": "987228749",
+            "p": "0",
+            "q": "0",
+            "r": "0",
+            "s": "0",
+            "sound_switch": 0,
+            "t": "0",
+            "u": "0",
+            "v": "0"
+          },
+          "csj_arr": null,
+          "csj_city": {
+            "b_big": "0",
+            "b_small": "0",
+            "i_big_black": "0",
+            "i_big_white": "0",
+            "i_small_black": "0",
+            "i_small_white": "0"
+          },
+          "csj_read": {
+            "a": "0",
+            "b": "0",
+            "b_small": "0",
+            "b_small_black": "0",
+            "b_small_white": "0",
+            "c": "987228749",
+            "p_big": "0",
+            "p_big_black": "0",
+            "p_big_white": "0",
+            "p_small": "0",
+            "p_small_black": "0",
+            "p_small_white": "0"
+          },
+          "csj_comics_read": {
+            "b_small": "0",
+            "b_small_white": "0",
+            "h_c_img": "0",
+            "h_c_video": "0",
+            "h_s_img": "0",
+            "h_s_video": "0",
+            "p_big": "0",
+            "p_big_white": "0",
+            "p_small": "0",
+            "p_small_white": "0"
+          },
+          "csj_lists": {
+            "b_black": "0",
+            "b_small": "0",
+            "b_small_black": "0",
+            "b_small_white": "0",
+            "c_black": "0",
+            "c_small": "0",
+            "c_small_black": "0",
+            "c_small_white": "0"
+          },
+          "csj_bottom_bg": null,
+          "csj_big_picture_bg": null,
+          "gdt": null,
+          "gdt_new": {
+            "a": "0",
+            "ai": "1218902091",
+            "b": "1314255618778180",
+            "c": "1314255618778180",
+            "d": "5304752658888533",
+            "e": "0",
+            "ecode": "0",
+            "ecode1": "100133,100007,106001,107005,107006",
+            "f": "0",
+            "g": "5304752658888533",
+            "h": "5304752658888533",
+            "i": "5304752658888533",
+            "j": "5304752658888533",
+            "k": "5304752658888533",
+            "n": "5304752658888533",
+            "o": "5304752658888533",
+            "p": "0",
+            "q": "0",
+            "r": "0",
+            "s": "0",
+            "sound_switch": 0,
+            "t": "0",
+            "u": "5304752658888533",
+            "v": "0"
+          },
+          "gdt_read": {
+            "a": "0",
+            "b": "0",
+            "banner2": "0",
+            "c": "5304752658888533",
+            "cbanner2": "0",
+            "cp_big": "0",
+            "cp_small": "0",
+            "csr_big": "0",
+            "csr_ps": "0",
+            "csr_small": "0",
+            "h_c_img": "0",
+            "h_c_video": "0",
+            "h_s_img": "0",
+            "p_big": "0",
+            "p_small": "0",
+            "sr_big": "0",
+            "sr_ps": "0",
+            "sr_small": "0"
+          },
+          "gdt_lists": {
+            "b_banner2": "0",
+            "b_small_black": "0",
+            "b_small_sr": "0",
+            "b_small_white": "0",
+            "c_banner2": "0",
+            "c_big_black": "0",
+            "c_big_sr": "0",
+            "c_big_white": "0",
+            "c_small_black": "0",
+            "c_small_sr": "0",
+            "c_small_white": "0"
+          },
+          "gdt_bottom_bg": null,
+          "gdt_big_picture_bg": null,
+          "bd": null,
+          "lm": {
+            "a": "MTc3MDI3ODA0MzI4OQ==",
+            "ai": null,
+            "banner": "0",
+            "d": "MTc3MDI3ODA5ODA5Nw==",
+            "e": "0",
+            "h": "MTc3MDI3ODA5ODA5Nw==",
+            "i": "MTc3MDI3ODA5ODA5Nw==",
+            "info_big": "MTc3MDI3ODE0MTU5MA==",
+            "info_small": "MTc3MDI3ODE0MTU5MA==",
+            "j": "MTc3MDI3ODA5ODA5Nw==",
+            "n": "MTc3MDI3ODA5ODA5Nw==",
+            "o": "MTc3MDI3ODA5ODA5Nw==",
+            "read_banner": "0",
+            "read_big": "MTc3MDI3ODE0MTU5MA==",
+            "read_small": "MTc3MDI3ODE0MTU5MA=="
+          },
+          "js": null,
+          "topon": null,
+          "topon_global": null,
+          "topon_read": null,
+          "ks": null,
+          "ks_lists": null,
+          "ks_city": null,
+          "ks_read": null,
+          "ks_comics_read": null,
+          "gp": null,
+          "gm": {
+            "a": "104476016",
+            "aid": null,
+            "b": "0",
+            "c": "0",
+            "d": "0",
+            "e": "0",
+            "f": "0",
+            "g": "0",
+            "h": "0",
+            "i": "0",
+            "j": "987228749",
+            "k": "987228749"
+          },
+          "topon_new": null
+        },
+        "bd_data": null,
+        "bookself": {
+          "top": {
+            "stochastic": []
+          },
+          "center": {
+            "interval_count": 3,
+            "stochastic": []
+          },
+          "table_plaque": {
+            "interval_count": 3,
+            "stochastic": []
+          }
+        },
+        "book": {
+          "top": {
+            "stochastic": []
+          },
+          "center": {
+            "stochastic": []
+          },
+          "bottom": {
+            "stochastic": []
+          },
+          "table_plaque": {
+            "interval_count": 3,
+            "stochastic": []
+          },
+          "source": {
+            "stochastic": []
+          }
+        },
+        "book_city": {
+          "table_plaque": {
+            "interval_count": 3,
+            "stochastic": []
+          },
+          "top": {
+            "stochastic": []
+          },
+          "center": {
+            "stochastic": []
+          },
+          "bottom": {
+            "stochastic": []
+          }
+        },
+        "book_city_male": {
+          "top": {
+            "stochastic": []
+          },
+          "center": {
+            "stochastic": []
+          },
+          "bottom": {
+            "stochastic": []
+          }
+        },
+        "book_city_female": {
+          "top": {
+            "stochastic": []
+          },
+          "center": {
+            "stochastic": []
+          },
+          "bottom": {
+            "stochastic": []
+          }
+        },
+        "book_city_end": {
+          "index": {
+            "stochastic": []
+          },
+          "top": {
+            "stochastic": []
+          },
+          "center": {
+            "stochastic": []
+          },
+          "bottom": {
+            "stochastic": []
+          }
+        },
+        "book_city_classification": {
+          "index": {
+            "stochastic": []
+          },
+          "top": {
+            "stochastic": []
+          },
+          "center": {
+            "stochastic": []
+          },
+          "bottom": {
+            "stochastic": []
+          }
+        },
+        "lists": {
+          "stochastic": []
+        },
+        "rank": {
+          "stochastic": []
+        },
+        "search": {
+          "stochastic": []
+        },
+        "comment_lists": {
+          "interval_count": 3,
+          "stochastic": []
+        },
+        "secondary_domain": {
+          "ad": "",
+          "avatar": "",
+          "book": "",
+          "c_catalog": "",
+          "c_chapter": "",
+          "c_pic": "",
+          "c_res": "",
+          "catalog": "",
+          "chapter": "",
+          "conf": "",
+          "d": "",
+          "my": "",
+          "res": "",
+          "s": ""
+        },
+        "download": [
+          {
+            "id": 1,
+            "name": "后面50章",
+            "count": 50,
+            "thread_time": 400
+          },
+          {
+            "id": 2,
+            "name": "后面100章",
+            "count": 100,
+            "thread_time": 400
+          },
+          {
+            "id": 3,
+            "name": "后面全部",
+            "count": 0,
+            "thread_time": 400
+          }
+        ],
+        "font": [
+          {
+            "id": 1,
+            "fontname": "方正新楷体",
+            "font_suffix_name": "楷体",
+            "font_en_name": "FZXK_GBK.ttf",
+            "fontmd5": "6566f93a5cc72f3753c07d20cec72935",
+            "url": "https://res.chuangke.tv/font/方正新楷体/FZXK_GBK.ttf",
+            "size": 1.8,
+            "img": "https://res.chuangke.tv/font/方正新楷体/zku_pic5c30a5dc1ab3f.png"
+          },
+          {
+            "id": 2,
+            "fontname": "方正细圆简体",
+            "font_suffix_name": "细圆",
+            "font_en_name": "FZXYJJW.TTF",
+            "fontmd5": "9d0258aed22c170504592405bb41d1a5",
+            "url": "https://res.chuangke.tv/font/方正细圆简体/FZXYJJW.TTF",
+            "size": 1.2,
+            "img": "https://res.chuangke.tv/font/方正细圆简体/zku_pic5c2dd5c720805.png"
+          },
+          {
+            "id": 3,
+            "fontname": "方正俊黑简体",
+            "font_suffix_name": "俊黑",
+            "font_en_name": "FZJunHJW.ttf",
+            "fontmd5": "d2f32d3a923c2af54992281aef8c4a6a",
+            "url": "https://res.chuangke.tv/font/方正俊黑简体/FZJunHJW.ttf",
+            "size": 1.9,
+            "img": "https://res.chuangke.tv/font/方正俊黑简体/zku_pic5c3346f957bcf.png"
+          },
+          {
+            "id": 4,
+            "fontname": "方正宋黑繁体",
+            "font_suffix_name": "宋繁",
+            "font_en_name": "fangzhengsongheiFT.ttf",
+            "fontmd5": "cca5b9c6557f8615b33747e8dba9bbb6",
+            "url": "https://res.chuangke.tv/font/方正宋黑繁体/fangzhengsongheiFT.ttf",
+            "size": 4.2,
+            "img": "https://res.chuangke.tv/font/方正宋黑繁体/zku_pic5c17834f4c4b4.png"
+          },
+          {
+            "id": 5,
+            "fontname": "方正宋一简体",
+            "font_suffix_name": "宋简",
+            "font_en_name": "fzstys-gb18030.ttf",
+            "fontmd5": "6447add079b7166a3ce4ad4b47aecc1b",
+            "url": "https://res.chuangke.tv/font/方正宋简体/fzstys-gb18030.ttf",
+            "size": 3.3,
+            "img": "https://res.chuangke.tv/font/方正宋简体/zku_pic5c2dd8a092f13.png"
+          },
+          {
+            "id": 6,
+            "fontname": "华康娃娃",
+            "font_suffix_name": "娃娃",
+            "font_en_name": "DFWaWaGB-W5.ttf",
+            "fontmd5": "4d2c2017153787714f6b9b703449d729",
+            "url": "https://res.chuangke.tv/font/华康娃娃/DFWaWaGB-W5.otf",
+            "size": 3.1,
+            "img": "https://res.chuangke.tv/font/华康娃娃/zku_pic5c31c91f9c671.png"
+          },
+          {
+            "id": 7,
+            "fontname": "一加莹黑",
+            "font_suffix_name": "莹黑",
+            "font_en_name": "yjyh.ttf",
+            "fontmd5": "f253e98c9d66378b0f7cce40fcf849a7",
+            "url": "https://res.chuangke.tv/font/一加莹黑/yjyh.ttf",
+            "size": 7.25,
+            "img": "https://res.chuangke.tv/font/一加莹黑/zku_pic5e0d4dc1d267a.png"
+          }
+        ],
+        "fission": [],
+        "signin_ad": null,
+        "err_ad": {
+          "interval_min": 30,
+          "interval_count": -2,
+          "stochastic": []
+        },
+        "err_phone": {
+          "phone_list": "",
+          "stochastic": []
+        },
+        "push_data": {
+          "appkey": "UEVNVEVYVVhUNlhaU00yN50opY8VgrMUjTvPYgYBrFU2VUEyNzlDSjg0UzdVUzhB",
+          "master_secret": "UVFYTjVLNE5XUk45WDM2WJZ+bvftfR9HIjZod6NK0SVZREhCUUJGWlRVVzRTUjhG",
+          "um_key": "RTY4MktKUFdYWksyN1NUTc+P6y6hyvCjjq3PpbrXdBtBel7ed7X91D/C1N8CqekhQjVYRFZCVkFKQlBDS1pVNw==",
+          "um_master_secret": "R1YyMTlKSENXQ1c5RVM3Ml2mHBJd3KxVYmpY8tm7GExqR1VsaVhKSIr4bQxUiAIUOMEMDCq1utj/cXKWAX4voFFWMlZNWTMzOVBRSjU1RlE=",
+          "um_message_secret": "SzRWVFAxWFI2TlUzRjdNNmdAMttRsVVtPslgDXHQGeAQKbfKwI/3We4cmrlNvxuEyGSaoB4MfCd8rNmuHcYgV1hCVFMzV1hWMUVIVzQ3OFE=",
+          "bug_key": "Vlg0QURDOVpIVDJNM1I5SwR2wXLsqRQcleH350Zd3RRGVzJQRjFQNllQTTVCVUZI",
+          "tt_id": "RlhYWkVYUkNUR1dDUDRWRC3bAxs+KgmI7McVPvC7CMBTUjRCU1VWTlQ3WkRONjdV",
+          "bd_id": "MThFVjZGNlRGVVlCM1Q4Wi46k5UrO15uKMbNfnEw1gpVUFU1V0I0QVVGR0EzTVlH"
+        },
+        "video_add_book": {
+          "stochastic": [],
+          "add_count": 1,
+          "interval_min": 1,
+          "today_count": 5,
+          "total_count": 150
+        },
+        "interval_min_arr": {
+          "Awaken": [],
+          "ChapterRead": [],
+          "ComicsChapterRead": [],
+          "ComicsExemptAd": [],
+          "ErrAd": [],
+          "ExemptAd": [],
+          "ListeningBook": [],
+          "VideoAddBook": []
+        },
+        "ad_array": "",
+        "ad_user_list": ""
+      }
+    },
+    "https://conf.xiangxung.com/v4/android/com.mengxigeyd.novel/baidu_tlmh?t=1788870248": {
       "status": 200,
       "json": {
         "phone_reg": 1,
@@ -825,30 +3293,72 @@
       }
     }
   },
+  "domainCandidates": [
+    "https://d.folongteng.com",
+    "http://d.folongteng.com",
+    "https://d.xiangxung.com",
+    "http://d.xiangxung.com"
+  ],
   "sourceAttempts": {
-    "https://d.folongteng.com": {
-      "url": "https://d.folongteng.com/book/source/v4/5002/5002663.html",
+    "https://d.folongteng.com/book/source/v4/5002/5002663.html": {
       "error": "HTTPError: HTTP Error 404: Not Found"
     },
-    "https://d.xiangxung.com": {
-      "url": "https://d.xiangxung.com/book/source/v4/5002/5002663.html",
+    "https://d.folongteng.com/book/source/v4/5002/5002663": {
+      "error": "HTTPError: HTTP Error 404: Not Found"
+    },
+    "https://d.folongteng.com/book/source/v4/500/5002663.html": {
+      "error": "HTTPError: HTTP Error 404: Not Found"
+    },
+    "https://d.folongteng.com/source/v4/5002/5002663.html": {
+      "error": "HTTPError: HTTP Error 404: Not Found"
+    },
+    "https://d.folongteng.com/source/5002/5002663.html": {
+      "error": "HTTPError: HTTP Error 404: Not Found"
+    },
+    "http://d.folongteng.com/book/source/v4/5002/5002663.html": {
+      "error": "HTTPError: HTTP Error 404: Not Found"
+    },
+    "http://d.folongteng.com/book/source/v4/5002/5002663": {
+      "error": "HTTPError: HTTP Error 404: Not Found"
+    },
+    "http://d.folongteng.com/book/source/v4/500/5002663.html": {
+      "error": "HTTPError: HTTP Error 404: Not Found"
+    },
+    "http://d.folongteng.com/source/v4/5002/5002663.html": {
+      "error": "HTTPError: HTTP Error 404: Not Found"
+    },
+    "http://d.folongteng.com/source/5002/5002663.html": {
+      "error": "HTTPError: HTTP Error 404: Not Found"
+    },
+    "https://d.xiangxung.com/book/source/v4/5002/5002663.html": {
+      "error": "URLError: <urlopen error [Errno -2] Name or service not known>"
+    },
+    "https://d.xiangxung.com/book/source/v4/5002/5002663": {
+      "error": "URLError: <urlopen error [Errno -2] Name or service not known>"
+    },
+    "https://d.xiangxung.com/book/source/v4/500/5002663.html": {
+      "error": "URLError: <urlopen error [Errno -2] Name or service not known>"
+    },
+    "https://d.xiangxung.com/source/v4/5002/5002663.html": {
+      "error": "URLError: <urlopen error [Errno -2] Name or service not known>"
+    },
+    "https://d.xiangxung.com/source/5002/5002663.html": {
+      "error": "URLError: <urlopen error [Errno -2] Name or service not known>"
+    },
+    "http://d.xiangxung.com/book/source/v4/5002/5002663.html": {
+      "error": "URLError: <urlopen error [Errno -2] Name or service not known>"
+    },
+    "http://d.xiangxung.com/book/source/v4/5002/5002663": {
+      "error": "URLError: <urlopen error [Errno -2] Name or service not known>"
+    },
+    "http://d.xiangxung.com/book/source/v4/500/5002663.html": {
+      "error": "URLError: <urlopen error [Errno -2] Name or service not known>"
+    },
+    "http://d.xiangxung.com/source/v4/5002/5002663.html": {
+      "error": "URLError: <urlopen error [Errno -2] Name or service not known>"
+    },
+    "http://d.xiangxung.com/source/5002/5002663.html": {
       "error": "URLError: <urlopen error [Errno -2] Name or service not known>"
     }
-  },
-  "secondaryDomain": {
-    "ad": "",
-    "avatar": "",
-    "book": "",
-    "c_catalog": "",
-    "c_chapter": "",
-    "c_pic": "",
-    "c_res": "",
-    "catalog": "",
-    "chapter": "",
-    "conf": "",
-    "d": "",
-    "my": "",
-    "res": "",
-    "s": ""
   }
 }
