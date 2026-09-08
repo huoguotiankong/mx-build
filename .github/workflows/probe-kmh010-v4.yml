@@ -1,0 +1,92 @@
+name: Inspect K Manga reader and feeds
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-kmh010-v4.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Capture reader and feeds
+        shell: bash
+        run: |
+          set -euo pipefail
+          ua='Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36'
+          root="$RUNNER_TEMP/kmh-v4"; mkdir -p "$root/js"
+          fetch(){ local p="$1" o="$2"; echo "GET $p"; curl -L --compressed --connect-timeout 10 --max-time 35 -A "$ua" -sS -D "$o.headers" -o "$o" -w '%{http_code} %{url_effective} %{size_download}\n' "https://kmh010.net$p"; }
+          fetch '/chapter/6a83386d5a9ef7f6dacc5eda' "$root/chapter.html"
+          fetch '/weekly' "$root/weekly.html"
+          fetch '/complete' "$root/complete.html"
+          fetch '/search?key=恋爱作弊百科' "$root/search-key.html"
+          fetch '/category?status=ongoing&tag=' "$root/category-ongoing.html" || true
+          fetch '/category?status=complete&tag=' "$root/category-complete.html" || true
+
+          python3 - "$root" <<'PY'
+          from pathlib import Path
+          from urllib.parse import urljoin
+          import re, html, sys, subprocess
+          root=Path(sys.argv[1])
+          for name in ['chapter.html','weekly.html','complete.html','search-key.html','category-ongoing.html','category-complete.html']:
+              p=root/name
+              if not p.exists(): continue
+              text=p.read_text('utf-8',errors='ignore')
+              print('\n###',name,'bytes',len(text.encode()))
+              print('title', re.findall(r'<title[^>]*>(.*?)</title>',text,re.I|re.S)[:2])
+              links=[]
+              for x in re.findall(r'href=["\']([^"\']+)',text,re.I):
+                  if x not in links: links.append(x)
+              imgs=[]
+              for x in re.findall(r'(?:src|data-src|data-original)=["\']([^"\']+)',text,re.I):
+                  if x not in imgs: imgs.append(x)
+              print('links',links[:120])
+              print('imgs',imgs[:120])
+              print('img.kmh count',text.count('img.kmh.pics'))
+              for key in ['comicID','chapterID','ordinal','subtitle','covers','pages','images','content','nextChapter','prevChapter']:
+                  print(key,'count',text.count(key))
+              # route scripts
+              for src in re.findall(r'<script[^>]+src=["\']([^"\']+)',text,re.I):
+                  if '/chapter/' in name and False: pass
+                  if 'chapter' in src or name=='chapter.html':
+                      u=urljoin('https://kmh010.net/chapter/6a83386d5a9ef7f6dacc5eda',src)
+                      fn=re.sub(r'[^A-Za-z0-9_.-]+','_',src)[-120:]
+                      q=root/'js'/fn
+                      if not q.exists(): subprocess.run(['curl','-L','--compressed','-A','Mozilla/5.0','-sS','-o',str(q),u],check=False)
+              clean=re.sub(r'<script.*?</script>',' ',text,flags=re.S|re.I)
+              clean=re.sub(r'<style.*?</style>',' ',clean,flags=re.S|re.I)
+              clean=re.sub(r'<[^>]+>','\n',clean)
+              lines=[re.sub(r'\s+',' ',html.unescape(x)).strip() for x in clean.splitlines()]
+              print('visible', [x for x in lines if x][:180])
+          PY
+
+          echo '=== chapter JS route contexts ==='
+          python3 - "$root" <<'PY'
+          from pathlib import Path
+          import sys
+          root=Path(sys.argv[1])
+          needles=['/chapter/','chapterID','comicID','pages','images','covers','ordinal','next','prev','img.kmh','router.push','fetch(','/api']
+          for p in sorted((root/'js').glob('*')):
+              text=p.read_text('utf-8',errors='ignore')
+              if not any(n in text for n in needles): continue
+              print('\n##',p.name,len(text.encode()))
+              for n in needles:
+                  pos=text.find(n)
+                  if pos>=0:
+                      print('\n--',n,'--')
+                      print(text[max(0,pos-500):pos+1600])
+          PY
+
+      - name: Upload capture
+        uses: actions/upload-artifact@v4
+        with:
+          name: kmh010-reader-feeds
+          path: ${{ runner.temp }}/kmh-v4
+          if-no-files-found: error
+          retention-days: 3
