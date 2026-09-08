@@ -46,26 +46,17 @@ jobs:
 
           path = Path("source/src/zh/mengxige/src/eu/kanade/tachiyomi/extension/zh/mengxige/MengXiGe.kt")
           text = path.read_text()
-          old = '''        if (this is JsonArray) {
-              if (any { element ->
-                      val item = element as? JsonObject
-                      !item?.string("path").isNullOrBlank()
-                  }
-              ) {
-                  return this
-              }
-          }
-          '''
-          new = '''        if (this is JsonArray) {
-              val hasPathRows = any { element ->
-                  (element as? JsonObject)?.string("path")?.isNotBlank() == true
-              }
-              if (hasPathRows) return this
-          }
-          '''
-          if old not in text:
-              raise SystemExit("Expected recursive path-array predicate not found")
-          path.write_text(text.replace(old, new, 1))
+          function_start = text.index("    private fun JsonElement.findPathArray(): JsonArray? {")
+          block_start = text.index("        if (this is JsonArray) {", function_start)
+          loop_start = text.index("            for (element in this) {", block_start)
+          replacement = (
+              "        if (this is JsonArray) {\n"
+              "            val hasPathRows = any { element ->\n"
+              "                (element as? JsonObject)?.string(\"path\")?.isNotBlank() == true\n"
+              "            }\n"
+              "            if (hasPathRows) return this\n"
+          )
+          path.write_text(text[:block_start] + replacement + text[loop_start:])
           PY
 
       - name: Checkout current Keiyoushi
