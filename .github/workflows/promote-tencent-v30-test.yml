@@ -56,6 +56,7 @@ jobs:
           print(f'Staged Tencent v30 verified: {actual}')
           PY
           test -f staging/test/apk/tachiyomi-zh.tencentcomics-v1.4.30.apk
+          test -f staging/test/icon/eu.kanade.tachiyomi.extension.zh.tencentcomics-v104030.png
 
       - name: Checkout public repository
         uses: actions/checkout@v5
@@ -111,3 +112,28 @@ jobs:
               raise SystemExit(f'Promoted {package}: expected {expected}, got {actual}')
           print('Promoted Tencent v30 index verified')
           PY
+
+      - name: Verify promoted Tencent v30 online
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://raw.githubusercontent.com/huoguotiankong/mx-repo/repo/test'
+          ok=0
+          for n in 1 2 3 4 5 6; do
+            code="$(curl -L -sS -o /tmp/index.json -w '%{http_code}' "$base/index.json?ts=$(date +%s%N)" || true)"
+            if [[ "$code" == 200 ]]; then
+              if python3 - <<'PY'
+          import json
+          from pathlib import Path
+          data=json.loads(Path('/tmp/index.json').read_text('utf-8'))
+          package='eu.kanade.tachiyomi.extension.zh.tencentcomics'
+          items=[x for x in data['extensionList']['extensions'] if x.get('packageName') == package]
+          assert len(items)==1
+          assert (items[0].get('versionName'),items[0].get('versionCode'))==('1.4.30',104030)
+          PY
+              then ok=1; break; fi
+            fi
+            sleep $((n*2))
+          done
+          [[ "$ok" -eq 1 ]]
+          echo 'Tencent v30 public test store verified online'
