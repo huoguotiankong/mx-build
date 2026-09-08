@@ -154,7 +154,7 @@ jobs:
           INFO="$info" python3 - <<'PY'
           import json, os
           d=json.load(open(os.environ['INFO'], encoding='utf-8'))
-          assert int(d['versionCode']) == 4, d
+          assert int(d['versionCode']) == 106004, d
           assert d['versionName'] == '1.6.4', d
           s=d['sources'][0]
           assert s['lang']=='zh', s
