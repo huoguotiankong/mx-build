@@ -1,0 +1,74 @@
+name: Export MengXiGe Reencoded Icons
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/export-mengxige-reencoded-icons.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout build repo
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: true
+
+      - name: Checkout mx-dev
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: c53439894eac1978b26a132e11acc738b712f3a9
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          persist-credentials: false
+
+      - name: Reencode icons and export base64
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check pillow >/dev/null
+          python3 - <<'PY'
+          from pathlib import Path
+          from PIL import Image
+          import base64, hashlib, io, json
+
+          densities = ['mdpi','hdpi','xhdpi','xxhdpi','xxxhdpi']
+          src_root = Path('source/src/zh/mengxige/res')
+          out_root = Path('probe-results/mengxige-icon-b64')
+          out_root.mkdir(parents=True, exist_ok=True)
+          meta = {}
+          for density in densities:
+              src = src_root / f'mipmap-{density}' / 'ic_launcher.png'
+              img = Image.open(src).convert('RGBA')
+              buf = io.BytesIO()
+              img.save(buf, format='PNG', optimize=False, compress_level=6)
+              data = buf.getvalue()
+              (out_root / f'{density}.b64').write_text(base64.b64encode(data).decode('ascii'), encoding='ascii')
+              meta[density] = {
+                  'width': img.width,
+                  'height': img.height,
+                  'sha256': hashlib.sha256(data).hexdigest(),
+                  'size': len(data),
+              }
+          (out_root / 'meta.json').write_text(json.dumps(meta, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          PY
+
+      - name: Commit exported text
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add probe-results/mengxige-icon-b64
+          if git diff --cached --quiet; then
+            echo 'No changes'
+          else
+            git commit -m 'probe: export reencoded MengXiGe icon base64'
+            git push
+          fi
