@@ -1,0 +1,89 @@
+name: Probe K Manga site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-kmh010.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Probe site and discover frontend endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          ua='Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36'
+          mkdir -p /tmp/kmh
+          echo '=== DNS ==='
+          getent ahosts kmh010.net || true
+          echo '=== HOME ==='
+          curl -L --compressed --connect-timeout 10 --max-time 30 -A "$ua" \
+            -D /tmp/kmh/home.headers -o /tmp/kmh/home.html \
+            -w 'status=%{http_code}\nfinal=%{url_effective}\nctype=%{content_type}\nbytes=%{size_download}\n' \
+            https://kmh010.net/home || true
+          sed -n '1,40p' /tmp/kmh/home.headers || true
+          echo '=== HTML hints ==='
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('/tmp/kmh/home.html')
+          if not p.exists():
+              print('no html body')
+              raise SystemExit
+          text=p.read_text('utf-8', errors='ignore')
+          print('html-bytes', len(text.encode()))
+          print('title', re.findall(r'<title[^>]*>(.*?)</title>', text, re.I|re.S)[:3])
+          for label,pat in [
+              ('scripts',r'<script[^>]+src=["\']([^"\']+)'),
+              ('links',r'<a[^>]+href=["\']([^"\']+)'),
+              ('api',r'https?://[^"\'<>\\s]+|/(?:api|graphql|v\d+)[^"\'<>\\s]*'),
+          ]:
+              vals=[]
+              for x in re.findall(pat,text,re.I):
+                  if isinstance(x,tuple): x=x[0]
+                  x=x.replace('&amp;','&')
+                  if x not in vals: vals.append(x)
+              print(label, vals[:120])
+          print('snippet', re.sub(r'\\s+',' ',text[:4000])[:4000])
+          PY
+          echo '=== FRONTEND JS ==='
+          python3 - <<'PY'
+          from pathlib import Path
+          from urllib.parse import urljoin
+          import re, subprocess
+          html=Path('/tmp/kmh/home.html').read_text('utf-8', errors='ignore') if Path('/tmp/kmh/home.html').exists() else ''
+          scripts=[]
+          for src in re.findall(r'<script[^>]+src=["\']([^"\']+)', html, re.I):
+              u=urljoin('https://kmh010.net/home',src)
+              if u not in scripts: scripts.append(u)
+          print('script-count',len(scripts))
+          patterns=re.compile(r'(?i)(?:https?://[^"\'`\\s]+|/(?:api|graphql|v\d+|home|search|comic|manga|book|chapter|detail|read|rank|category|classify)[A-Za-z0-9_?&=./:%{}$-]*)')
+          for i,u in enumerate(scripts[:20]):
+              out=f'/tmp/kmh/js{i}.js'
+              r=subprocess.run(['curl','-L','--compressed','--connect-timeout','10','--max-time','25','-A','Mozilla/5.0', '-o',out,'-w','%{http_code}',u],text=True,capture_output=True)
+              print('JS',i,r.stdout,u)
+              try: text=Path(out).read_text('utf-8',errors='ignore')
+              except: continue
+              hits=[]
+              for m in patterns.findall(text):
+                  if m not in hits: hits.append(m)
+              print('HITS',i,hits[:180])
+          PY
+
+      - name: Probe likely routes
+        shell: bash
+        run: |
+          set -euo pipefail
+          ua='Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 Chrome/126 Mobile Safari/537.36'
+          for path in / /home /search /rank /category /comic /manga; do
+            code="$(curl -L --compressed --connect-timeout 7 --max-time 15 -A "$ua" -o /tmp/kmh/route.out -sS -w '%{http_code}' "https://kmh010.net$path" || true)"
+            bytes="$(wc -c </tmp/kmh/route.out 2>/dev/null || echo 0)"
+            printf '%s status=%s bytes=%s\n' "$path" "$code" "$bytes"
+          done
