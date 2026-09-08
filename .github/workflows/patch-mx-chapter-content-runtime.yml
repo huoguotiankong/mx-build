@@ -53,7 +53,7 @@ jobs:
         run: |
           set -euo pipefail
           cd source
-          ./gradlew testReleaseUnitTest --tests 'eu.kanade.tachiyomi.ui.reader.ChapterContentMatcherTest'
+          ./gradlew :app:testReleaseUnitTest --tests 'eu.kanade.tachiyomi.ui.reader.ChapterContentMatcherTest'
 
       - name: Compile Preview APK
         shell: bash
