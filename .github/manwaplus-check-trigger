@@ -1,3 +1,4 @@
 mx-dev ref: main
 requested: 2026-09-08
-reason: validate Manwa Plus v1 against current Keiyoushi framework
+source head: f1c9baeb1f48acf30e3d1e8c2e8f261ae2fc3642
+reason: rerun Manwa Plus v1 after Spotless and MX ABI formatting fixes
