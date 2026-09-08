@@ -1,0 +1,78 @@
+{
+  "bookId": "5003998",
+  "listPath": "app/364/28/1a/5003998.html",
+  "chapterPath": "bilibili/140/16/79/6/1.html",
+  "imagePath": "bilibili/140/16/79/6/1/3880",
+  "tests": {
+    "c-chapter.folongteng.com|default": {
+      "exit": 0,
+      "metrics": "206 4096 1.279420 2.159276 2.159403",
+      "stderr": ""
+    },
+    "c-chapter.folongteng.com|http1": {
+      "exit": 0,
+      "metrics": "206 4096 0.692766 1.432068 1.432190",
+      "stderr": ""
+    },
+    "c-chapter.folongteng.com|http2": {
+      "exit": 0,
+      "metrics": "206 4096 0.942276 2.323753 2.323862",
+      "stderr": ""
+    },
+    "chapter.folongteng.com|default": {
+      "exit": 0,
+      "metrics": "403 263 0.922250 7.164211 7.164298",
+      "stderr": ""
+    },
+    "chapter.folongteng.com|http1": {
+      "exit": 0,
+      "metrics": "403 263 0.083346 2.634066 2.634186",
+      "stderr": ""
+    },
+    "chapter.folongteng.com|http2": {
+      "exit": 0,
+      "metrics": "403 263 0.083738 6.065018 6.065368",
+      "stderr": ""
+    },
+    "c-res.folongteng.com|default": {
+      "exit": 0,
+      "metrics": "403 263 0.489998 10.221769 10.221879",
+      "stderr": ""
+    },
+    "c-res.folongteng.com|http1": {
+      "exit": 0,
+      "metrics": "200 0 0.088637 2.915748 2.915781",
+      "stderr": ""
+    },
+    "c-res.folongteng.com|http2": {
+      "exit": 0,
+      "metrics": "200 0 0.083295 0.259654 0.259685",
+      "stderr": ""
+    },
+    "c-chapter-repeat-1": {
+      "exit": 0,
+      "metrics": "206 61070 2.179029",
+      "stderr": ""
+    },
+    "c-chapter-repeat-2": {
+      "exit": 0,
+      "metrics": "206 61070 2.465444",
+      "stderr": ""
+    },
+    "c-chapter-repeat-3": {
+      "exit": 0,
+      "metrics": "206 61070 2.619675",
+      "stderr": ""
+    },
+    "c-chapter-repeat-4": {
+      "exit": 0,
+      "metrics": "206 61070 1.894604",
+      "stderr": ""
+    },
+    "c-chapter-repeat-5": {
+      "exit": 0,
+      "metrics": "206 61070 2.067425",
+      "stderr": ""
+    }
+  }
+}
