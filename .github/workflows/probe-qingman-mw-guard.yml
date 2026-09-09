@@ -1,0 +1,169 @@
+name: Probe Qingman MW and Guard
+
+on:
+  push:
+    paths:
+      - '.github/workflows/probe-qingman-mw-guard.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Resolve current official APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/qm_version
+          import json, urllib.request
+          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
+          a=o['data']['datas']['android']
+          print(a['downloadUrl'])
+          print(a.get('version',''))
+          print(a.get('versionCode',''))
+          PY
+          echo "official_version=$(sed -n '2p' /tmp/qm_version) code=$(sed -n '3p' /tmp/qm_version)"
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(head -1 /tmp/qm_version)" -o /tmp/qingman.apk
+          rm -rf /tmp/qm /tmp/blutter /tmp/blutter-out
+          mkdir -p /tmp/qm
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libapp.so' 'lib/arm64-v8a/libflutter.so' 'lib/arm64-v8a/libqx_security.so' -d /tmp/qm
+          test -s /tmp/qm/lib/arm64-v8a/libapp.so
+          test -s /tmp/qm/lib/arm64-v8a/libqx_security.so
+
+      - name: Probe current bootstrap and mw endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyelftools python3-cryptography >/dev/null
+          python3 - <<'PY'
+          import base64, hashlib, json, time, urllib.error, urllib.request, uuid
+          from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+          from elftools.elf.elffile import ELFFile
+
+          ver=open('/tmp/qm_version').read().splitlines()[1]
+          so='/tmp/qm/lib/arm64-v8a/libqx_security.so'
+          with open(so,'rb') as f:
+              elf=ELFFile(f)
+              def read_va(va,n):
+                  for seg in elf.iter_segments():
+                      if seg['p_type'] != 'PT_LOAD': continue
+                      start=int(seg['p_vaddr']); end=start+int(seg['p_filesz'])
+                      if start <= va and va+n <= end:
+                          f.seek(int(seg['p_offset']) + va-start)
+                          return f.read(n)
+                  raise RuntimeError(f'VA 0x{va:x} is not file-backed')
+              seed=read_va(0x14a40,16)+read_va(0x14af0,16)
+              sign_cipher=read_va(0x17d1f,33)
+              aes_cipher=read_va(0x17d40,32)
+          base=hashlib.sha256(seed).digest()
+          def deob(cipher,kind):
+              stream=b''; c=0
+              while len(stream)<len(cipher):
+                  stream += hashlib.sha256(base+bytes([kind])+c.to_bytes(4,'big')).digest(); c+=1
+              return bytes(a^b for a,b in zip(cipher,stream))
+          sign_material=deob(sign_cipher,1); aes_key=deob(aes_cipher,2)
+          ts=str(int(time.time()*1000)); did=uuid.uuid4().hex; nonce=uuid.uuid4().hex
+          sig=hashlib.sha256(ts.encode()+nonce.encode()+did.encode()+sign_material).hexdigest()
+          body=json.dumps({'timestamp':ts,'nonce':nonce,'sign':sig,'deviceId':did},separators=(',',':')).encode()
+          req=urllib.request.Request('https://mu8xm4cx.zermh.com/bootstrap/domain',data=body,headers={
+              'Content-Type':'application/json','Accept':'application/json, text/plain, */*',
+              'User-Agent':f'qingman/{ver} (Android)','appVersion':ver,'platform':'android','X-Device-Id':did,
+          },method='POST')
+          with urllib.request.urlopen(req,timeout=20) as r: resp=json.loads(r.read().decode())
+          payload=base64.urlsafe_b64decode(resp['data']+'='*((4-len(resp['data'])%4)%4))
+          plain=AESGCM(aes_key).decrypt(payload[:12],payload[12:],(ts+'|'+nonce).encode())
+          obj=json.loads(plain.decode())
+          print('BOOTSTRAP_HTTP_CODE='+str(resp.get('code')))
+          print('BOOTSTRAP_API_DOMAIN='+str(obj.get('apiDomain','')))
+          print('BOOTSTRAP_EXPIRE_AT='+str(obj.get('expireAt','')))
+
+          for u in ['http://121.11.204.141:8124/mw.json','https://121.11.204.141:8124/mw.json']:
+              try:
+                  q=urllib.request.Request(u,headers={'User-Agent':f'qingman/{ver} (Android)'})
+                  with urllib.request.urlopen(q,timeout=8) as r:
+                      b=r.read(2048)
+                      print('MW_PROBE='+u+' status='+str(r.status)+' ctype='+r.headers.get('content-type','')+' bytes='+str(len(b))+' prefix='+repr(b[:160]))
+              except Exception as e:
+                  print('MW_PROBE='+u+' error='+type(e).__name__+':'+str(e)[:180])
+          PY
+
+      - name: Run Blutter and classify strings/xrefs
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev python3-capstone python3-pyelftools >/dev/null
+          git clone -q --depth=1 https://github.com/worawit/blutter.git /tmp/blutter
+          mkdir -p /tmp/app-lib /tmp/blutter-out
+          cp /tmp/qm/lib/arm64-v8a/libapp.so /tmp/app-lib/
+          cp /tmp/qm/lib/arm64-v8a/libflutter.so /tmp/app-lib/
+          cd /tmp/blutter
+          python3 blutter.py /tmp/app-lib /tmp/blutter-out >/tmp/blutter.log 2>&1
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          from elftools.elf.elffile import ELFFile
+          from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+
+          pp_lines=Path('/tmp/blutter-out/pp.txt').read_text(encoding='utf-8',errors='replace').splitlines()
+          pp={}
+          for line in pp_lines:
+              m=re.match(r'\[pp\+0x([0-9a-fA-F]+)\]\s*(.*)$',line)
+              if m: pp[int(m.group(1),16)]=m.group(2)
+          terms=('mw.json','121.11.204.141','x-api-guard','apiguard','bootstrapproof','bootstrapdecrypt','bootstrapsign','x-qm-proof','x-qm-app-access','apiDomain')
+          targets={o:s for o,s in pp.items() if any(t.lower() in s.lower() for t in terms)}
+          print('TARGET_COUNT='+str(len(targets)))
+          for o,s in sorted(targets.items()): print(f'TARGET PP+0x{o:x} {s[:500]}')
+
+          lib='/tmp/app-lib/libapp.so'
+          with open(lib,'rb') as f:
+              elf=ELFFile(f)
+              sec=elf.get_section_by_name('.text')
+              if sec is None: sec=max((s for s in elf.iter_sections() if int(s['sh_flags']) & 0x4),key=lambda s:int(s['sh_size']))
+              base=int(sec['sh_addr']); data=sec.data()
+          md=Cs(CS_ARCH_ARM64,CS_MODE_ARM); md.skipdata=True
+          pending={}; hits=[]
+          for x in md.disasm(data,base):
+              if x.mnemonic.startswith('.'):
+                  pending.clear(); continue
+              pending={r:(b,n-1) for r,(b,n) in pending.items() if n>1}
+              op=x.op_str.lower()
+              m=re.match(r'(x\d+),\s*x27,\s*#(0x[0-9a-f]+|\d+)(?:,\s*lsl\s*#(\d+))?$',op)
+              if x.mnemonic=='add' and m: pending[m.group(1)]=(int(m.group(2),0)<<int(m.group(3) or 0),10)
+              if x.mnemonic in ('ldr','ldur','ldrsw'):
+                  m=re.match(r'([wx]\d+),\s*\[(x\d+)(?:,\s*#(-?(?:0x[0-9a-f]+|\d+)))?\]',op)
+                  if m:
+                      br=m.group(2); disp=int(m.group(3),0) if m.group(3) else 0
+                      off=disp if br=='x27' else (pending[br][0]+disp if br in pending else None)
+                      if off in targets: hits.append((int(x.address),off))
+          print('XREF_COUNT='+str(len(hits)))
+          for a,o in hits: print(f'XREF 0x{a:x} PP+0x{o:x} {targets[o][:240]}')
+
+          # Function ownership from asm text generated by Blutter. Scan address ranges from function headers.
+          asm_files=list(Path('/tmp/blutter-out').glob('asm/**/*.S'))+list(Path('/tmp/blutter-out').glob('asm/**/*.s'))+list(Path('/tmp/blutter-out').glob('*.S'))
+          if not asm_files: asm_files=list(Path('/tmp/blutter-out').rglob('*.S'))
+          print('ASM_FILE_COUNT='+str(len(asm_files)))
+          needle_addrs={a for a,_ in hits}
+          for p in asm_files:
+              try: lines=p.read_text(encoding='utf-8',errors='replace').splitlines()
+              except: continue
+              current=''
+              for line in lines:
+                  if line and not line.startswith((' ','\t')) and line.endswith(':'): current=line[:-1]
+                  m=re.search(r'0x([0-9a-fA-F]+)',line)
+                  if m and int(m.group(1),16) in needle_addrs:
+                      print('OWNER file='+str(p.relative_to('/tmp/blutter-out'))+' symbol='+current+' line='+line.strip()[:500])
+
+          # Compact windows around relevant xrefs directly from ELF text.
+          local=Cs(CS_ARCH_ARM64,CS_MODE_ARM); local.skipdata=True
+          for a,o in hits[:30]:
+              lo=max(base,(a-0x80)&~3); hi=min(base+len(data),(a+0x100)&~3)
+              print(f'WINDOW target=PP+0x{o:x} xref=0x{a:x} range=0x{lo:x}-0x{hi:x}')
+              for ins in local.disasm(data[lo-base:hi-base],lo):
+                  print(f'{ins.address:08x}: {ins.mnemonic:<7} {ins.op_str}')
+          PY
