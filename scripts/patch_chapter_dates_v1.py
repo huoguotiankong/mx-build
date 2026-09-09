@@ -1,3 +1,4 @@
+# Kuaikan v28 chapter-date staging helper; validated against current Keiyoushi.
 from pathlib import Path
 
 
