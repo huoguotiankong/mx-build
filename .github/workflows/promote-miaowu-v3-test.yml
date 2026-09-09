@@ -1,4 +1,4 @@
-name: Promote Miaowu v5 test only
+name: Promote Miaowu v7 test only
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: promote-miaowu-v5-test-only
+  group: promote-miaowu-v7-test-only
   cancel-in-progress: false
 
 jobs:
@@ -36,7 +36,7 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Verify staged Miaowu v5 payload
+      - name: Verify staged Miaowu v7 payload
         shell: bash
         run: |
           set -euo pipefail
@@ -46,11 +46,11 @@ jobs:
           package = 'eu.kanade.tachiyomi.extension.zh.miaowumanhua'
           data = json.loads(Path('staging/test/index.json').read_text('utf-8'))
           item = next(x for x in data['extensionList']['extensions'] if x.get('packageName') == package)
-          assert (item.get('versionName'), item.get('versionCode')) == ('1.6.5', 106005), item
+          assert (item.get('versionName'), item.get('versionCode')) == ('1.6.7', 106007), item
           assert len(data['extensionList']['extensions']) >= 10
-          assert Path('staging/test/apk/tachiyomi-zh.miaowumanhua-v1.6.5.apk').is_file()
-          assert Path('staging/test/icon/eu.kanade.tachiyomi.extension.zh.miaowumanhua-v106005.png').is_file()
-          print('Verified staged Miaowu v5 payload')
+          assert Path('staging/test/apk/tachiyomi-zh.miaowumanhua-v1.6.7.apk').is_file()
+          assert Path('staging/test/icon/eu.kanade.tachiyomi.extension.zh.miaowumanhua-v106007.png').is_file()
+          print('Verified staged Miaowu v7 payload')
           PY
 
       - name: Checkout public repository
@@ -63,7 +63,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
-      - name: Merge only Miaowu v5 into MX Test
+      - name: Merge only Miaowu v7 into MX Test
         shell: bash
         run: |
           set -euo pipefail
@@ -76,20 +76,20 @@ jobs:
           public_index = Path('repo/test/index.json')
           public = json.loads(public_index.read_text('utf-8'))
           staged_item = next(x for x in staged['extensionList']['extensions'] if x.get('packageName') == package)
-          assert (staged_item.get('versionName'), staged_item.get('versionCode')) == ('1.6.5', 106005)
+          assert (staged_item.get('versionName'), staged_item.get('versionCode')) == ('1.6.7', 106007)
           extensions = public['extensionList']['extensions']
           matches = [i for i, x in enumerate(extensions) if x.get('packageName') == package]
           if len(matches) != 1:
               raise SystemExit(f'Expected exactly one public Miaowu entry, found {len(matches)}')
           extensions[matches[0]] = staged_item
           public_index.write_text(json.dumps(public, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-          apk_src = Path('staging/test/apk/tachiyomi-zh.miaowumanhua-v1.6.5.apk')
-          icon_src = Path('staging/test/icon/eu.kanade.tachiyomi.extension.zh.miaowumanhua-v106005.png')
+          apk_src = Path('staging/test/apk/tachiyomi-zh.miaowumanhua-v1.6.7.apk')
+          icon_src = Path('staging/test/icon/eu.kanade.tachiyomi.extension.zh.miaowumanhua-v106007.png')
           Path('repo/test/apk').mkdir(parents=True, exist_ok=True)
           Path('repo/test/icon').mkdir(parents=True, exist_ok=True)
           shutil.copy2(apk_src, Path('repo/test/apk') / apk_src.name)
           shutil.copy2(icon_src, Path('repo/test/icon') / icon_src.name)
-          print('Merged Miaowu v5 only; other test entries preserved')
+          print('Merged Miaowu v7 only; other test entries preserved')
           PY
 
       - name: Verify targeted diff
@@ -98,19 +98,19 @@ jobs:
         run: |
           set -euo pipefail
           git add test/index.json \
-            test/apk/tachiyomi-zh.miaowumanhua-v1.6.5.apk \
-            test/icon/eu.kanade.tachiyomi.extension.zh.miaowumanhua-v106005.png
+            test/apk/tachiyomi-zh.miaowumanhua-v1.6.7.apk \
+            test/icon/eu.kanade.tachiyomi.extension.zh.miaowumanhua-v106007.png
           git diff --cached --check
           changed="$(git diff --cached --name-only)"
           printf '%s\n' "$changed"
           while IFS= read -r path; do
             case "$path" in
-              test/index.json|test/apk/tachiyomi-zh.miaowumanhua-v1.6.5.apk|test/icon/eu.kanade.tachiyomi.extension.zh.miaowumanhua-v106005.png) ;;
+              test/index.json|test/apk/tachiyomi-zh.miaowumanhua-v1.6.7.apk|test/icon/eu.kanade.tachiyomi.extension.zh.miaowumanhua-v106007.png) ;;
               *) echo "::error::Unexpected staged path: $path"; exit 1 ;;
             esac
           done <<< "$changed"
 
-      - name: Commit public Miaowu v5 test
+      - name: Commit public Miaowu v7 test
         working-directory: repo
         shell: bash
         run: |
@@ -118,11 +118,11 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           if ! git diff --cached --quiet; then
-            git commit -m 'Publish Miaowu v1.6.5 web-runtime test'
+            git commit -m 'Publish Miaowu v1.6.7 web-runtime test'
             git push origin HEAD:repo
           fi
 
-      - name: Verify public Miaowu v5 online
+      - name: Verify public Miaowu v7 online
         shell: bash
         run: |
           set -euo pipefail
@@ -136,14 +136,16 @@ jobs:
           from pathlib import Path
           data = json.loads(Path('/tmp/index.json').read_text('utf-8'))
           item = next(x for x in data['extensionList']['extensions'] if x.get('packageName') == 'eu.kanade.tachiyomi.extension.zh.miaowumanhua')
-          assert (item.get('versionName'), item.get('versionCode')) == ('1.6.5', 106005), item
+          assert (item.get('versionName'), item.get('versionCode')) == ('1.6.7', 106007), item
           assert len(data['extensionList']['extensions']) >= 10
           PY
               then ok=1; break; fi
             fi
             sleep $((n * 2))
           done
-          [[ "$ok" -eq 1 ]] || { echo '::error::Public MX Test index did not converge to Miaowu v5'; exit 1; }
-          curl -fL -sS "$base/apk/tachiyomi-zh.miaowumanhua-v1.6.5.apk?ts=$(date +%s%N)" -o /tmp/miaowu-v5.apk
-          test -s /tmp/miaowu-v5.apk
-          echo 'Public Miaowu v5 test verified online'
+          [[ "$ok" -eq 1 ]] || { echo '::error::Public MX Test index did not converge to Miaowu v7'; exit 1; }
+          curl -fL -sS "$base/apk/tachiyomi-zh.miaowumanhua-v1.6.7.apk?ts=$(date +%s%N)" -o /tmp/miaowu-v7.apk
+          test -s /tmp/miaowu-v7.apk
+          echo 'Public Miaowu v7 test verified online'
+
+# trigger: 2026-09-09T23:50+08:00 promote v1.6.7 web runtime test
