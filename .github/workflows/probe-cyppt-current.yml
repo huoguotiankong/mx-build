@@ -1,4 +1,4 @@
-name: Probe Cyppt Current
+name: Probe Cyppt Reader Headers
 
 on:
   push:
@@ -12,19 +12,57 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Export Cyppt brand assets
+      - name: Compare reader image header variants
         shell: bash
         run: |
           set -euo pipefail
-          curl -L --fail --silent --show-error --max-time 30 https://www.cyppt.com/novel/images/readnovel-logo.png -o /tmp/cyppt-logo.png
-          curl -L --fail --silent --show-error --max-time 30 https://www.cyppt.com/favicon.ico -o /tmp/cyppt-favicon.ico
-          file /tmp/cyppt-logo.png /tmp/cyppt-favicon.ico
-          sha256sum /tmp/cyppt-logo.png /tmp/cyppt-favicon.ico
-          echo "LOGO_BASE64_BEGIN"
-          base64 -w 0 /tmp/cyppt-logo.png
-          echo
-          echo "LOGO_BASE64_END"
-          echo "FAVICON_BASE64_BEGIN"
-          base64 -w 0 /tmp/cyppt-favicon.ico
-          echo
-          echo "FAVICON_BASE64_END"
+          chapter='https://www.cyppt.com/novel27362/chapter0.html'
+          ua='Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Mobile Safari/537.36'
+
+          curl -L --fail --silent --show-error --max-time 30 -A "$ua" "$chapter" -o /tmp/chapter.html
+
+          python3 - <<'PY' >/tmp/image-url.txt
+          import html, re
+          from urllib.parse import urljoin
+
+          body = open('/tmp/chapter.html', encoding='utf-8', errors='ignore').read()
+          match = re.search(r'<img[^>]+class=["\'][^"\']*comic_img[^"\']*["\'][^>]+data-original=["\']([^"\']+)', body, re.I)
+          if not match:
+              match = re.search(r'data-original=["\']([^"\']+)["\'][^>]+class=["\'][^"\']*comic_img', body, re.I)
+          if not match:
+              raise SystemExit('No comic_img[data-original] found')
+          url = html.unescape(match.group(1).strip())
+          if url.startswith('//'):
+              url = 'https:' + url
+          elif url.startswith('http://'):
+              url = 'https://' + url[len('http://'):]
+          elif url.startswith('/'):
+              url = urljoin('https://www.cyppt.com/', url)
+          print(url)
+          PY
+
+          image_url="$(cat /tmp/image-url.txt)"
+          echo "chapter=$chapter"
+          echo "image_url=$image_url"
+
+          probe() {
+            label="$1"
+            shift
+            headers="/tmp/${label}.headers"
+            body="/tmp/${label}.body"
+            set +e
+            curl -L --silent --show-error --max-time 30 -A "$ua" -D "$headers" -o "$body" "$@" "$image_url"
+            rc=$?
+            set -e
+            status="$(awk '/^HTTP\// { code=$2 } END { print code }' "$headers" 2>/dev/null || true)"
+            ctype="$(awk 'BEGIN{IGNORECASE=1} /^content-type:/ { sub(/\r$/, ""); value=$0 } END { sub(/^[^:]+:[[:space:]]*/, "", value); print value }' "$headers" 2>/dev/null || true)"
+            bytes="$(wc -c < "$body" 2>/dev/null || echo 0)"
+            sha="$(sha256sum "$body" 2>/dev/null | awk '{print $1}' || true)"
+            desc="$(file -b "$body" 2>/dev/null || true)"
+            printf '%s rc=%s status=%s type=%s bytes=%s sha256=%s file=%s\n' "$label" "$rc" "$status" "$ctype" "$bytes" "$sha" "$desc"
+          }
+
+          probe no_referrer
+          probe cyppt_headers -H 'Referer: https://www.cyppt.com/' -H 'Origin: https://www.cyppt.com'
+          probe cyppt_referer_only -H 'Referer: https://www.cyppt.com/'
+          probe manhuafree_headers -H 'Referer: https://manhuafree.com/' -H 'Origin: https://manhuafree.com'
