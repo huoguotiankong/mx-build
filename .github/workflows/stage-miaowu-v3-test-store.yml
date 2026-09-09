@@ -1,0 +1,194 @@
+name: Stage Miaowu v3 Test Store
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/stage-miaowu-v3-test-store.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: miaowu-v3-test-store
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout build infrastructure
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Check required secrets
+        shell: bash
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]] || { echo "::error::Missing MX_PRIVATE_READ_TOKEN"; exit 1; }
+          [[ -n "$MANGA_SIGNING_BUNDLE" ]] || { echo "::error::Missing MANGA_SIGNING_BUNDLE"; exit 1; }
+
+      - name: Checkout Miaowu private source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: source/miaowumanhua-v1
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f source/src/zh/miaowumanhua/build.gradle.kts
+          test -d source/src/zh/miaowumanhua/src
+          source_sha="$(git -C source rev-parse HEAD)"
+          echo "SOURCE_SHA=$source_sha" >> "$GITHUB_ENV"
+          printf 'zh/miaowumanhua\n' > "$RUNNER_TEMP/mx-test-targets.txt"
+          python3 source/scripts/validate_sources.py
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Checkout current Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Overlay Miaowu module
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf upstream/src/zh/miaowumanhua
+          mkdir -p upstream/src/zh
+          cp -a source/src/zh/miaowumanhua upstream/src/zh/miaowumanhua
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Validate current source
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:miaowumanhua:spotlessCheck :src:zh:miaowumanhua:assembleDebug :src:zh:miaowumanhua:lintRelease
+
+      - name: Prepare stable extension signing key
+        shell: bash
+        env:
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, json, os
+          from pathlib import Path
+          bundle=json.loads(os.environ['MANGA_SIGNING_BUNDLE'])
+          for key in ('signingKey','alias','storePassword','keyPassword'):
+              if not bundle.get(key): raise SystemExit('Signing bundle missing '+key)
+          Path('upstream/signingkey.jks').write_bytes(base64.b64decode(bundle['signingKey']))
+          values={'ALIAS':str(bundle['alias']),'KEY_STORE_PASSWORD':str(bundle['storePassword']),'KEY_PASSWORD':str(bundle['keyPassword'])}
+          with Path(os.environ['GITHUB_ENV']).open('a',encoding='utf-8') as f:
+              for name,value in values.items():
+                  print(f'::add-mask::{value}')
+                  f.write(f'{name}<<__MX_EOF__\n{value}\n__MX_EOF__\n')
+          PY
+
+      - name: Verify signing identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620'
+          actual="$(keytool -exportcert -alias "$ALIAS" -keystore upstream/signingkey.jks -storepass "$KEY_STORE_PASSWORD" | sha256sum | awk '{print $1}')"
+          [[ "${actual,,}" == "$expected" ]] || { echo '::error::Signing certificate mismatch'; exit 1; }
+
+      - name: Build signed Release
+        working-directory: upstream
+        run: ./gradlew :src:zh:miaowumanhua:assembleRelease
+
+      - name: Verify signed APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620'
+          apk="$(find upstream/src/zh/miaowumanhua -path '*/build/outputs/apk/release/*.apk' -type f | sort | head -n 1)"
+          [[ -n "$apk" ]] || { echo '::error::No Release APK found'; exit 1; }
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          cert_output="$("$apksigner" verify --print-certs "$apk" 2>&1)"
+          normalized="$(printf '%s' "$cert_output" | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')"
+          [[ "$normalized" == *"$expected"* ]] || { echo '::error::APK signing certificate mismatch'; exit 1; }
+
+      - name: Checkout extension staging branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-build
+          token: ${{ github.token }}
+          ref: extension-staging
+          path: staging
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Generate isolated test store
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 source/scripts/publish_test_repo.py \
+            --targets "$RUNNER_TEMP/mx-test-targets.txt" \
+            --upstream-root upstream \
+            --source-root source \
+            --repo-dir staging/test \
+            --owner huoguotiankong \
+            --repository mx-repo \
+            --signing-key '1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620'
+
+      - name: Commit staged test store
+        working-directory: staging
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add test
+          if git diff --cached --quiet; then
+            echo 'No staged test-store changes'
+          else
+            git commit -m "Stage Miaowu v3 ${SOURCE_SHA:0:7}"
+            git push origin HEAD:extension-staging
+          fi
+
+      - name: Verify staged index
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://raw.githubusercontent.com/huoguotiankong/mx-build/extension-staging/test'
+          for attempt in 1 2 3 4 5; do
+            status="$(curl -L -sS -o /tmp/index.json -w '%{http_code}' "$base/index.json" || true)"
+            [[ "$status" == '200' ]] && break
+            sleep $((attempt*2))
+          done
+          [[ -s /tmp/index.json ]] || { echo '::error::Staged index unavailable'; exit 1; }
+          python3 - <<'PY'
+          import json
+          data=json.load(open('/tmp/index.json'))
+          pkgs={x.get('packageName') for x in data['extensionList']['extensions']}
+          expected='eu.kanade.tachiyomi.extension.zh.miaowumanhua'
+          if expected not in pkgs: raise SystemExit('Staged index missing '+expected)
+          print('Staged Miaowu v3 entry verified')
+          PY
+
+      - name: Cleanup signing material
+        if: always()
+        run: rm -f upstream/signingkey.jks
