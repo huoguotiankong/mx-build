@@ -15,29 +15,41 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Confirm web host and reader codec
+      - name: Confirm web host and reader image headers
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import re, urllib.request
+          import re, urllib.error, urllib.request
           BASE='https://mh.iqtao.cn'
+          CHAPTER=BASE+'/170/1095305.html'
           UA='Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Mobile Safari/537.36'
-          def get(url):
-              req=urllib.request.Request(url,headers={'User-Agent':UA,'Accept':'text/html,application/xhtml+xml,*/*'})
-              with urllib.request.urlopen(req,timeout=20) as r:
-                  b=r.read(); print('GET',url,'status',r.status,'len',len(b)); return b
-          for path in ['/custom/top','/custom/ticket','/category','/170.html']:
-              get(BASE+path)
-          html=get(BASE+'/170/1095305.html').decode('utf-8','replace')
+          def req(url, extra=None):
+              h={'User-Agent':UA,'Accept':'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'}
+              if extra: h.update(extra)
+              q=urllib.request.Request(url,headers=h)
+              try:
+                  with urllib.request.urlopen(q,timeout=20) as r:
+                      b=r.read(); print('TRY',extra or {},'status',r.status,'len',len(b),'type',r.headers.get('content-type')); return r.status,b
+              except urllib.error.HTTPError as e:
+                  b=e.read(); print('TRY',extra or {},'status',e.code,'len',len(b),'type',e.headers.get('content-type')); return e.code,b
+          html_req=urllib.request.Request(CHAPTER,headers={'User-Agent':UA,'Accept':'text/html,*/*'})
+          with urllib.request.urlopen(html_req,timeout=20) as r: html=r.read().decode('utf-8','replace')
           m=re.search(r'<img[^>]+(?:src|data-src|alt)=["\']((?://)?img\d*\.iqtao\.cn/(?:hp|scomic)/[^"\']+)["\']',html,re.I)
           if not m: raise SystemExit('NO_READER_IMAGE_URL')
           u=m.group(1); u='https:'+u if u.startswith('//') else u
-          raw=get(u)
+          print('IMAGE_URL',u)
+          variants=[{}, {'Referer':CHAPTER}, {'Referer':BASE+'/'}, {'Origin':BASE}, {'Referer':CHAPTER,'Origin':BASE}]
+          ok=None
+          for h in variants:
+              status,b=req(u,h)
+              if status==200 and ok is None: ok=(h,b)
+          if ok is None: raise SystemExit('NO_IMAGE_HEADER_VARIANT_WORKED')
+          h,raw=ok
           dec=bytes((((x-47)&255)^0xAB) for x in raw)
           def magic(b):
               return b.startswith(b'\xff\xd8\xff') or b.startswith(b'\x89PNG') or b.startswith(b'GIF8') or (len(b)>=12 and b[:4]==b'RIFF' and b[8:12]==b'WEBP')
-          print('IMAGE',u,'raw',raw[:16].hex(),'decoded',dec[:16].hex(),'rawMagic',magic(raw),'decodedMagic',magic(dec))
+          print('WORKING_HEADERS',h,'raw',raw[:16].hex(),'decoded',dec[:16].hex(),'rawMagic',magic(raw),'decodedMagic',magic(dec))
           if not magic(raw) and not magic(dec): raise SystemExit('IMAGE_CODEC_UNCONFIRMED')
-          print('MIAOWU_WEB_V5_CODEC_OK')
+          print('MIAOWU_WEB_V5_HEADER_CODEC_OK')
           PY
