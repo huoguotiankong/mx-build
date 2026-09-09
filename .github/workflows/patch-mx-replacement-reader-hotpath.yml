@@ -27,56 +27,182 @@ jobs:
           set -euo pipefail
           [[ -n "$MX_APP_PUBLISH_TOKEN" ]] || { echo "::error::Missing MX_APP_PUBLISH_TOKEN"; exit 1; }
 
-      - name: Checkout validated MX App main
+      - name: Checkout surgical reader fix
         uses: actions/checkout@v5
         with:
           repository: huoguotiankong/mx-app
-          ref: main
+          ref: fix/replacement-reader-latency-surgical
           token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
           path: source
           fetch-depth: 0
           persist-credentials: true
 
-      - name: Apply guarded hot-path patch
+      - name: Apply guarded shared-catalog cache patch
         shell: bash
         run: |
           set -euo pipefail
           cd source
-          expected_base="068b9f85a6b8ae5a4c6ace0aef61853743453e6a"
+          expected_base="3294bd08e89f809445ee52c48c47fc4ba45cb489"
           actual_base="$(git rev-parse HEAD)"
           [[ "$actual_base" == "$expected_base" ]] || {
-            echo "::error::mx-app main moved; expected $expected_base but found $actual_base"
+            echo "::error::surgical branch moved; expected $expected_base but found $actual_base"
             exit 1
           }
-          git switch -c fix/replacement-reader-latency-surgical
+          git switch -C fix/replacement-reader-latency-cache
+
+          cat > app/src/main/java/eu/kanade/tachiyomi/ui/reader/ChapterContentCatalogCache.kt <<'EOF'
+          package eu.kanade.tachiyomi.ui.reader
+
+          import eu.kanade.tachiyomi.source.model.SChapter
+          import kotlinx.coroutines.sync.Mutex
+          import kotlinx.coroutines.sync.withLock
+          import java.util.LinkedHashMap
+
+          /**
+           * Small process-local cache for replacement manga chapter catalogs.
+           *
+           * Manga detail marker verification and the reader both need the same target chapter list.
+           * Sharing that catalog avoids duplicate large source requests while keeping provider data
+           * ephemeral and isolated from the normal chapter database/cache.
+           */
+          internal object ChapterContentCatalogCache {
+              private const val MAX_ENTRIES = 6
+              private const val MAX_AGE_MS = 5 * 60 * 1000L
+
+              private data class Key(
+                  val sourceId: Long,
+                  val mangaUrl: String,
+                  val mangaMemo: String,
+              )
+
+              private data class Entry(
+                  val chapters: List<SChapter>,
+                  val cachedAtMs: Long,
+              )
+
+              private val lock = Any()
+              private val loadMutex = Mutex()
+              private val entries = LinkedHashMap<Key, Entry>(MAX_ENTRIES, 0.75f, true)
+
+              fun get(
+                  sourceId: Long,
+                  mangaUrl: String,
+                  mangaMemo: String,
+              ): List<SChapter>? = synchronized(lock) {
+                  val key = Key(sourceId, mangaUrl, mangaMemo)
+                  val entry = entries[key] ?: return@synchronized null
+                  if (nowMs() - entry.cachedAtMs > MAX_AGE_MS) {
+                      entries.remove(key)
+                      null
+                  } else {
+                      entry.chapters
+                  }
+              }
+
+              fun put(
+                  sourceId: Long,
+                  mangaUrl: String,
+                  mangaMemo: String,
+                  chapters: List<SChapter>,
+              ) {
+                  if (chapters.isEmpty()) return
+                  synchronized(lock) {
+                      entries[Key(sourceId, mangaUrl, mangaMemo)] = Entry(chapters.toList(), nowMs())
+                      while (entries.size > MAX_ENTRIES) {
+                          val iterator = entries.entries.iterator()
+                          if (!iterator.hasNext()) break
+                          iterator.next()
+                          iterator.remove()
+                      }
+                  }
+              }
+
+              suspend fun getOrLoad(
+                  sourceId: Long,
+                  mangaUrl: String,
+                  mangaMemo: String,
+                  loader: suspend () -> List<SChapter>,
+              ): List<SChapter> {
+                  get(sourceId, mangaUrl, mangaMemo)?.let { return it }
+                  return loadMutex.withLock {
+                      get(sourceId, mangaUrl, mangaMemo)?.let { return@withLock it }
+                      loader().also { chapters ->
+                          put(sourceId, mangaUrl, mangaMemo, chapters)
+                      }
+                  }
+              }
+
+              private fun nowMs(): Long = System.nanoTime() / 1_000_000L
+          }
+          EOF
+
           python3 - <<'PY'
           from pathlib import Path
 
-          path = Path('app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderViewModel.kt')
-          text = path.read_text(encoding='utf-8')
-          old = '''            runCatching {\n                refreshWholeMangaMatchSnapshotFromCatalog(\n                    manga = manga,\n                    binding = binding,\n                    targetChapters = cache.chapters,\n                )\n            }.onFailure { snapshotError ->\n                logcat(LogPriority.WARN, snapshotError) {\n                    "Failed to refresh MX whole-manga marker snapshot from reader catalog"\n                }\n            }\n'''
-          if text.count(old) != 1:
-              raise SystemExit(f'Expected exactly one reader hot-path marker refresh block, found {text.count(old)}')
-          path.write_text(text.replace(old, '', 1), encoding='utf-8')
+          reader = Path('app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderViewModel.kt')
+          text = reader.read_text(encoding='utf-8')
+
+          save_anchor = '''        readerPreferences.chapterContentBindingOffset(manga.id).set(chapterOffset)\n        chapterContentCatalogSnapshotSignature = null\n'''
+          save_replacement = '''        readerPreferences.chapterContentBindingOffset(manga.id).set(chapterOffset)\n        ChapterContentCatalogCache.put(\n            sourceId = selection.source.id,\n            mangaUrl = selection.manga.url,\n            mangaMemo = selection.manga.memo.toString(),\n            chapters = selection.chapters,\n        )\n        chapterContentCatalogSnapshotSignature = null\n'''
+          if text.count(save_anchor) != 1:
+              raise SystemExit(f'Expected one binding save anchor, found {text.count(save_anchor)}')
+          text = text.replace(save_anchor, save_replacement, 1)
+
+          old_block = '''        val targetManga = SManga.create().apply {\n            url = binding.mangaUrl\n            title = binding.mangaTitle.ifBlank { binding.mangaUrl }\n            if (binding.mangaMemo.isNotBlank()) {\n                memo = runCatching {\n                    Json.parseToJsonElement(binding.mangaMemo).jsonObject\n                }.getOrDefault(memo)\n            }\n        }\n        val directChapters = runCatching {\n            getReplacementChapters(source, targetManga)\n        }.getOrDefault(emptyList())\n        val chapters = if (directChapters.isNotEmpty()) {\n            directChapters\n        } else {\n            val originalManga = manga\n            val recoveryQueries = sequenceOf(\n                binding.mangaTitle,\n                originalManga?.title.orEmpty(),\n                originalManga?.ogTitle.orEmpty(),\n            )\n                .map(String::trim)\n                .filter(String::isNotBlank)\n                .distinct()\n                .toList()\n            val recoveredCandidates = linkedMapOf<String, SManga>()\n            for (query in recoveryQueries) {\n                var pageNumber = 1\n                var hasNext = true\n                while (hasNext && pageNumber <= 2) {\n                    val page = source.getSearchManga(pageNumber, query, source.getFilterList())\n                    page.mangas.forEach { candidate ->\n                        recoveredCandidates.putIfAbsent(candidate.url, candidate)\n                    }\n                    hasNext = page.hasNextPage\n                    pageNumber++\n                }\n            }\n            val recoveredManga = recoveredCandidates[binding.mangaUrl]\n                ?: selectBestReplacementMangaCandidate(\n                    candidates = recoveredCandidates.values.toList(),\n                    expectedTitles = sequenceOf(\n                        binding.mangaTitle,\n                        originalManga?.title.orEmpty(),\n                        originalManga?.ogTitle.orEmpty(),\n                    ),\n                )\n            recoveredManga?.let { getReplacementChapters(source, it) }.orEmpty()\n        }\n'''
+          new_block = '''        val chapters = ChapterContentCatalogCache.getOrLoad(\n            sourceId = binding.sourceId,\n            mangaUrl = binding.mangaUrl,\n            mangaMemo = binding.mangaMemo,\n        ) {\n            val targetManga = SManga.create().apply {\n                url = binding.mangaUrl\n                title = binding.mangaTitle.ifBlank { binding.mangaUrl }\n                if (binding.mangaMemo.isNotBlank()) {\n                    memo = runCatching {\n                        Json.parseToJsonElement(binding.mangaMemo).jsonObject\n                    }.getOrDefault(memo)\n                }\n            }\n            val directChapters = runCatching {\n                getReplacementChapters(source, targetManga)\n            }.getOrDefault(emptyList())\n            if (directChapters.isNotEmpty()) {\n                directChapters\n            } else {\n                val originalManga = manga\n                val recoveryQueries = sequenceOf(\n                    binding.mangaTitle,\n                    originalManga?.title.orEmpty(),\n                    originalManga?.ogTitle.orEmpty(),\n                )\n                    .map(String::trim)\n                    .filter(String::isNotBlank)\n                    .distinct()\n                    .toList()\n                val recoveredCandidates = linkedMapOf<String, SManga>()\n                for (query in recoveryQueries) {\n                    var pageNumber = 1\n                    var hasNext = true\n                    while (hasNext && pageNumber <= 2) {\n                        val page = source.getSearchManga(pageNumber, query, source.getFilterList())\n                        page.mangas.forEach { candidate ->\n                            recoveredCandidates.putIfAbsent(candidate.url, candidate)\n                        }\n                        hasNext = page.hasNextPage\n                        pageNumber++\n                    }\n                }\n                val recoveredManga = recoveredCandidates[binding.mangaUrl]\n                    ?: selectBestReplacementMangaCandidate(\n                        candidates = recoveredCandidates.values.toList(),\n                        expectedTitles = sequenceOf(\n                            binding.mangaTitle,\n                            originalManga?.title.orEmpty(),\n                            originalManga?.ogTitle.orEmpty(),\n                        ),\n                    )\n                recoveredManga?.let { getReplacementChapters(source, it) }.orEmpty()\n            }\n        }\n'''
+          if text.count(old_block) != 1:
+              raise SystemExit(f'Expected one binding catalog load block, found {text.count(old_block)}')
+          reader.write_text(text.replace(old_block, new_block, 1), encoding='utf-8')
+
+          manga = Path('app/src/main/java/eu/kanade/tachiyomi/ui/manga/MangaScreen.kt')
+          text = manga.read_text(encoding='utf-8')
+          import_anchor = 'import eu.kanade.tachiyomi.ui.reader.ChapterContentReplacementCodec\n'
+          if text.count(import_anchor) != 1:
+              raise SystemExit('MangaScreen import anchor mismatch')
+          text = text.replace(
+              import_anchor,
+              import_anchor + 'import eu.kanade.tachiyomi.ui.reader.ChapterContentCatalogCache\n',
+              1,
+          )
+
+          start = text.index('                    val targetManga = SManga.create().apply {')
+          end = text.index('                    if (targetChapters.isEmpty()) {', start)
+          existing = text[start:end]
+          indented = ''.join('    ' + line if line.strip() else line for line in existing.splitlines(keepends=True))
+          wrapped = '''                    val targetChapters = ChapterContentCatalogCache.getOrLoad(\n                        sourceId = wholeMangaBindingSourceId,\n                        mangaUrl = wholeMangaBindingUrl,\n                        mangaMemo = wholeMangaBindingMemo,\n                    ) {\n''' + indented.replace(
+              '                        val targetChapters = if (directTargetChapters.isNotEmpty()) {',
+              '                        if (directTargetChapters.isNotEmpty()) {',
+              1,
+          ) + '''                    }\n'''
+          if 'val targetChapters = if (directTargetChapters.isNotEmpty())' in wrapped:
+              raise SystemExit('Failed to convert nested targetChapters declaration')
+          text = text[:start] + wrapped + text[end:]
+          manga.write_text(text, encoding='utf-8')
           PY
+
           git diff --check
-          changed="$(git diff --name-only)"
-          [[ "$changed" == "app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderViewModel.kt" ]] || {
+          changed="$(git diff --name-only | sort)"
+          expected=$'app/src/main/java/eu/kanade/tachiyomi/ui/manga/MangaScreen.kt\napp/src/main/java/eu/kanade/tachiyomi/ui/reader/ChapterContentCatalogCache.kt\napp/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderViewModel.kt'
+          [[ "$changed" == "$expected" ]] || {
             echo "::error::Unexpected changed files: $changed"
             exit 1
           }
-          ! grep -Fq 'Failed to refresh MX whole-manga marker snapshot from reader catalog' app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderViewModel.kt
+          grep -Fq 'ChapterContentCatalogCache.getOrLoad' app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderViewModel.kt
+          grep -Fq 'ChapterContentCatalogCache.getOrLoad' app/src/main/java/eu/kanade/tachiyomi/ui/manga/MangaScreen.kt
+          grep -Fq 'private val loadMutex = Mutex()' app/src/main/java/eu/kanade/tachiyomi/ui/reader/ChapterContentCatalogCache.kt
           grep -Fq 'markChapterContentWholeMangaReplacementSucceeded' app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderViewModel.kt
-          grep -Fq 'selectBestReplacementMangaCandidate' app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderViewModel.kt
 
-      - name: Commit surgical fix branch
+      - name: Commit shared-catalog cache branch
         shell: bash
         run: |
           set -euo pipefail
           cd source
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderViewModel.kt
+          git add \
+            app/src/main/java/eu/kanade/tachiyomi/ui/manga/MangaScreen.kt \
+            app/src/main/java/eu/kanade/tachiyomi/ui/reader/ChapterContentCatalogCache.kt \
+            app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderViewModel.kt
           git diff --cached --check
-          git commit -m 'fix: keep marker precompute off reader load path'
-          git push --force-with-lease origin HEAD:fix/replacement-reader-latency-surgical
+          git commit -m 'perf: share replacement chapter catalogs across reader paths'
+          git push --force-with-lease origin HEAD:fix/replacement-reader-latency-cache
