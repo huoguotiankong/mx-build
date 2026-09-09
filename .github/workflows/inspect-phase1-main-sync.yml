@@ -1,0 +1,54 @@
+name: Inspect Phase1 main sync
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/inspect-phase1-main-sync.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout build control
+        uses: actions/checkout@v5
+        with:
+          path: build-control
+          persist-credentials: false
+
+      - name: Checkout MX App Phase 1 branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-app
+          ref: feat/mx-protocol-runtime-v1
+          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Inspect merge from main
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          git fetch origin main
+          echo "phase1=$(git rev-parse HEAD)"
+          echo "main=$(git rev-parse origin/main)"
+          set +e
+          git merge --no-commit --no-ff origin/main
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ]; then
+            echo "MERGE_CONFLICTS_BEGIN"
+            git diff --name-only --diff-filter=U
+            echo "MERGE_CONFLICTS_END"
+            git status --short
+            git merge --abort
+          else
+            echo "MERGE_CLEAN"
+            git status --short
+            git merge --abort || true
+          fi
