@@ -16,6 +16,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python3 -m pip install --disable-pip-version-check -q beautifulsoup4
           UA='Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Mobile Safari/537.36'
           BASE='https://www.cyppt.com'
           mkdir -p /tmp/cyppt
@@ -32,14 +33,12 @@ jobs:
           fetch chapter "$BASE/novel30197/chapter0.html"
           fetch latest "$BASE/latest"
           fetch popular "$BASE/popular"
-          fetch finish "$BASE/finish"
-          fetch new "$BASE/new"
 
           python3 - <<'PY'
           from bs4 import BeautifulSoup
           from pathlib import Path
-          from urllib.parse import urljoin, urlparse, parse_qs
-          import re, json
+          from urllib.parse import urljoin, urlparse
+          import re
           BASE='https://www.cyppt.com'
           def soup(name): return BeautifulSoup(Path(f'/tmp/cyppt/{name}.html').read_text('utf-8',errors='ignore'),'html.parser')
           def txt(e): return ' '.join(e.stripped_strings) if e else ''
@@ -53,10 +52,10 @@ jobs:
           for a in h.select('a[href]'):
               href=a.get('href',''); t=txt(a)
               if href and (t or 'novel' in href): links.append((t[:60],href,a.get('class')))
-          for x in links[:180]: print('A',x)
+          for x in links[:220]: print('A',x)
 
           print('===== LIST PAGE STRUCTURE =====')
-          for name in ['latest','popular','finish','new']:
+          for name in ['latest','popular']:
               s=soup(name)
               print('\nPAGE',name,'title=',txt(s.title))
               candidates=[]
@@ -64,32 +63,31 @@ jobs:
                   href=a.get('href',''); t=txt(a)
                   if href and t: candidates.append((href,t[:80],a.get('class'),a.parent.name if a.parent else None,a.parent.get('class') if a.parent else None))
               print('novel-links',len(candidates))
-              for x in candidates[:20]: print(' NOVEL',x)
+              for x in candidates[:30]: print(' NOVEL',x)
               pagers=[]
               for a in s.select('a[href]'):
-                  t=txt(a)
-                  href=a.get('href','')
+                  t=txt(a); href=a.get('href','')
                   if any(k in t.lower() for k in ['next','prev','last','first','下一','上一','末页','首页']) or re.fullmatch(r'\d+',t):
                       pagers.append((t,href,a.get('class')))
-              print('pagers',pagers[:50])
+              print('pagers',pagers[:80])
 
           print('===== DETAIL =====')
           d=soup('detail')
           print('title=',txt(d.title))
-          for sel in ['h1','h2','h3','.book-info','.detail','.info','.intro','.description','.book-list','.chapter-list','ul','ol']:
+          for sel in ['h1','h2','h3','.book-info','.detail','.info','.intro','.description','.book-list','.chapter-list','.book-detail','.manga-detail','ul','ol']:
               vals=[]
               for e in d.select(sel):
                   t=txt(e)
                   if t: vals.append((sel,e.name,e.get('class'),t[:500]))
               if vals:
                   print('SEL',sel)
-                  for v in vals[:12]: print(v)
-          for img in d.select('img')[:30]: print('IMG',img.get('src'),img.get('data-src'),img.get('alt'),img.get('class'))
+                  for v in vals[:15]: print(v)
+          for img in d.select('img')[:40]: print('IMG',img.get('src'),img.get('data-src'),img.get('alt'),img.get('class'))
           ch=[]
           for a in d.select('a[href*="chapter"]'):
               ch.append((a.get('href'),txt(a),a.get('class'),a.parent.get('class') if a.parent else None))
           print('chapter-links=',len(ch))
-          for x in ch[:80]: print(' CH',x)
+          for x in ch[:120]: print(' CH',x)
           for a in d.select('a[href]'):
               href=a.get('href',''); t=txt(a)
               if 'page' in href.lower() or re.search(r'/novel30197/\d+/?$',href): print(' DETAILPAGER',t,href,a.get('class'))
@@ -103,7 +101,7 @@ jobs:
               body=sc.string or sc.get_text('\n')
               if body and any(k in body.lower() for k in ['image','chapter','comic','pic','img','page']):
                   clean=' '.join(body.split())
-                  print('SCRIPT',sc.get('src'),clean[:1800])
+                  print('SCRIPT',sc.get('src'),clean[:2500])
           for a in r.select('a[href]'):
               href=a.get('href',''); t=txt(a)
               if 'chapter' in href or t in ['上一章','下一章','上一话','下一话']:
@@ -114,7 +112,7 @@ jobs:
               m=m.replace('\\/','/')
               if re.search(r'\.(?:jpe?g|png|webp|gif)(?:\?|$)',m,re.I) and m not in urls: urls.append(m)
           print('absolute-image-urls=',len(urls))
-          for u in urls[:100]: print(' URL',u)
+          for u in urls[:120]: print(' URL',u)
           Path('/tmp/cyppt/image_urls.txt').write_text('\n'.join(urls))
           PY
 
