@@ -1,0 +1,279 @@
+name: Stage Tencent v31 and Kuaikan v27 chapter-date test
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/stage-chapter-date-fixes-v31-v27-test.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stage-chapter-date-fixes-v31-v27-test
+  cancel-in-progress: false
+
+jobs:
+  stage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout build infrastructure
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Check required secrets
+        shell: bash
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+          MX_REPO_TOKEN: ${{ secrets.MX_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]] || { echo "::error::Missing MX_PRIVATE_READ_TOKEN"; exit 1; }
+          [[ -n "$MANGA_SIGNING_BUNDLE" ]] || { echo "::error::Missing MANGA_SIGNING_BUNDLE"; exit 1; }
+          [[ -n "$MX_REPO_TOKEN" ]] || { echo "::error::Missing MX_REPO_TOKEN"; exit 1; }
+
+      - name: Checkout fixed private source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: a18e1134467e909e3193658510c98fceee342b09
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate source layout and target versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd source && python3 scripts/validate_sources.py)
+          grep -q 'versionCode = 31' source/src/zh/tencentcomics/build.gradle.kts
+          grep -q 'versionCode = 27' source/src/zh/kuaikanmanhua/build.gradle.kts
+          printf 'zh/tencentcomics\nzh/kuaikanmanhua\n' > "$RUNNER_TEMP/mx-test-targets.txt"
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Checkout current Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Overlay fixed modules
+        shell: bash
+        run: |
+          set -euo pipefail
+          for source_name in tencentcomics kuaikanmanhua; do
+            rm -rf "upstream/src/zh/$source_name"
+            cp -a "source/src/zh/$source_name" "upstream/src/zh/$source_name"
+          done
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Format and validate both modules
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew \
+            :src:zh:tencentcomics:spotlessApply \
+            :src:zh:kuaikanmanhua:spotlessApply
+          ./gradlew \
+            :src:zh:tencentcomics:spotlessCheck \
+            :src:zh:kuaikanmanhua:spotlessCheck \
+            :src:zh:tencentcomics:assembleDebug \
+            :src:zh:kuaikanmanhua:assembleDebug \
+            :src:zh:tencentcomics:lintRelease \
+            :src:zh:kuaikanmanhua:lintRelease
+
+      - name: Prepare stable extension signing key
+        shell: bash
+        env:
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, json, os
+          from pathlib import Path
+          bundle = json.loads(os.environ['MANGA_SIGNING_BUNDLE'])
+          required = ('signingKey','alias','storePassword','keyPassword')
+          missing = [k for k in required if not bundle.get(k)]
+          if missing:
+              raise SystemExit('Signing bundle missing fields: ' + ', '.join(missing))
+          Path('upstream/signingkey.jks').write_bytes(base64.b64decode(bundle['signingKey']))
+          values = {
+              'ALIAS': str(bundle['alias']),
+              'KEY_STORE_PASSWORD': str(bundle['storePassword']),
+              'KEY_PASSWORD': str(bundle['keyPassword']),
+          }
+          with Path(os.environ['GITHUB_ENV']).open('a', encoding='utf-8') as f:
+              for name, value in values.items():
+                  print(f'::add-mask::{value}')
+                  f.write(f'{name}<<__MX_SIGNING_EOF__\n{value}\n__MX_SIGNING_EOF__\n')
+          PY
+
+      - name: Verify configured signing identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620'
+          actual="$(keytool -exportcert -alias "$ALIAS" -keystore upstream/signingkey.jks -storepass "$KEY_STORE_PASSWORD" | sha256sum | awk '{print $1}')"
+          actual="$(printf '%s' "$actual" | tr '[:upper:]' '[:lower:]')"
+          [[ "$actual" == "$expected" ]] || { echo '::error::Extension signing certificate mismatch'; exit 1; }
+
+      - name: Build signed Release extensions
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew \
+            :src:zh:tencentcomics:assembleRelease \
+            :src:zh:kuaikanmanhua:assembleRelease
+
+      - name: Verify APK signing certificates
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620'
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          [[ -n "$apksigner" ]] || { echo '::error::apksigner not found'; exit 1; }
+          for source_name in tencentcomics kuaikanmanhua; do
+            apk="$(find "upstream/src/zh/$source_name" -path '*/build/outputs/apk/release/*.apk' -type f | head -n 1)"
+            [[ -n "$apk" ]] || { echo "::error::No Release APK found for $source_name"; exit 1; }
+            cert_output="$("$apksigner" verify --print-certs "$apk" 2>&1)"
+            normalized="$(printf '%s' "$cert_output" | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')"
+            [[ "$normalized" == *"$expected"* ]] || { echo "::error::APK signing certificate mismatch for $source_name"; exit 1; }
+          done
+
+      - name: Checkout extension staging branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-build
+          token: ${{ github.token }}
+          ref: extension-staging
+          path: staging
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Generate combined isolated test store
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 source/scripts/publish_test_repo.py \
+            --targets "$RUNNER_TEMP/mx-test-targets.txt" \
+            --upstream-root upstream \
+            --source-root source \
+            --repo-dir staging/test \
+            --owner huoguotiankong \
+            --repository mx-repo \
+            --signing-key '1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620'
+
+      - name: Verify staged versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('staging/test/index.json').read_text('utf-8'))
+          versions = {x['packageName']: (x.get('versionName'), x.get('versionCode')) for x in data['extensionList']['extensions']}
+          expected = {
+              'eu.kanade.tachiyomi.extension.zh.tencentcomics': ('1.4.31', 104031),
+              'eu.kanade.tachiyomi.extension.zh.kuaikanmanhua': ('1.6.27', 106027),
+          }
+          if versions != expected:
+              raise SystemExit(f'Unexpected staged versions: {versions!r}')
+          print('Staged versions verified:', versions)
+          PY
+          test -f staging/test/apk/tachiyomi-zh.tencentcomics-v1.4.31.apk
+          test -f staging/test/apk/tachiyomi-zh.kuaikanmanhua-v1.6.27.apk
+
+      - name: Commit combined staging store
+        working-directory: staging
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add test
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git commit -m 'Stage Tencent v31 and Kuaikan v27 chapter-date test'
+            git push origin HEAD:extension-staging
+          fi
+
+      - name: Checkout public repository
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-repo
+          ref: repo
+          token: ${{ secrets.MX_REPO_TOKEN }}
+          path: repo
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Promote combined test store
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf repo/test
+          mkdir -p repo/test
+          cp -a staging/test/. repo/test/
+
+      - name: Commit public test store
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add test
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git commit -m 'Publish Tencent v31 and Kuaikan v27 chapter-date test'
+            git push origin HEAD:repo
+          fi
+
+      - name: Verify public test store online
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://raw.githubusercontent.com/huoguotiankong/mx-repo/repo/test'
+          ok=0
+          for n in 1 2 3 4 5 6; do
+            code="$(curl -L -sS -o /tmp/index.json -w '%{http_code}' "$base/index.json?ts=$(date +%s%N)" || true)"
+            if [[ "$code" == '200' ]]; then
+              if python3 - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('/tmp/index.json').read_text('utf-8'))
+          versions = {x['packageName']: (x.get('versionName'), x.get('versionCode')) for x in data['extensionList']['extensions']}
+          assert versions == {
+              'eu.kanade.tachiyomi.extension.zh.tencentcomics': ('1.4.31', 104031),
+              'eu.kanade.tachiyomi.extension.zh.kuaikanmanhua': ('1.6.27', 106027),
+          }, versions
+          PY
+              then ok=1; break; fi
+            fi
+            sleep $((n * 2))
+          done
+          [[ "$ok" -eq 1 ]] || { echo '::error::Public test index did not converge'; exit 1; }
+          curl -fL -sS "$base/apk/tachiyomi-zh.tencentcomics-v1.4.31.apk?ts=$(date +%s%N)" -o /tmp/tencent.apk
+          curl -fL -sS "$base/apk/tachiyomi-zh.kuaikanmanhua-v1.6.27.apk?ts=$(date +%s%N)" -o /tmp/kuaikan.apk
+          echo 'Public Tencent v31 + Kuaikan v27 test store verified online'
+
+      - name: Cleanup signing material
+        if: always()
+        shell: bash
+        run: rm -f upstream/signingkey.jks
