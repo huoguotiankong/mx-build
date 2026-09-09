@@ -366,19 +366,19 @@
         "name": "Miaowu Manhua",
         "packageName": "eu.kanade.tachiyomi.extension.zh.miaowumanhua",
         "resources": {
-          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.miaowumanhua-v1.6.4.apk",
-          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.miaowumanhua-v106004.png"
+          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.miaowumanhua-v1.6.5.apk",
+          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.miaowumanhua-v106005.png"
         },
         "extensionLib": "1.6",
-        "versionCode": 106004,
-        "versionName": "1.6.4",
+        "versionCode": 106005,
+        "versionName": "1.6.5",
         "contentWarning": "SAFE",
         "sources": [
           {
             "id": 2052748012150712956,
             "name": "喵呜漫画",
             "language": "zh",
-            "homeUrl": "https://maowu.iqtao.cn",
+            "homeUrl": "https://mh.iqtao.cn",
             "mirrorUrls": [],
             "message": null
           }
