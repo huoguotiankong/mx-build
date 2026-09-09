@@ -25,16 +25,11 @@ jobs:
           import urllib.request
           from collections import deque
 
+          base = "https://api.kkmh.com/v2/topic/topic_catalogue/list"
           endpoints = [
-              ("https://api.kkmh.com/v1/topics/12602", {}),
-              ("https://api.kkmh.com/v2/topic/topic_catalogue/list", {"topic_id": "12602"}),
-              ("https://api.kkmh.com/v2/topic/topic_catalogue/list", {"topic_id": "12602", "sort": "0"}),
-              ("https://api.kkmh.com/v2/topic/topic_catalogue/list", {"topic_id": "12602", "sort": "1"}),
-              ("https://api.kkmh.com/v2/topic/topic_catalogue/list", {"topic_id": "12602", "order": "1"}),
-              ("https://api.kkmh.com/v2/topic/topic_catalogue/list", {"topic_id": "12602", "since": "0", "limit": "20"}),
-              ("https://api.kkmh.com/v2/topic/topic_catalogue/list", {"topic_id": "12602", "page": "1", "size": "20"}),
-              ("https://api.kkmh.com/v2/topic/download/comic_list", {"topic_id": "12602"}),
-              ("https://api.kkmh.com/v2/topic/download/comic_list", {"topic_id": "12602", "since": "0", "limit": "20"}),
+              (base, {"topic_id": "12602", "sort": str(sort), "sort_action": str(action)})
+              for sort in (0, 1, 2)
+              for action in (0, 1, 2, 3)
           ]
           headers = {
               "User-Agent": "Kuaikan/5.75.0/575000(iPhone;Scale/3.00) (iPhone; CPU)",
@@ -56,35 +51,31 @@ jobs:
           def summarize(obj):
               out = []
               q = deque([(obj, "$", 0)])
-              seen = 0
-              while q and seen < 8000:
+              while q and len(out) < 30:
                   node, path, depth = q.popleft()
-                  seen += 1
                   if depth > 10:
                       continue
                   if isinstance(node, dict):
                       hit = {k: node[k] for k in node.keys() if k in interesting}
                       if hit:
                           out.append((path, hit))
-                          if len(out) >= 25:
-                              break
                       for k, v in node.items():
                           if isinstance(v, (dict, list)):
                               q.append((v, f"{path}.{k}", depth + 1))
                   elif isinstance(node, list):
-                      for i, v in enumerate(node[:50]):
+                      for i, v in enumerate(node[:80]):
                           if isinstance(v, (dict, list)):
                               q.append((v, f"{path}[{i}]", depth + 1))
               return out
 
           for base, params in endpoints:
-              url = base + (("?" + urllib.parse.urlencode(params)) if params else "")
+              url = base + "?" + urllib.parse.urlencode(params)
               print("===", url)
               req = urllib.request.Request(url, headers=headers)
               try:
                   with urllib.request.urlopen(req, timeout=20) as r:
                       raw = r.read()
-                      print("status", r.status, "bytes", len(raw), "content-type", r.headers.get("content-type"))
+                      print("status", r.status, "bytes", len(raw))
               except Exception as e:
                   print("error", repr(e))
                   continue
@@ -94,10 +85,7 @@ jobs:
                   print("non-json", raw[:300])
                   continue
               if isinstance(data, dict):
-                  print("top_keys", sorted(data.keys()))
-                  print("code", data.get("code"), "message", data.get("message"))
-              else:
-                  print("root_type", type(data).__name__)
+                  print("code", data.get("code"), "message", data.get("message"), "keys", sorted(data.keys()))
               for path, hit in summarize(data):
                   print(path, json.dumps(hit, ensure_ascii=False, sort_keys=True))
           PY
