@@ -15,66 +15,38 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Inspect compatible site HTML
+      - name: Dump compatible engine links and forms
         shell: bash
         run: |
           set -euo pipefail
           ua='Mozilla/5.0 (Linux; Android 16; Pixel 9 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36'
           base='https://mh5.app'
           mkdir -p /tmp/mw
-          curl -fsSL --compressed -A "$ua" "$base/" -o /tmp/mw/home.html
-          curl -fsSL --compressed -A "$ua" "$base/category" -o /tmp/mw/category.html
-          curl -fsSL --compressed -A "$ua" "$base/custom/update" -o /tmp/mw/update.html
-          python3 - <<'PY'
-          import re, html
-          from pathlib import Path
-          base='https://mh5.app'
-          h=Path('/tmp/mw/home.html').read_text('utf-8',errors='replace')
-          book=re.search(r'href=["\']([^"\']*/book/[^"\']+)["\']',h,re.I)
-          if not book: raise SystemExit('no book link')
-          path=book.group(1)
-          if path.startswith('http'): url=path
-          else: url=base + ('/' if not path.startswith('/') else '') + path
-          Path('/tmp/mw/book_url').write_text(url)
-          print('BOOK_URL',url)
-          PY
-          book_url=$(cat /tmp/mw/book_url)
-          curl -fsSL --compressed -A "$ua" "$book_url" -o /tmp/mw/book.html
-          python3 - <<'PY'
-          import re
-          from pathlib import Path
-          base='https://mh5.app'
-          h=Path('/tmp/mw/book.html').read_text('utf-8',errors='replace')
-          ch=re.search(r'href=["\']([^"\']*/chapter/[^"\']+)["\']',h,re.I)
-          if not ch: raise SystemExit('no chapter link')
-          path=ch.group(1)
-          url=path if path.startswith('http') else base + ('/' if not path.startswith('/') else '') + path
-          Path('/tmp/mw/chapter_url').write_text(url)
-          print('CHAPTER_URL',url)
-          PY
-          chapter_url=$(cat /tmp/mw/chapter_url)
-          curl -fsSL --compressed -A "$ua" "$chapter_url" -o /tmp/mw/chapter.html
+          for pair in 'home /' 'category /category' 'update /custom/update'; do
+            set -- $pair
+            curl -fsSL --compressed -A "$ua" "$base$2" -o "/tmp/mw/$1.html"
+          done
           python3 - <<'PY'
           import html,re
           from pathlib import Path
-          for name in ('home','category','update','book','chapter'):
-              text=Path(f'/tmp/mw/{name}.html').read_text('utf-8',errors='replace')
-              print(f'\n===== {name.upper()} =====')
-              text=re.sub(r'<(script|style)\b[^>]*>.*?</\1>','',text,flags=re.I|re.S)
-              tags=re.findall(r'<(?:form|input|a|img|h1|h2|h3|div|ul|ol|li|span|p)\b[^>]*>',text,flags=re.I)
-              for t in tags[:1200]:
-                  s=re.sub(r'\s+',' ',html.unescape(t)).strip()
-                  low=s.lower()
-                  keep=False
-                  if name=='home': keep=any(x in low for x in ('form','input','/book/','/custom/','/category'))
-                  elif name in ('category','update'): keep=any(x in low for x in ('/book/','/chapter/','/category','page/'))
-                  elif name=='book': keep=any(x in low for x in ('/chapter/','cover','author','writer','genre','tag','status','desc','intro','detail','catalog','list'))
-                  else: keep=any(x in low for x in ('<img','chapter','reader','comic','page','content','data-','lazy'))
-                  if keep: print(s[:1400])
-              if name in ('home','book','chapter'):
-                  print('--- scripts ---')
-                  raw=Path(f'/tmp/mw/{name}.html').read_text('utf-8',errors='replace')
-                  for i,b in enumerate(re.findall(r'<script\b[^>]*>(.*?)</script>',raw,flags=re.I|re.S)):
-                      if re.search(r'(image|img|chapter|page|search|ajax|api|comic|book)',b,re.I):
-                          print('SCRIPT',i,re.sub(r'\s+',' ',html.unescape(b)).strip()[:5000])
+          for name in ('home','category','update'):
+              raw=Path(f'/tmp/mw/{name}.html').read_text('utf-8',errors='replace')
+              print(f'\n===== {name.upper()} FORMS =====')
+              for m in re.finditer(r'<(?:form|input)\b[^>]*>',raw,re.I):
+                  print(re.sub(r'\s+',' ',html.unescape(m.group(0))).strip()[:1600])
+              print(f'\n===== {name.upper()} LINKS =====')
+              count=0
+              for m in re.finditer(r'<a\b([^>]*)>(.*?)</a>',raw,re.I|re.S):
+                  attrs=re.sub(r'\s+',' ',html.unescape(m.group(1))).strip()
+                  text=re.sub(r'<[^>]+>',' ',m.group(2))
+                  text=re.sub(r'\s+',' ',html.unescape(text)).strip()
+                  href=re.search(r'href\s*=\s*["\']([^"\']*)',attrs,re.I)
+                  if href:
+                      print('A',href.group(1)[:800],'|',text[:180],'|',attrs[:600])
+                      count+=1
+                      if count>=320: break
+              print(f'\n===== {name.upper()} IMAGES =====')
+              for i,m in enumerate(re.finditer(r'<img\b[^>]*>',raw,re.I)):
+                  print(re.sub(r'\s+',' ',html.unescape(m.group(0))).strip()[:1600])
+                  if i>=180: break
           PY
