@@ -42,7 +42,7 @@ jobs:
         run: |
           set -euo pipefail
           cd source
-          expected_base="3294bd08e89f809445ee52c48c47fc4ba45cb489"
+          expected_base="06c24b0b3850cea2ed51a118c0fa2b4c1b4fdb59"
           actual_base="$(git rev-parse HEAD)"
           [[ "$actual_base" == "$expected_base" ]] || {
             echo "::error::surgical branch moved; expected $expected_base but found $actual_base"
