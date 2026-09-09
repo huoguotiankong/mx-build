@@ -1,4 +1,4 @@
-name: Probe Cyppt Reader Headers
+name: Probe Cyppt Reader Hosts
 
 on:
   push:
@@ -12,57 +12,132 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Compare reader image header variants
+      - name: Scan current reader image hosts and header behavior
         shell: bash
         run: |
           set -euo pipefail
-          chapter='https://www.cyppt.com/novel27362/chapter0.html'
-          ua='Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Mobile Safari/537.36'
+          cat >/tmp/probe_cyppt.py <<'PY'
+          import hashlib
+          import html
+          import os
+          import re
+          import subprocess
+          import tempfile
+          from collections import defaultdict
+          from urllib.parse import urljoin, urlparse
 
-          curl -L --fail --silent --show-error --max-time 30 -A "$ua" "$chapter" -o /tmp/chapter.html
+          BASE = 'https://www.cyppt.com'
+          UA = 'Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Mobile Safari/537.36'
 
-          python3 - <<'PY' >/tmp/image-url.txt
-          import html, re
-          from urllib.parse import urljoin
+          def fetch(url, extra_headers=(), fail=True):
+              cmd = ['curl', '-L', '--silent', '--show-error', '--max-time', '20', '-A', UA]
+              if fail:
+                  cmd.append('--fail')
+              for key, value in extra_headers:
+                  cmd += ['-H', f'{key}: {value}']
+              cmd.append(url)
+              return subprocess.check_output(cmd)
 
-          body = open('/tmp/chapter.html', encoding='utf-8', errors='ignore').read()
-          match = re.search(r'<img[^>]+class=["\'][^"\']*comic_img[^"\']*["\'][^>]+data-original=["\']([^"\']+)', body, re.I)
-          if not match:
-              match = re.search(r'data-original=["\']([^"\']+)["\'][^>]+class=["\'][^"\']*comic_img', body, re.I)
-          if not match:
-              raise SystemExit('No comic_img[data-original] found')
-          url = html.unescape(match.group(1).strip())
-          if url.startswith('//'):
-              url = 'https:' + url
-          elif url.startswith('http://'):
-              url = 'https://' + url[len('http://'):]
-          elif url.startswith('/'):
-              url = urljoin('https://www.cyppt.com/', url)
-          print(url)
-          PY
+          def text(url):
+              return fetch(url).decode('utf-8', 'ignore')
 
-          image_url="$(cat /tmp/image-url.txt)"
-          echo "chapter=$chapter"
-          echo "image_url=$image_url"
+          def normalize_image(raw):
+              url = html.unescape(raw.strip())
+              if url.startswith('//'):
+                  return 'https:' + url
+              if url.startswith('http://'):
+                  return 'https://' + url[len('http://'):]
+              return urljoin(BASE + '/', url)
 
-          probe() {
-            label="$1"
-            shift
-            headers="/tmp/${label}.headers"
-            body="/tmp/${label}.body"
-            set +e
-            curl -L --silent --show-error --max-time 30 -A "$ua" -D "$headers" -o "$body" "$@" "$image_url"
-            rc=$?
-            set -e
-            status="$(awk '/^HTTP\// { code=$2 } END { print code }' "$headers" 2>/dev/null || true)"
-            ctype="$(awk 'BEGIN{IGNORECASE=1} /^content-type:/ { sub(/\r$/, ""); value=$0 } END { sub(/^[^:]+:[[:space:]]*/, "", value); print value }' "$headers" 2>/dev/null || true)"
-            bytes="$(wc -c < "$body" 2>/dev/null || echo 0)"
-            sha="$(sha256sum "$body" 2>/dev/null | awk '{print $1}' || true)"
-            desc="$(file -b "$body" 2>/dev/null || true)"
-            printf '%s rc=%s status=%s type=%s bytes=%s sha256=%s file=%s\n' "$label" "$rc" "$status" "$ctype" "$bytes" "$sha" "$desc"
+          manga_paths = []
+          seen_manga = set()
+          for section in ('latest', 'popular', 'hanman', 'guoman', 'riman'):
+              try:
+                  body = text(f'{BASE}/{section}/')
+              except Exception as exc:
+                  print(f'SECTION_FAIL {section}: {exc}')
+                  continue
+              paths = re.findall(r'href=["\'](/novel\d+/)["\']', body, re.I)
+              for path in paths:
+                  if path not in seen_manga:
+                      seen_manga.add(path)
+                      manga_paths.append(path)
+                  if len(manga_paths) >= 45:
+                      break
+              if len(manga_paths) >= 45:
+                  break
+
+          print(f'MANGA_COUNT {len(manga_paths)}')
+          host_samples = defaultdict(list)
+          chapter_count = 0
+
+          for manga_path in manga_paths:
+              try:
+                  detail = text(BASE + manga_path)
+              except Exception as exc:
+                  print(f'DETAIL_FAIL {manga_path}: {exc}')
+                  continue
+              chapter_paths = []
+              seen_chapter = set()
+              for path in re.findall(r'href=["\']([^"\']*/chapter[^"\']+)["\']', detail, re.I):
+                  full = urljoin(BASE + manga_path, html.unescape(path))
+                  if full not in seen_chapter:
+                      seen_chapter.add(full)
+                      chapter_paths.append(full)
+              if not chapter_paths:
+                  continue
+              choices = chapter_paths[:1] + chapter_paths[-1:]
+              for chapter_url in dict.fromkeys(choices):
+                  try:
+                      chapter = text(chapter_url)
+                  except Exception as exc:
+                      print(f'CHAPTER_FAIL {chapter_url}: {exc}')
+                      continue
+                  chapter_count += 1
+                  tags = re.findall(r'<img\b[^>]*>', chapter, re.I)
+                  urls = []
+                  for tag in tags:
+                      if 'comic_img' not in tag:
+                          continue
+                      m = re.search(r'data-original=["\']([^"\']+)["\']', tag, re.I)
+                      if not m:
+                          continue
+                      url = normalize_image(m.group(1))
+                      if url not in urls:
+                          urls.append(url)
+                  for url in urls[:4]:
+                      host = urlparse(url).netloc.lower()
+                      if len(host_samples[host]) < 4:
+                          host_samples[host].append((chapter_url, url))
+
+          print(f'CHAPTER_COUNT {chapter_count}')
+          print('HOSTS', ', '.join(f'{host}:{len(samples)}' for host, samples in sorted(host_samples.items())))
+
+          variants = {
+              'no_referrer': (),
+              'cyppt': (('Referer', BASE + '/'), ('Origin', BASE)),
+              'cyppt_ref_only': (('Referer', BASE + '/'),),
+              'manhuafree': (('Referer', 'https://manhuafree.com/'), ('Origin', 'https://manhuafree.com')),
           }
 
-          probe no_referrer
-          probe cyppt_headers -H 'Referer: https://www.cyppt.com/' -H 'Origin: https://www.cyppt.com'
-          probe cyppt_referer_only -H 'Referer: https://www.cyppt.com/'
-          probe manhuafree_headers -H 'Referer: https://manhuafree.com/' -H 'Origin: https://manhuafree.com'
+          for host, samples in sorted(host_samples.items()):
+              print(f'HOST_BEGIN {host}')
+              for idx, (chapter_url, image_url) in enumerate(samples, 1):
+                  print(f'SAMPLE {idx} chapter={chapter_url} image={image_url}')
+                  for label, headers in variants.items():
+                      try:
+                          data = fetch(image_url, headers)
+                          digest = hashlib.sha256(data).hexdigest()
+                          fd, path = tempfile.mkstemp(prefix='cyppt-img-')
+                          os.close(fd)
+                          with open(path, 'wb') as out:
+                              out.write(data)
+                          desc = subprocess.check_output(['file', '-b', path], text=True).strip()
+                          os.unlink(path)
+                          print(f'  {label} bytes={len(data)} sha256={digest} file={desc}')
+                      except Exception as exc:
+                          print(f'  {label} FAIL {exc}')
+              print(f'HOST_END {host}')
+          PY
+
+          python3 /tmp/probe_cyppt.py
