@@ -15,68 +15,28 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Inspect compatible detail reader and search
+      - name: Inspect compatible reader markup
         shell: bash
         run: |
           set -euo pipefail
           ua='Mozilla/5.0 (Linux; Android 16; Pixel 9 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36'
-          base='https://mh5.app'
-          mkdir -p /tmp/mw
-          curl -fsSL --compressed -A "$ua" "$base/r0xMpQZOWy" -o /tmp/mw/detail.html
-          curl -fsSL --compressed -A "$ua" "$base/index.php/search?key=%E5%A6%96%E7%A5%9E%E8%AE%B0" -o /tmp/mw/search.html
+          curl -fsSL --compressed -A "$ua" 'https://mh5.app/chapter/r01nZfQE2w.html' -o /tmp/reader.html
           python3 - <<'PY'
           import html,re
           from pathlib import Path
-          raw=Path('/tmp/mw/detail.html').read_text('utf-8',errors='replace')
-          print('===== DETAIL TITLE =====')
-          m=re.search(r'<title>(.*?)</title>',raw,re.I|re.S); print(html.unescape(m.group(1)).strip() if m else '')
-          print('===== DETAIL TAGS =====')
-          for m in re.finditer(r'<(?:a|img|h1|h2|h3|div|ul|ol|li|span|p|meta)\b[^>]*>',raw,re.I):
-              s=re.sub(r'\s+',' ',html.unescape(m.group(0))).strip()
-              low=s.lower()
-              if any(x in low for x in ('chapter','comic','cover','author','writer','genre','tag','status','desc','intro','detail','catalog','content','data-src','lazyload')):
+          raw=Path('/tmp/reader.html').read_text('utf-8',errors='replace')
+          mt=re.search(r'<title>(.*?)</title>',raw,re.I|re.S)
+          print('TITLE',html.unescape(mt.group(1)).strip() if mt else '')
+          print('===== IMAGES =====')
+          for m in re.finditer(r'<img\b[^>]*>',raw,re.I):
+              print(re.sub(r'\s+',' ',html.unescape(m.group(0))).strip()[:2400])
+          print('===== CONTAINERS =====')
+          for m in re.finditer(r'<(?:div|main|section|article|ul|ol)\b[^>]*>',raw,re.I):
+              s=re.sub(r'\s+',' ',html.unescape(m.group(0))).strip(); low=s.lower()
+              if any(x in low for x in ('reader','chapter','comic','page','content','image','img')):
                   print(s[:1800])
-          print('===== DETAIL LINKS WITH TEXT =====')
-          for m in re.finditer(r'<a\b([^>]*)>(.*?)</a>',raw,re.I|re.S):
-              attrs=re.sub(r'\s+',' ',html.unescape(m.group(1))).strip()
-              href=re.search(r'href\s*=\s*["\']([^"\']*)',attrs,re.I)
-              if not href: continue
-              text=re.sub(r'<[^>]+>',' ',m.group(2)); text=re.sub(r'\s+',' ',html.unescape(text)).strip()
-              if text or href.group(1).startswith('/'):
-                  print('A',href.group(1)[:700],'|',text[:260],'|',attrs[:700])
-          # Choose a likely chapter/read link that differs from detail path and isn't category/custom.
-          cands=[]
-          for href in re.findall(r'href\s*=\s*["\']([^"\']+)',raw,re.I):
-              if href.startswith('/') and href not in ('/r0xMpQZOWy','/') and not href.startswith(('/category','/custom','/index.php','/template','#')):
-                  cands.append(href)
-          print('CANDIDATES',cands[:30])
-          if cands: Path('/tmp/mw/chapter_path').write_text(cands[0])
-          print('===== SEARCH LINKS =====')
-          sr=Path('/tmp/mw/search.html').read_text('utf-8',errors='replace')
-          mt=re.search(r'<title>(.*?)</title>',sr,re.I|re.S); print('SEARCH_TITLE',html.unescape(mt.group(1)).strip() if mt else '')
-          for m in re.finditer(r'<a\b([^>]*)>(.*?)</a>',sr,re.I|re.S):
-              attrs=re.sub(r'\s+',' ',html.unescape(m.group(1))).strip(); h=re.search(r'href\s*=\s*["\']([^"\']*)',attrs,re.I)
-              if not h: continue
-              text=re.sub(r'<[^>]+>',' ',m.group(2)); text=re.sub(r'\s+',' ',html.unescape(text)).strip()
-              if '妖神' in text or 'comic-item' in attrs: print('SEARCH_A',h.group(1),'|',text[:300],'|',attrs[:700])
+          print('===== SCRIPTS =====')
+          for i,b in enumerate(re.findall(r'<script\b[^>]*>(.*?)</script>',raw,re.I|re.S)):
+              if re.search(r'(image|img|chapter|page|comic|photos|pics|data-src)',b,re.I):
+                  print('SCRIPT',i,re.sub(r'\s+',' ',html.unescape(b)).strip()[:9000])
           PY
-          if [[ -s /tmp/mw/chapter_path ]]; then
-            chapter_path=$(cat /tmp/mw/chapter_path)
-            echo "===== FETCH READER $chapter_path ====="
-            curl -fsSL --compressed -A "$ua" "$base$chapter_path" -o /tmp/mw/reader.html
-            python3 - <<'PY'
-            import html,re
-            from pathlib import Path
-            raw=Path('/tmp/mw/reader.html').read_text('utf-8',errors='replace')
-            m=re.search(r'<title>(.*?)</title>',raw,re.I|re.S); print('READER_TITLE',html.unescape(m.group(1)).strip() if m else '')
-            print('===== READER IMAGES =====')
-            for m in re.finditer(r'<img\b[^>]*>',raw,re.I): print(re.sub(r'\s+',' ',html.unescape(m.group(0))).strip()[:2200])
-            print('===== READER CONTAINERS =====')
-            for m in re.finditer(r'<(?:div|main|section|article)\b[^>]*>',raw,re.I):
-                s=re.sub(r'\s+',' ',html.unescape(m.group(0))).strip(); low=s.lower()
-                if any(x in low for x in ('reader','chapter','comic','page','content','image')): print(s[:1600])
-            print('===== READER SCRIPTS =====')
-            for i,b in enumerate(re.findall(r'<script\b[^>]*>(.*?)</script>',raw,re.I|re.S)):
-                if re.search(r'(image|img|chapter|page|comic|photos|pics)',b,re.I): print('SCRIPT',i,re.sub(r'\s+',' ',html.unescape(b)).strip()[:7000])
-            PY
-          fi
