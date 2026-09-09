@@ -1,0 +1,100 @@
+name: Probe Miaowu v1.6.4 Web Runtime
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-miaowu-web-v4.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Probe web runtime and reader codec
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check -q requests beautifulsoup4
+          python3 - <<'PY'
+          import re, sys
+          import requests
+          from bs4 import BeautifulSoup
+          from urllib.parse import urljoin, urlparse
+
+          BASE='https://maowu.iqtao.cn'
+          UA='Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Mobile Safari/537.36'
+          s=requests.Session(); s.headers.update({'User-Agent':UA,'Accept':'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8','Accept-Language':'zh-CN,zh;q=0.9'})
+
+          def get(path, timeout=20):
+              u=urljoin(BASE,path)
+              r=s.get(u,timeout=timeout,allow_redirects=True)
+              print(f'GET {path} -> {r.status_code} final={r.url} type={r.headers.get("content-type","")} bytes={len(r.content)}')
+              return r
+
+          candidates=[]
+          for path, sels in [
+              ('/custom/top',['.rank-list .rank-item','.rank-item']),
+              ('/custom/ticket',['.rank-list .rank-item','.rank-item']),
+              ('/category',['.rank-list .rank-item','.rank-item','.comic-item']),
+              ('/',['.m-up-item1','.comic-item']),
+          ]:
+              r=get(path)
+              if r.status_code != 200:
+                  continue
+              soup=BeautifulSoup(r.text,'html.parser')
+              counts={sel:len(soup.select(sel)) for sel in sels}
+              print(' selectors',counts)
+              for a in soup.select('a[href]'):
+                  href=a.get('href','').strip()
+                  p=urlparse(urljoin(BASE,href)).path
+                  if re.fullmatch(r'/\d+\.html',p):
+                      candidates.append(p)
+                      break
+
+          if not candidates:
+              raise SystemExit('NO_MANGA_LINK_FOUND')
+          manga=candidates[0]
+          print('MANGA',manga)
+          r=get(manga)
+          if r.status_code != 200: raise SystemExit('DETAIL_HTTP_'+str(r.status_code))
+          soup=BeautifulSoup(r.text,'html.parser')
+          title=soup.select_one('.comic-info-box h1, .comic-info-box .comic-name, span.comic-name')
+          chapters=[]
+          for a in soup.select('.catalog-list .chapter-item a[href], .chapter-item a[href]'):
+              href=a.get('href','').strip(); p=urlparse(urljoin(BASE,href)).path
+              if re.fullmatch(r'/\d+/\d+\.html',p): chapters.append(p)
+          print('DETAIL title=', title.get_text(strip=True) if title else None, 'chapterCount=',len(chapters))
+          if not chapters: raise SystemExit('NO_CHAPTER_LINK_FOUND')
+
+          chapter=chapters[0]
+          print('CHAPTER',chapter)
+          r=get(chapter)
+          if r.status_code != 200: raise SystemExit('CHAPTER_HTTP_'+str(r.status_code))
+          soup=BeautifulSoup(r.text,'html.parser')
+          imgs=[]
+          for img in soup.select('.comic-list .comic-page img, img[data-src], img[src]'):
+              vals=[img.get('data-src','').strip(),img.get('src','').strip(),img.get('alt','').strip()]
+              for v in vals:
+                  if '/scomic/' in v and (v.startswith('//') or v.startswith('http://') or v.startswith('https://')):
+                      imgs.append(('https:'+v) if v.startswith('//') else v); break
+          imgs=list(dict.fromkeys(imgs))
+          print('READER imageCount=',len(imgs))
+          if not imgs: raise SystemExit('NO_SCOMIC_IMAGES_FOUND')
+
+          u=imgs[0]
+          rr=s.get(u,timeout=25)
+          print('IMAGE status=',rr.status_code,'host=',urlparse(u).hostname,'type=',rr.headers.get('content-type',''),'bytes=',len(rr.content))
+          if rr.status_code != 200: raise SystemExit('IMAGE_HTTP_'+str(rr.status_code))
+          raw=rr.content
+          dec=bytes((((b-47)&0xff)^0xAB) for b in raw)
+          def magic(b):
+              return (b.startswith(b'\xff\xd8\xff') or b.startswith(b'\x89PNG') or b.startswith(b'GIF8') or (len(b)>=12 and b[:4]==b'RIFF' and b[8:12]==b'WEBP'))
+          print('IMAGE rawMagic=',magic(raw),'decodedMagic=',magic(dec),'rawPrefix=',raw[:12].hex(),'decodedPrefix=',dec[:12].hex())
+          if not magic(raw) and not magic(dec): raise SystemExit('IMAGE_CODEC_UNCONFIRMED')
+          print('MIAOWU_WEB_V4_PROBE_OK')
+          PY
