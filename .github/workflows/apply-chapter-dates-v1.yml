@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/apply-chapter-dates-v1.yml"
+      - "scripts/patch_chapter_dates_v1.py"
   workflow_dispatch:
 
 permissions:
@@ -52,8 +53,9 @@ jobs:
           python3 dev/scripts/validate_sources.py
           grep -F 'versionCode = 31' dev/src/zh/tencentcomics/build.gradle.kts
           grep -F 'Comic/comicChapterList' dev/src/zh/tencentcomics/src/eu/kanade/tachiyomi/extension/zh/tencentcomics/TencentComics.kt
-          grep -F 'versionCode = 27' dev/src/zh/kuaikanmanhua/build.gradle.kts
-          grep -F 'publishedTime' dev/src/zh/kuaikanmanhua/src/eu/kanade/tachiyomi/extension/zh/kuaikanmanhua/Kuaikanmanhua.kt
+          grep -F 'versionCode = 28' dev/src/zh/kuaikanmanhua/build.gradle.kts
+          grep -F '"created_at"' dev/src/zh/kuaikanmanhua/src/eu/kanade/tachiyomi/extension/zh/kuaikanmanhua/Kuaikanmanhua.kt
+          grep -F 'item.string("updated_at")' dev/src/zh/kuaikanmanhua/src/eu/kanade/tachiyomi/extension/zh/kuaikanmanhua/Kuaikanmanhua.kt
 
       - name: Set up Java
         uses: actions/setup-java@v5
@@ -139,6 +141,6 @@ jobs:
           git -C dev add src/zh/tencentcomics src/zh/kuaikanmanhua docs/sources/tencentcomics.md docs/sources/kuaikanmanhua.md
           git -C dev diff --cached --check
           git -C dev diff --cached --quiet && { echo 'Date fix already current'; exit 0; }
-          git -C dev commit -m 'fix(chapters): use official publication dates for Tencent and Kuaikan'
+          git -C dev commit -m 'fix(kuaikanmanhua): parse chapter creation dates as text v28'
           git -C dev pull --rebase origin main
           git -C dev push origin HEAD:main
