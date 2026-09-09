@@ -1,4 +1,4 @@
-name: Probe Miaowu v1.6.4 Web Runtime
+name: Probe Miaowu v1.6.5 Web Runtime
 
 on:
   push:
@@ -21,12 +21,12 @@ jobs:
           set -euo pipefail
           python3 -m pip install --disable-pip-version-check -q requests beautifulsoup4
           python3 - <<'PY'
-          import re, sys
+          import re
           import requests
           from bs4 import BeautifulSoup
           from urllib.parse import urljoin, urlparse
 
-          BASE='https://maowu.iqtao.cn'
+          BASE='https://mh.iqtao.cn'
           UA='Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Mobile Safari/537.36'
           s=requests.Session(); s.headers.update({'User-Agent':UA,'Accept':'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8','Accept-Language':'zh-CN,zh;q=0.9'})
 
@@ -96,5 +96,5 @@ jobs:
               return (b.startswith(b'\xff\xd8\xff') or b.startswith(b'\x89PNG') or b.startswith(b'GIF8') or (len(b)>=12 and b[:4]==b'RIFF' and b[8:12]==b'WEBP'))
           print('IMAGE rawMagic=',magic(raw),'decodedMagic=',magic(dec),'rawPrefix=',raw[:12].hex(),'decodedPrefix=',dec[:12].hex())
           if not magic(raw) and not magic(dec): raise SystemExit('IMAGE_CODEC_UNCONFIRMED')
-          print('MIAOWU_WEB_V4_PROBE_OK')
+          print('MIAOWU_WEB_V5_PROBE_OK')
           PY
