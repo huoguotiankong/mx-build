@@ -147,3 +147,5 @@ jobs:
           curl -fL -sS "$base/apk/tachiyomi-zh.miaowumanhua-v1.6.3.apk?ts=$(date +%s%N)" -o /tmp/miaowu-v3.apk
           test -s /tmp/miaowu-v3.apk
           echo 'Public Miaowu v3 test verified online'
+
+# trigger: 2026-09-09T19:55+08:00
