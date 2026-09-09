@@ -1,0 +1,132 @@
+name: Probe Cyppt Current
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-cyppt-current.yml'
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Inspect current Cyppt site structure
+        shell: bash
+        run: |
+          set -euo pipefail
+          UA='Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Mobile Safari/537.36'
+          BASE='https://www.cyppt.com'
+          mkdir -p /tmp/cyppt
+          fetch() {
+            local name="$1" url="$2"
+            local out="/tmp/cyppt/$name.html"
+            code=$(curl -L --compressed --connect-timeout 10 --max-time 30 -A "$UA" -sS -o "$out" -w '%{http_code}' "$url" || true)
+            final=$(curl -L --compressed --connect-timeout 10 --max-time 30 -A "$UA" -sS -o /dev/null -w '%{url_effective}' "$url" || true)
+            echo "FETCH $name http=$code bytes=$(wc -c < "$out" 2>/dev/null || echo 0) final=$final"
+          }
+
+          fetch home "$BASE/"
+          fetch detail "$BASE/novel30197/"
+          fetch chapter "$BASE/novel30197/chapter0.html"
+          fetch latest "$BASE/latest"
+          fetch popular "$BASE/popular"
+          fetch finish "$BASE/finish"
+          fetch new "$BASE/new"
+
+          python3 - <<'PY'
+          from bs4 import BeautifulSoup
+          from pathlib import Path
+          from urllib.parse import urljoin, urlparse, parse_qs
+          import re, json
+          BASE='https://www.cyppt.com'
+          def soup(name): return BeautifulSoup(Path(f'/tmp/cyppt/{name}.html').read_text('utf-8',errors='ignore'),'html.parser')
+          def txt(e): return ' '.join(e.stripped_strings) if e else ''
+
+          print('===== HOME LINKS / FORMS =====')
+          h=soup('home')
+          print('title=', txt(h.title))
+          for f in h.select('form')[:20]:
+              print('FORM', f.get('action'), f.get('method'), [(x.get('name'),x.get('value'),x.name) for x in f.select('input,select')[:20]])
+          links=[]
+          for a in h.select('a[href]'):
+              href=a.get('href',''); t=txt(a)
+              if href and (t or 'novel' in href): links.append((t[:60],href,a.get('class')))
+          for x in links[:180]: print('A',x)
+
+          print('===== LIST PAGE STRUCTURE =====')
+          for name in ['latest','popular','finish','new']:
+              s=soup(name)
+              print('\nPAGE',name,'title=',txt(s.title))
+              candidates=[]
+              for a in s.select('a[href*="/novel"]'):
+                  href=a.get('href',''); t=txt(a)
+                  if href and t: candidates.append((href,t[:80],a.get('class'),a.parent.name if a.parent else None,a.parent.get('class') if a.parent else None))
+              print('novel-links',len(candidates))
+              for x in candidates[:20]: print(' NOVEL',x)
+              pagers=[]
+              for a in s.select('a[href]'):
+                  t=txt(a)
+                  href=a.get('href','')
+                  if any(k in t.lower() for k in ['next','prev','last','first','下一','上一','末页','首页']) or re.fullmatch(r'\d+',t):
+                      pagers.append((t,href,a.get('class')))
+              print('pagers',pagers[:50])
+
+          print('===== DETAIL =====')
+          d=soup('detail')
+          print('title=',txt(d.title))
+          for sel in ['h1','h2','h3','.book-info','.detail','.info','.intro','.description','.book-list','.chapter-list','ul','ol']:
+              vals=[]
+              for e in d.select(sel):
+                  t=txt(e)
+                  if t: vals.append((sel,e.name,e.get('class'),t[:500]))
+              if vals:
+                  print('SEL',sel)
+                  for v in vals[:12]: print(v)
+          for img in d.select('img')[:30]: print('IMG',img.get('src'),img.get('data-src'),img.get('alt'),img.get('class'))
+          ch=[]
+          for a in d.select('a[href*="chapter"]'):
+              ch.append((a.get('href'),txt(a),a.get('class'),a.parent.get('class') if a.parent else None))
+          print('chapter-links=',len(ch))
+          for x in ch[:80]: print(' CH',x)
+          for a in d.select('a[href]'):
+              href=a.get('href',''); t=txt(a)
+              if 'page' in href.lower() or re.search(r'/novel30197/\d+/?$',href): print(' DETAILPAGER',t,href,a.get('class'))
+
+          print('===== READER =====')
+          r=soup('chapter')
+          print('title=',txt(r.title))
+          for img in r.select('img'):
+              print('RIMG',img.get('src'),img.get('data-src'),img.get('data-original'),img.get('data-lazy-src'),img.get('class'))
+          for sc in r.select('script'):
+              body=sc.string or sc.get_text('\n')
+              if body and any(k in body.lower() for k in ['image','chapter','comic','pic','img','page']):
+                  clean=' '.join(body.split())
+                  print('SCRIPT',sc.get('src'),clean[:1800])
+          for a in r.select('a[href]'):
+              href=a.get('href',''); t=txt(a)
+              if 'chapter' in href or t in ['上一章','下一章','上一话','下一话']:
+                  print('RA',t,href,a.get('class'))
+          html=Path('/tmp/cyppt/chapter.html').read_text('utf-8',errors='ignore')
+          urls=[]
+          for m in re.findall(r'https?://[^\"\'<>\\ ]+',html):
+              m=m.replace('\\/','/')
+              if re.search(r'\.(?:jpe?g|png|webp|gif)(?:\?|$)',m,re.I) and m not in urls: urls.append(m)
+          print('absolute-image-urls=',len(urls))
+          for u in urls[:100]: print(' URL',u)
+          Path('/tmp/cyppt/image_urls.txt').write_text('\n'.join(urls))
+          PY
+
+          if [[ -s /tmp/cyppt/image_urls.txt ]]; then
+            echo '===== IMAGE ACCESS ====='
+            mapfile -t imgs < /tmp/cyppt/image_urls.txt
+            count=${#imgs[@]}
+            for i in 0 $((count/2)) $((count-1)); do
+              u="${imgs[$i]}"
+              [[ -n "$u" ]] || continue
+              c0=$(curl -L --compressed --connect-timeout 10 --max-time 25 -A "$UA" -sS -o "/tmp/cyppt/img-$i-none" -w '%{http_code}' "$u" || true)
+              c1=$(curl -L --compressed --connect-timeout 10 --max-time 25 -A "$UA" -e "$BASE/novel30197/chapter0.html" -sS -o "/tmp/cyppt/img-$i-ref" -w '%{http_code}' "$u" || true)
+              echo "IMG $i no-ref=$c0 bytes=$(wc -c < "/tmp/cyppt/img-$i-none" 2>/dev/null || echo 0) referer=$c1 bytes=$(wc -c < "/tmp/cyppt/img-$i-ref" 2>/dev/null || echo 0) url=$u"
+            done
+          fi
