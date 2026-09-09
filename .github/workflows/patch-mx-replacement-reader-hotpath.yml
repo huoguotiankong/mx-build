@@ -67,7 +67,7 @@ jobs:
           }
           ! grep -Fq 'Failed to refresh MX whole-manga marker snapshot from reader catalog' app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderViewModel.kt
           grep -Fq 'markChapterContentWholeMangaReplacementSucceeded' app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderViewModel.kt
-          grep -Fq 'recoverChapterContentBindingCache' app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderViewModel.kt
+          grep -Fq 'selectBestReplacementMangaCandidate' app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderViewModel.kt
 
       - name: Commit surgical fix branch
         shell: bash
