@@ -1,0 +1,35 @@
+{
+  "name": "Kuaikan v28 Test",
+  "badgeLabel": "KK28",
+  "signingKey": "1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620",
+  "contact": {
+    "website": "https://github.com/huoguotiankong/mx-build",
+    "discord": null
+  },
+  "extensionList": {
+    "extensions": [
+      {
+        "name": "Kuaikan Manhua",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.kuaikanmanhua",
+        "resources": {
+          "apkUrl": "https://github.com/huoguotiankong/mx-build/raw/refs/heads/extension-staging/test/apk/tachiyomi-zh.kuaikanmanhua-v1.6.28.apk",
+          "iconUrl": "https://github.com/huoguotiankong/mx-build/raw/refs/heads/extension-staging/test/icon/eu.kanade.tachiyomi.extension.zh.kuaikanmanhua-v106028.png"
+        },
+        "extensionLib": "1.6",
+        "versionCode": 106028,
+        "versionName": "1.6.28",
+        "contentWarning": "SAFE",
+        "sources": [
+          {
+            "id": 8099870292642776005,
+            "name": "快看漫画",
+            "language": "zh",
+            "homeUrl": "https://www.kuaikanmanhua.com",
+            "mirrorUrls": [],
+            "message": "快看 v28 章节时间实机测试版"
+          }
+        ]
+      }
+    ]
+  }
+}
