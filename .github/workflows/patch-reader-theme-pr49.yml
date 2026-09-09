@@ -1,0 +1,81 @@
+name: Patch MX reader app theme PR49
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/patch-reader-theme-pr49.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout private MX App branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-app
+          ref: fix/reader-app-theme-20260909
+          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply minimal compile fix and clean diff
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head="b6e261989d4544a4aba2e422bcbd2f654dacd84a"
+          actual_head="$(git rev-parse HEAD)"
+          [[ "$actual_head" == "$expected_head" ]] || {
+            echo "::error::Unexpected PR49 head: $actual_head"
+            exit 1
+          }
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt")
+          text = path.read_text(encoding="utf-8")
+
+          old = '''        TachiyomiTheme(\n            typography = MaterialTheme.typography.copy(\n'''
+          new = '''        TachiyomiTheme(\n            seedColor = null,\n            typography = MaterialTheme.typography.copy(\n'''
+          if text.count(old) != 1:
+              raise SystemExit(f"Expected one reader overlay theme block, found {text.count(old)}")
+          text = text.replace(old, new, 1)
+
+          text = text.replace(
+              "Called from the viewer whenever a page is long clicked. A bottom sheet with a list of",
+              "Called from the viewer whenever a [page] is long clicked. A bottom sheet with a list of",
+              1,
+          )
+          text = text.replace(
+              "Tells the presenter to toggle the visibility of the menu. It's implemented on the",
+              "Called from the viewer to toggle the visibility of the menu. It's implemented on the",
+              1,
+          )
+
+          path.write_text(text, encoding="utf-8")
+          PY
+
+          git diff --check
+          git diff -- app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt
+
+      - name: Commit patch to PR49 branch
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt
+          git diff --cached --quiet && {
+            echo "::error::Patch produced no changes"
+            exit 1
+          }
+          git commit -m "fix: compile reader app theme override"
+          git push origin HEAD:fix/reader-app-theme-20260909
