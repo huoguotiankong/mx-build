@@ -192,3 +192,5 @@ jobs:
       - name: Cleanup signing material
         if: always()
         run: rm -f upstream/signingkey.jks
+
+# trigger: 2026-09-09T19:43+08:00
