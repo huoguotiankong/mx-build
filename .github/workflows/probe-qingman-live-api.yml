@@ -1,0 +1,123 @@
+name: Probe Qingman Live API Transport
+
+on:
+  push:
+    paths:
+      - '.github/workflows/probe-qingman-live-api.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Resolve official APK and bootstrap material
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >/tmp/qm_version
+          import json, urllib.request
+          o=json.load(urllib.request.urlopen('https://bass8ycl.zermh.com/api/radio/api/config/version',timeout=20))
+          a=o['data']['datas']['android']
+          print(a['downloadUrl'])
+          print(a.get('version',''))
+          print(a.get('versionCode',''))
+          PY
+          echo "official_version=$(sed -n '2p' /tmp/qm_version) code=$(sed -n '3p' /tmp/qm_version)"
+          curl -fsSL --retry 2 --connect-timeout 20 --max-time 180 "$(head -1 /tmp/qm_version)" -o /tmp/qingman.apk
+          rm -rf /tmp/qm && mkdir -p /tmp/qm
+          unzip -q /tmp/qingman.apk 'lib/arm64-v8a/libqx_security.so' -d /tmp/qm
+          python3 -m pip install --disable-pip-version-check -q pyelftools cryptography
+
+      - name: Bootstrap and probe exact app transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, hashlib, json, time, urllib.error, urllib.parse, urllib.request, uuid
+          from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+          from elftools.elf.elffile import ELFFile
+
+          ver=open('/tmp/qm_version').read().splitlines()[1]
+          so='/tmp/qm/lib/arm64-v8a/libqx_security.so'
+          with open(so,'rb') as f:
+              elf=ELFFile(f)
+              def read_va(va,n):
+                  for seg in elf.iter_segments():
+                      if seg['p_type'] != 'PT_LOAD': continue
+                      start=int(seg['p_vaddr']); end=start+int(seg['p_filesz'])
+                      if start <= va and va+n <= end:
+                          f.seek(int(seg['p_offset']) + va-start)
+                          return f.read(n)
+                  raise RuntimeError(f'VA 0x{va:x} is not file-backed')
+              seed=read_va(0x14a40,16)+read_va(0x14af0,16)
+              sign_cipher=read_va(0x17d1f,33)
+              aes_cipher=read_va(0x17d40,32)
+          base=hashlib.sha256(seed).digest()
+          def deob(cipher,kind):
+              stream=b''; c=0
+              while len(stream)<len(cipher):
+                  stream += hashlib.sha256(base+bytes([kind])+c.to_bytes(4,'big')).digest(); c+=1
+              return bytes(a^b for a,b in zip(cipher,stream))
+          sign_material=deob(sign_cipher,1); aes_key=deob(aes_cipher,2)
+          ts=str(int(time.time()*1000)); did=uuid.uuid4().hex; nonce=uuid.uuid4().hex
+          sig=hashlib.sha256(ts.encode()+nonce.encode()+did.encode()+sign_material).hexdigest()
+          body=json.dumps({'timestamp':ts,'nonce':nonce,'sign':sig,'deviceId':did},separators=(',',':')).encode()
+          breq=urllib.request.Request('https://mu8xm4cx.zermh.com/bootstrap/domain',data=body,headers={
+              'Content-Type':'application/json','Accept':'application/json, text/plain, */*',
+              'User-Agent':f'qingman/{ver} (Android)','appVersion':ver,'platform':'android','X-Device-Id':did,
+          },method='POST')
+          with urllib.request.urlopen(breq,timeout=20) as r: broot=json.loads(r.read().decode())
+          payload=base64.urlsafe_b64decode(broot['data']+'='*((4-len(broot['data'])%4)%4))
+          cfg=json.loads(AESGCM(aes_key).decrypt(payload[:12],payload[12:],(ts+'|'+nonce).encode()).decode())
+          api=cfg['apiDomain'].rstrip('/')
+          access=cfg['appAccessToken']
+          parsed=urllib.parse.urlsplit(api)
+          plain='http://'+parsed.netloc
+          print('BOOTSTRAP_OK code='+str(broot.get('code'))+' apiHost='+parsed.hostname+' apiPort='+str(parsed.port or 443))
+
+          headers={
+              'Accept':'application/json, text/plain, */*',
+              'User-Agent':f'qingman/{ver} (Android)',
+              'appVersion':ver,
+              'platform':'android',
+              'X-Device-Id':did,
+              'X-QM-App-Access':access,
+              'Content-Type':'application/json; charset=utf-8',
+          }
+          probes=[
+              ('popular','POST','api/comic/comics/v1/homeList',{'page':'1','pageNum':'1','pageSize':'20'}),
+              ('latest','POST','api/comic/comics/homerecentUpdates',{'page':'1','size':'20'}),
+              ('categories','POST','api/comic/categories/list',{}),
+          ]
+
+          def summarize(raw):
+              try: o=json.loads(raw.decode('utf-8','replace'))
+              except Exception: return 'nonjson prefix='+repr(raw[:120])
+              if isinstance(o,dict):
+                  code=o.get('code'); msg=o.get('msg',o.get('message'))
+                  data=o.get('data')
+                  if isinstance(data,dict): d='object keys='+','.join(list(data.keys())[:12])
+                  elif isinstance(data,list): d='array len='+str(len(data))
+                  else: d=type(data).__name__
+                  return f'json code={code!r} msg={msg!r} data={d}'
+              return 'json type='+type(o).__name__
+
+          for base_url,label in [(api,'https-bootstrap'),(plain,'http-host')]:
+              for name,method,path,qs in probes:
+                  url=base_url+'/'+path
+                  if qs: url += '?' + urllib.parse.urlencode(qs)
+                  req=urllib.request.Request(url,data=b'{}',headers=headers,method=method)
+                  try:
+                      with urllib.request.urlopen(req,timeout=12) as r:
+                          raw=r.read(65536)
+                          print(f'PROBE transport={label} endpoint={name} http={r.status} '+summarize(raw))
+                  except urllib.error.HTTPError as e:
+                      raw=e.read(65536)
+                      print(f'PROBE transport={label} endpoint={name} http={e.code} '+summarize(raw))
+                  except Exception as e:
+                      print(f'PROBE transport={label} endpoint={name} error={type(e).__name__}:{str(e)[:160]}')
+          PY
