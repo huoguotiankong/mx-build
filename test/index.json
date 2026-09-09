@@ -93,6 +93,28 @@
         ]
       },
       {
+        "name": "Cyppt",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.cyppt",
+        "resources": {
+          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.cyppt-v1.6.1.apk",
+          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.cyppt-v106001.png"
+        },
+        "extensionLib": "1.6",
+        "versionCode": 106001,
+        "versionName": "1.6.1",
+        "contentWarning": "MIXED",
+        "sources": [
+          {
+            "id": 3054191993734324763,
+            "name": "超越漫画网",
+            "language": "zh",
+            "homeUrl": "https://www.cyppt.com",
+            "mirrorUrls": [],
+            "message": null
+          }
+        ]
+      },
+      {
         "name": "Dongman Manhua Plus",
         "packageName": "eu.kanade.tachiyomi.extension.zh.dongmanmanhuaplus",
         "resources": {
