@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Probe official catalogue APIs
+      - name: Probe official topic detail with Retrofit params
         shell: bash
         run: |
           set -euo pipefail
@@ -25,19 +25,24 @@ jobs:
           import urllib.request
           from collections import deque
 
-          base = "https://api.kkmh.com/v2/topic/topic_catalogue/list"
-          endpoints = [
-              (base, {"topic_id": "12602", "sort": str(sort), "sort_action": str(action)})
-              for sort in (0, 1, 2)
-              for action in (0, 1, 2, 3)
-          ]
+          base = "https://api.kkmh.com/v1/topics/12602"
+          endpoints = []
+          for sort in (0, 1, 2):
+              for action in (0, 1, 2, 3):
+                  for page_source in (0, 1, 2):
+                      endpoints.append({
+                          "sort": str(sort),
+                          "sortAction": str(action),
+                          "is_new_device": "false",
+                          "is_homepage": "false",
+                          "page_source": str(page_source),
+                      })
           headers = {
               "User-Agent": "Kuaikan/5.75.0/575000(iPhone;Scale/3.00) (iPhone; CPU)",
               "Accept": "application/json, text/plain, */*",
               "Accept-Language": "zh-CN,zh;q=0.9",
               "X-Device": "0",
           }
-
           interesting = {
               "id", "comic_id", "comicId", "topic_id", "topicId", "title", "name",
               "created_at", "createdAt", "create_time", "createTime",
@@ -45,7 +50,7 @@ jobs:
               "publishedTime", "published_time", "publishTime", "publish_time",
               "publishedAt", "published_at", "releaseTime", "release_time",
               "onlineTime", "online_time", "displayTime", "display_time", "time", "date",
-              "since", "offset", "total", "code", "message",
+              "serial_no", "status", "code", "message",
           }
 
           def summarize(obj):
@@ -68,24 +73,31 @@ jobs:
                               q.append((v, f"{path}[{i}]", depth + 1))
               return out
 
-          for base, params in endpoints:
+          seen_success = False
+          for params in endpoints:
               url = base + "?" + urllib.parse.urlencode(params)
-              print("===", url)
               req = urllib.request.Request(url, headers=headers)
               try:
                   with urllib.request.urlopen(req, timeout=20) as r:
                       raw = r.read()
-                      print("status", r.status, "bytes", len(raw))
               except Exception as e:
-                  print("error", repr(e))
+                  print("ERROR", params, repr(e))
                   continue
               try:
                   data = json.loads(raw)
               except Exception:
-                  print("non-json", raw[:300])
+                  print("NONJSON", params, raw[:200])
                   continue
-              if isinstance(data, dict):
-                  print("code", data.get("code"), "message", data.get("message"), "keys", sorted(data.keys()))
-              for path, hit in summarize(data):
-                  print(path, json.dumps(hit, ensure_ascii=False, sort_keys=True))
+              code = data.get("code") if isinstance(data, dict) else None
+              msg = data.get("message") if isinstance(data, dict) else None
+              print("RESULT", params, "status=200", "bytes=", len(raw), "code=", code, "message=", msg)
+              if isinstance(data, dict) and ("data" in data or code in (0, 200)):
+                  seen_success = True
+                  print("SUCCESS_PARAMS", params)
+                  print("TOP_KEYS", sorted(data.keys()))
+                  for path, hit in summarize(data):
+                      print(path, json.dumps(hit, ensure_ascii=False, sort_keys=True))
+                  break
+          if not seen_success:
+              print("No successful topic-detail parameter combination found")
           PY
