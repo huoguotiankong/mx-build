@@ -1,0 +1,64 @@
+name: Validate Miaowu v3 current
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/validate-miaowu-v3-current.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout Keiyoushi baseline
+        uses: actions/checkout@v4
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+
+      - name: Checkout MX Miaowu branch
+        uses: actions/checkout@v4
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: source/miaowumanhua-v1
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: mxdev
+          sparse-checkout: |
+            src/zh/miaowumanhua
+          sparse-checkout-cone-mode: false
+
+      - name: Overlay Miaowu source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf upstream/src/zh/miaowumanhua
+          cp -a mxdev/src/zh/miaowumanhua upstream/src/zh/miaowumanhua
+          echo '=== build metadata ==='
+          grep -nE 'name =|versionCode|libVersion|baseUrl' upstream/src/zh/miaowumanhua/build.gradle.kts || true
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Spotless
+        working-directory: upstream
+        run: ./gradlew :src:zh:miaowumanhua:spotlessCheck --no-daemon
+
+      - name: Assemble debug
+        working-directory: upstream
+        run: ./gradlew :src:zh:miaowumanhua:assembleDebug --no-daemon
+
+      - name: Assemble release
+        working-directory: upstream
+        run: ./gradlew :src:zh:miaowumanhua:assembleRelease --no-daemon
+
+      - name: Lint
+        working-directory: upstream
+        run: ./gradlew :src:zh:miaowumanhua:lint --no-daemon
