@@ -21,6 +21,17 @@
     "versionCode": 106021,
     "versionName": "1.6.21"
   },
+  "eu.kanade.tachiyomi.extension.zh.cyppt": {
+    "androidVersionCode": 212001,
+    "apk": "tachiyomi-zh.cyppt-v1.6.1.apk",
+    "apkSha256": "50d1b7fd6e1aa68104487aa04187a609ee7965e54b12712eaef0c31021aef7b2",
+    "jar": "tachiyomi-zh.cyppt-v1.6.1.jar",
+    "jarSha256": "525141e7f19fa1ec3e5e59cc5b59e5155858105b8b7c6ecb73df4b2d3e490bd5",
+    "module": "zh.cyppt",
+    "sourceHash": "890ac0cff90fcc098433a2a496b6de6bec6e56a97f9ff661137abf0b880e3f80",
+    "versionCode": 106001,
+    "versionName": "1.6.1"
+  },
   "eu.kanade.tachiyomi.extension.zh.darenmanhua": {
     "androidVersionCode": 212001,
     "apk": "tachiyomi-zh.darenmanhua-v1.6.1.apk",
@@ -198,15 +209,15 @@
     "versionName": "1.6.5"
   },
   "eu.kanade.tachiyomi.extension.zh.mengxige": {
-    "androidVersionCode": 212004,
-    "apk": "tachiyomi-zh.mengxige-v1.6.4.apk",
-    "apkSha256": "f384ca64d9cc8ddc5934aa185cd1ca8b3568695d15be0bcb4f30263b3d7b2db8",
-    "jar": "tachiyomi-zh.mengxige-v1.6.4.jar",
-    "jarSha256": "64e89b8717f4e0a9d37ec27501c17dc8c76f6b9873898a41161388e8e0f6dcfc",
+    "androidVersionCode": 212007,
+    "apk": "tachiyomi-zh.mengxige-v1.6.7.apk",
+    "apkSha256": "b83112e72c86755aa8972e35aea1fd8ddc7a62d328d81be4d0532a852d3ff9b2",
+    "jar": "tachiyomi-zh.mengxige-v1.6.7.jar",
+    "jarSha256": "bb65b7f1ea38c725d9ff2f58f87d15c43e615a9dda6875cd5550f24ee00a3253",
     "module": "zh.mengxige",
-    "sourceHash": "e5c91e9296ded0daa9d9ec6e82633917d8ffc2c345efa6ae5da0efc79783cc84",
-    "versionCode": 106004,
-    "versionName": "1.6.4"
+    "sourceHash": "36585eefba539fb3d53d445c5d739d0eeedce4261b5c3b2c83040d7c4c67bca6",
+    "versionCode": 106007,
+    "versionName": "1.6.7"
   },
   "eu.kanade.tachiyomi.extension.zh.mihoutao": {
     "androidVersionCode": 212002,

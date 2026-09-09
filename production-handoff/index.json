@@ -60,6 +60,27 @@
         ]
       },
       {
+        "name": "Cyppt",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.cyppt",
+        "resources": {
+          "apkUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.cyppt-v1.6.1.apk",
+          "iconUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/icon/eu.kanade.tachiyomi.extension.zh.cyppt-v106001.png",
+          "jarUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.cyppt-v1.6.1.jar"
+        },
+        "extensionLib": "1.6",
+        "versionCode": "106001",
+        "versionName": "1.6.1",
+        "contentWarning": "CONTENT_WARNING_MIXED",
+        "sources": [
+          {
+            "id": "3054191993734324763",
+            "name": "\u8d85\u8d8a\u6f2b\u753b\u7f51",
+            "language": "zh",
+            "homeUrl": "https://www.cyppt.com"
+          }
+        ]
+      },
+      {
         "name": "DarenManhua",
         "packageName": "eu.kanade.tachiyomi.extension.zh.darenmanhua",
         "resources": {
@@ -460,13 +481,13 @@
         "name": "MengXiGe",
         "packageName": "eu.kanade.tachiyomi.extension.zh.mengxige",
         "resources": {
-          "apkUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.mengxige-v1.6.4.apk",
-          "iconUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/icon/eu.kanade.tachiyomi.extension.zh.mengxige-v106004.png",
-          "jarUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.mengxige-v1.6.4.jar"
+          "apkUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.mengxige-v1.6.7.apk",
+          "iconUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/icon/eu.kanade.tachiyomi.extension.zh.mengxige-v106007.png",
+          "jarUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.mengxige-v1.6.7.jar"
         },
         "extensionLib": "1.6",
-        "versionCode": "106004",
-        "versionName": "1.6.4",
+        "versionCode": "106007",
+        "versionName": "1.6.7",
         "contentWarning": "CONTENT_WARNING_SAFE",
         "sources": [
           {
