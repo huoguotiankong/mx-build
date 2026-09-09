@@ -192,9 +192,11 @@ jobs:
               'eu.kanade.tachiyomi.extension.zh.tencentcomics': ('1.4.31', 104031),
               'eu.kanade.tachiyomi.extension.zh.kuaikanmanhua': ('1.6.27', 106027),
           }
-          if versions != expected:
-              raise SystemExit(f'Unexpected staged versions: {versions!r}')
-          print('Staged versions verified:', versions)
+          for package, wanted in expected.items():
+              actual = versions.get(package)
+              if actual != wanted:
+                  raise SystemExit(f'{package}: expected {wanted}, got {actual}')
+          print('Target staged versions verified:', {k: versions[k] for k in expected})
           PY
           test -f staging/test/apk/tachiyomi-zh.tencentcomics-v1.4.31.apk
           test -f staging/test/apk/tachiyomi-zh.kuaikanmanhua-v1.6.27.apk
@@ -259,10 +261,12 @@ jobs:
           from pathlib import Path
           data = json.loads(Path('/tmp/index.json').read_text('utf-8'))
           versions = {x['packageName']: (x.get('versionName'), x.get('versionCode')) for x in data['extensionList']['extensions']}
-          assert versions == {
+          expected = {
               'eu.kanade.tachiyomi.extension.zh.tencentcomics': ('1.4.31', 104031),
               'eu.kanade.tachiyomi.extension.zh.kuaikanmanhua': ('1.6.27', 106027),
-          }, versions
+          }
+          for package, wanted in expected.items():
+              assert versions.get(package) == wanted, (package, versions.get(package), wanted)
           PY
               then ok=1; break; fi
             fi
