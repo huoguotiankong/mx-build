@@ -37,6 +37,7 @@ jobs:
           set -euo pipefail
           cd source
           python3 ../build-control/scripts/patch_mx_chapter_content_runtime_v3.py
+          python3 -c 'from pathlib import Path; p=Path("docs/CHAPTER_CONTENT.md"); p.write_text(p.read_text(encoding="utf-8").rstrip()+"\n", encoding="utf-8")'
           git diff --check
 
       - name: Apply Kotlin formatting
