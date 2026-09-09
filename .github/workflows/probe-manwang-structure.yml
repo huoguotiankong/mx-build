@@ -15,28 +15,42 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Inspect compatible reader markup
+      - name: Inspect compatible reader scripts
         shell: bash
         run: |
           set -euo pipefail
           ua='Mozilla/5.0 (Linux; Android 16; Pixel 9 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36'
-          curl -fsSL --compressed -A "$ua" 'https://mh5.app/chapter/r01nZfQE2w.html' -o /tmp/reader.html
+          base='https://mh5.app'
+          curl -fsSL --compressed -A "$ua" "$base/chapter/r01nZfQE2w.html" -o /tmp/reader.html
           python3 - <<'PY'
           import html,re
           from pathlib import Path
           raw=Path('/tmp/reader.html').read_text('utf-8',errors='replace')
-          mt=re.search(r'<title>(.*?)</title>',raw,re.I|re.S)
-          print('TITLE',html.unescape(mt.group(1)).strip() if mt else '')
-          print('===== IMAGES =====')
-          for m in re.finditer(r'<img\b[^>]*>',raw,re.I):
-              print(re.sub(r'\s+',' ',html.unescape(m.group(0))).strip()[:2400])
-          print('===== CONTAINERS =====')
-          for m in re.finditer(r'<(?:div|main|section|article|ul|ol)\b[^>]*>',raw,re.I):
-              s=re.sub(r'\s+',' ',html.unescape(m.group(0))).strip(); low=s.lower()
-              if any(x in low for x in ('reader','chapter','comic','page','content','image','img')):
-                  print(s[:1800])
-          print('===== SCRIPTS =====')
-          for i,b in enumerate(re.findall(r'<script\b[^>]*>(.*?)</script>',raw,re.I|re.S)):
-              if re.search(r'(image|img|chapter|page|comic|photos|pics|data-src)',b,re.I):
-                  print('SCRIPT',i,re.sub(r'\s+',' ',html.unescape(b)).strip()[:9000])
+          print('===== SCRIPT TAGS =====')
+          srcs=[]
+          for m in re.finditer(r'<script\b([^>]*)>',raw,re.I):
+              attrs=re.sub(r'\s+',' ',html.unescape(m.group(1))).strip()
+              print('SCRIPT_TAG',attrs[:1800])
+              sm=re.search(r'src\s*=\s*["\']([^"\']+)',attrs,re.I)
+              if sm: srcs.append(sm.group(1))
+          Path('/tmp/srcs.txt').write_text('\n'.join(srcs))
+          print('===== INLINE VAR NAMES =====')
+          for m in re.finditer(r'\b(?:var|let|const)\s+([A-Za-z_$][\w$]*)\s*=',raw):
+              print(m.group(1))
           PY
+          i=0
+          while IFS= read -r src; do
+            [[ -n "$src" ]] || continue
+            case "$src" in
+              http*) url="$src" ;;
+              //*) url="https:$src" ;;
+              /*) url="$base$src" ;;
+              *) url="$base/$(dirname chapter/r01nZfQE2w.html)/$src" ;;
+            esac
+            echo "===== JS[$i] $url ====="
+            if curl -fsSL --compressed -A "$ua" "$url" -o "/tmp/js$i"; then
+              echo "bytes=$(wc -c < /tmp/js$i)"
+              grep -oE '.{0,240}(params|decrypt|CryptoJS|AES|reader-scroll|img-box|image|chapter).{0,420}' "/tmp/js$i" | head -n 80 || true
+            fi
+            i=$((i+1))
+          done < /tmp/srcs.txt
