@@ -170,4 +170,4 @@ This gives actual reader success higher authority than a speculative/preflight m
 '''
 text = DOC.read_text(encoding="utf-8")
 if "## 2026-09-09 runtime-success marker evidence" not in text:
-    DOC.write_text(text.rstrip() + append_text + "\n", encoding="utf-8")
+    DOC.write_text(text.rstrip() + append_text.rstrip() + "\n", encoding="utf-8")
