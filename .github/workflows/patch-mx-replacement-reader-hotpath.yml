@@ -1,0 +1,82 @@
+name: Patch MX replacement reader hot path
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/patch-mx-replacement-reader-hotpath.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: patch-mx-replacement-reader-hotpath
+  cancel-in-progress: false
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check private source write token
+        env:
+          MX_APP_PUBLISH_TOKEN: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_APP_PUBLISH_TOKEN" ]] || { echo "::error::Missing MX_APP_PUBLISH_TOKEN"; exit 1; }
+
+      - name: Checkout validated MX App main
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-app
+          ref: main
+          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply guarded hot-path patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          expected_base="068b9f85a6b8ae5a4c6ace0aef61853743453e6a"
+          actual_base="$(git rev-parse HEAD)"
+          [[ "$actual_base" == "$expected_base" ]] || {
+            echo "::error::mx-app main moved; expected $expected_base but found $actual_base"
+            exit 1
+          }
+          git switch -c fix/replacement-reader-latency-surgical
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderViewModel.kt')
+          text = path.read_text(encoding='utf-8')
+          old = '''            runCatching {\n                refreshWholeMangaMatchSnapshotFromCatalog(\n                    manga = manga,\n                    binding = binding,\n                    targetChapters = cache.chapters,\n                )\n            }.onFailure { snapshotError ->\n                logcat(LogPriority.WARN, snapshotError) {\n                    "Failed to refresh MX whole-manga marker snapshot from reader catalog"\n                }\n            }\n'''
+          if text.count(old) != 1:
+              raise SystemExit(f'Expected exactly one reader hot-path marker refresh block, found {text.count(old)}')
+          path.write_text(text.replace(old, '', 1), encoding='utf-8')
+          PY
+          git diff --check
+          changed="$(git diff --name-only)"
+          [[ "$changed" == "app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderViewModel.kt" ]] || {
+            echo "::error::Unexpected changed files: $changed"
+            exit 1
+          }
+          ! grep -Fq 'Failed to refresh MX whole-manga marker snapshot from reader catalog' app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderViewModel.kt
+          grep -Fq 'markChapterContentWholeMangaReplacementSucceeded' app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderViewModel.kt
+          grep -Fq 'recoverChapterContentBindingCache' app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderViewModel.kt
+
+      - name: Commit surgical fix branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderViewModel.kt
+          git diff --cached --check
+          git commit -m 'fix: keep marker precompute off reader load path'
+          git push --force-with-lease origin HEAD:fix/replacement-reader-latency-surgical
