@@ -40,3 +40,5 @@ jobs:
           set -euo pipefail
           git push --dry-run origin HEAD:refs/heads/mx-app-token-mx-dev-probe
           echo "MX_APP_PUBLISH_TOKEN_CAN_WRITE_MX_DEV=true"
+
+# Probe refresh: 2026-09-09T09:10+08:00 Kuaikan v28 source landing
