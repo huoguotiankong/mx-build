@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - name: Probe web runtime and reader codec
+      - name: Probe web runtime and reader markup
         shell: bash
         run: |
           set -euo pipefail
@@ -36,65 +36,51 @@ jobs:
               print(f'GET {path} -> {r.status_code} final={r.url} type={r.headers.get("content-type","")} bytes={len(r.content)}')
               return r
 
-          candidates=[]
-          for path, sels in [
-              ('/custom/top',['.rank-list .rank-item','.rank-item']),
-              ('/custom/ticket',['.rank-list .rank-item','.rank-item']),
-              ('/category',['.rank-list .rank-item','.rank-item','.comic-item']),
-              ('/',['.m-up-item1','.comic-item']),
-          ]:
+          for path in ['/custom/top','/custom/ticket','/category','/']:
               r=get(path)
-              if r.status_code != 200:
-                  continue
-              soup=BeautifulSoup(r.text,'html.parser')
-              counts={sel:len(soup.select(sel)) for sel in sels}
-              print(' selectors',counts)
-              for a in soup.select('a[href]'):
-                  href=a.get('href','').strip()
-                  p=urlparse(urljoin(BASE,href)).path
-                  if re.fullmatch(r'/\d+\.html',p):
-                      candidates.append(p)
-                      break
+              assert r.status_code == 200
 
-          if not candidates:
-              raise SystemExit('NO_MANGA_LINK_FOUND')
-          manga=candidates[0]
-          print('MANGA',manga)
-          r=get(manga)
-          if r.status_code != 200: raise SystemExit('DETAIL_HTTP_'+str(r.status_code))
+          r=get('/170.html'); assert r.status_code == 200
           soup=BeautifulSoup(r.text,'html.parser')
-          title=soup.select_one('.comic-info-box h1, .comic-info-box .comic-name, span.comic-name')
           chapters=[]
           for a in soup.select('.catalog-list .chapter-item a[href], .chapter-item a[href]'):
-              href=a.get('href','').strip(); p=urlparse(urljoin(BASE,href)).path
-              if re.fullmatch(r'/\d+/\d+\.html',p): chapters.append(p)
-          print('DETAIL title=', title.get_text(strip=True) if title else None, 'chapterCount=',len(chapters))
-          if not chapters: raise SystemExit('NO_CHAPTER_LINK_FOUND')
+              p=urlparse(urljoin(BASE,a.get('href','').strip())).path
+              if re.fullmatch(r'/\d+/\d+\.html',p) and p not in chapters: chapters.append(p)
+          print('chapterCount',len(chapters),'first',chapters[:8])
+          assert chapters
 
-          chapter=chapters[0]
-          print('CHAPTER',chapter)
-          r=get(chapter)
-          if r.status_code != 200: raise SystemExit('CHAPTER_HTTP_'+str(r.status_code))
-          soup=BeautifulSoup(r.text,'html.parser')
-          imgs=[]
-          for img in soup.select('.comic-list .comic-page img, img[data-src], img[src]'):
-              vals=[img.get('data-src','').strip(),img.get('src','').strip(),img.get('alt','').strip()]
+          def inspect_reader(path):
+              rr=get(path); print('READER_PATH',path)
+              if rr.status_code != 200: return False
+              t=rr.text
+              ss=BeautifulSoup(t,'html.parser')
+              vals=[]
+              for img in ss.select('img'):
+                  vals.extend([img.get('data-src',''),img.get('data-original',''),img.get('data-url',''),img.get('src',''),img.get('alt','')])
+              urls=[]
               for v in vals:
-                  if '/scomic/' in v and (v.startswith('//') or v.startswith('http://') or v.startswith('https://')):
-                      imgs.append(('https:'+v) if v.startswith('//') else v); break
-          imgs=list(dict.fromkeys(imgs))
-          print('READER imageCount=',len(imgs))
-          if not imgs: raise SystemExit('NO_SCOMIC_IMAGES_FOUND')
+                  if not v: continue
+                  if '/scomic/' in v or 'iqtao.cn' in v:
+                      urls.append(v)
+              urls=list(dict.fromkeys(urls))
+              print('IMG_URLS',len(urls),urls[:12])
+              for key in ['scomic','comic-list','comic-page','chapter','piclist','imageList','images','imglist','manga','pages','data-src','data-original','img5.iqtao.cn','chapter_data']:
+                  if key in t:
+                      p=t.find(key)
+                      print('KEY',key,'SNIP',re.sub(r'\s+',' ',t[max(0,p-500):p+1800])[:2300])
+              abs_urls=re.findall(r'https?://[^"\'<>\s]+',t)
+              hit=[u for u in abs_urls if 'iqtao' in u or '/scomic/' in u]
+              print('RAW_URL_HITS',hit[:20])
+              return any('/scomic/' in x for x in urls) or '/scomic/' in t
 
-          u=imgs[0]
-          rr=s.get(u,timeout=25)
-          print('IMAGE status=',rr.status_code,'host=',urlparse(u).hostname,'type=',rr.headers.get('content-type',''),'bytes=',len(rr.content))
-          if rr.status_code != 200: raise SystemExit('IMAGE_HTTP_'+str(rr.status_code))
-          raw=rr.content
-          dec=bytes((((b-47)&0xff)^0xAB) for b in raw)
-          def magic(b):
-              return (b.startswith(b'\xff\xd8\xff') or b.startswith(b'\x89PNG') or b.startswith(b'GIF8') or (len(b)>=12 and b[:4]==b'RIFF' and b[8:12]==b'WEBP'))
-          print('IMAGE rawMagic=',magic(raw),'decodedMagic=',magic(dec),'rawPrefix=',raw[:12].hex(),'decodedPrefix=',dec[:12].hex())
-          if not magic(raw) and not magic(dec): raise SystemExit('IMAGE_CODEC_UNCONFIRMED')
-          print('MIAOWU_WEB_V5_PROBE_OK')
+          found=False
+          for ch in chapters[:12]:
+              if inspect_reader(ch):
+                  found=True
+                  break
+          print('CURRENT_SCOMIC_FOUND',found)
+
+          # Control reader that previously exposed direct scomic images on 2026-09-07.
+          control=inspect_reader('/128/221583.html')
+          print('CONTROL_SCOMIC_FOUND',control)
           PY
