@@ -1,0 +1,72 @@
+name: Probe Manwang structure
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-manwang-structure.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Probe live HTML structure
+        shell: bash
+        run: |
+          set -euo pipefail
+          ua='Mozilla/5.0 (Linux; Android 16; Pixel 9 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36'
+          mkdir -p /tmp/mw
+          fetch() {
+            name="$1"; url="$2"
+            echo "===== FETCH $name $url ====="
+            curl -L --compressed -A "$ua" -H 'Accept-Language: zh-CN,zh;q=0.9' -sS -D "/tmp/mw/$name.headers" -o "/tmp/mw/$name.html" -w 'http=%{http_code} final=%{url_effective} bytes=%{size_download}\n' "$url"
+            head -n 8 "/tmp/mw/$name.headers" || true
+          }
+          fetch home 'https://www.manwang.net/'
+          fetch category 'https://www.manwang.net/category'
+          fetch book 'https://www.manwang.net/book/501947'
+          fetch chapter 'https://www.manwang.net/chapter/547458-162854'
+          python3 - <<'PY'
+          import html, re
+          from pathlib import Path
+
+          def tags(name, pattern=None, limit=180):
+              text = Path(f'/tmp/mw/{name}.html').read_text('utf-8', errors='replace')
+              print(f'\n===== {name.upper()} IMPORTANT TAGS =====')
+              # Remove script/style bodies, retain script start tags separately below.
+              cleaned = re.sub(r'<(script|style)\b[^>]*>.*?</\1>', '', text, flags=re.I|re.S)
+              raw_tags = re.findall(r'<(?:form|input|a|img|h1|h2|h3|div|ul|ol|li|span|p|meta)\b[^>]*>', cleaned, flags=re.I)
+              count = 0
+              for t in raw_tags:
+                  s = re.sub(r'\s+', ' ', html.unescape(t)).strip()
+                  if pattern and not re.search(pattern, s, re.I):
+                      continue
+                  if any(k in s.lower() for k in ('href=', 'src=', 'data-', 'class=', 'id=', 'name=', 'action=', 'property=', 'itemprop=')):
+                      print(s[:1200])
+                      count += 1
+                      if count >= limit:
+                          break
+              print(f'-- printed {count} tags --')
+
+          tags('home', r'form|input|book/|chapter/|category|custom/|search|manga|comic', 220)
+          tags('category', r'book/|category|page/|tags/|finish/|list/', 260)
+          tags('book', r'chapter/|book/|cover|author|writer|tag|genre|status|intro|desc|detail|catalog|chapter|list|update', 320)
+          tags('chapter', r'img|chapter|page|comic|read|content|lazy|data-|src=', 320)
+
+          for name in ('home','book','chapter'):
+              text = Path(f'/tmp/mw/{name}.html').read_text('utf-8', errors='replace')
+              print(f'\n===== {name.upper()} SCRIPTS / URL-LIKE TOKENS =====')
+              scripts = re.findall(r'<script\b[^>]*>(.*?)</script>', text, flags=re.I|re.S)
+              for i, body in enumerate(scripts):
+                  if re.search(r'(chapter|image|img|page|book|search|api|ajax|comic|photos|pics)', body, re.I):
+                      one = re.sub(r'\s+', ' ', html.unescape(body)).strip()
+                      print(f'SCRIPT[{i}] {one[:6000]}')
+              urls = sorted(set(re.findall(r'https?://[^\"\'<>\\\s]+', text)))
+              for u in urls[:120]:
+                  print('URL', u[:1000])
+          PY
