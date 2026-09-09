@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Inspect Cyppt routes, selectors and reader transport
+      - name: Inspect Cyppt detail pagination and metadata
         shell: bash
         run: |
           set -euo pipefail
@@ -22,88 +22,66 @@ jobs:
           mkdir -p /tmp/cyppt
           fetch() {
             local name="$1" url="$2"
-            local out="/tmp/cyppt/$name.html"
-            code=$(curl -L --compressed --connect-timeout 10 --max-time 30 -A "$UA" -sS -o "$out" -w '%{http_code}' "$url" || true)
-            echo "FETCH $name http=$code bytes=$(wc -c < "$out" 2>/dev/null || echo 0)"
+            code=$(curl -L --compressed --connect-timeout 10 --max-time 30 -A "$UA" -sS -o "/tmp/cyppt/$name.html" -w '%{http_code}' "$url" || true)
+            echo "FETCH $name http=$code bytes=$(wc -c < /tmp/cyppt/$name.html 2>/dev/null || echo 0) url=$url"
           }
-          fetch latest "$BASE/latest/"
-          fetch latest2 "$BASE/latest/index_2.html"
-          fetch release "$BASE/release/"
-          fetch completed "$BASE/completed/"
-          fetch guoman "$BASE/guoman/"
-          fetch guoman2 "$BASE/guoman/index_2.html"
-          fetch hanman "$BASE/hanman/"
-          fetch riman "$BASE/riman/"
-          fetch oumei "$BASE/oumei/"
-          fetch gangtai "$BASE/gangtai/"
-          fetch search "$BASE/e/search/index.php?keyboard=%E5%A4%A9%E9%BB%91&show=title%2Cwriter%2Cbyr&searchget=1"
+          fetch home "$BASE/"
           fetch detail "$BASE/novel30137/"
-          fetch detail2 "$BASE/novel30137/index_2.html"
-          fetch reader "$BASE/novel30197/chapter0.html"
+          fetch detail2 "$BASE/novel30137/?p=2"
+          fetch small "$BASE/novel30197/"
+          fetch list "$BASE/latest/"
 
           python3 - <<'PY'
           from bs4 import BeautifulSoup
           from pathlib import Path
           import re
-          def S(name): return BeautifulSoup(Path(f'/tmp/cyppt/{name}.html').read_text('utf-8',errors='ignore'),'html.parser')
+          def S(n): return BeautifulSoup(Path(f'/tmp/cyppt/{n}.html').read_text('utf-8',errors='ignore'),'html.parser')
           def T(e): return ' '.join(e.stripped_strings) if e else ''
 
-          print('===== LIST SELECTORS =====')
-          for name in ['latest','latest2','release','completed','guoman','guoman2','hanman','riman','oumei','gangtai','search']:
-              s=S(name)
-              print('\n--',name,'-- title=',T(s.title))
-              cards=s.select('.each_truyen')
-              print('cards=',len(cards))
-              for c in cards[:3]:
-                  novel=c.select_one('a[href*="/novel"]')
-                  title=c.select_one('.caption a[href*="/novel"], .caption h3, h3 a[href*="/novel"]')
-                  img=c.select_one('img')
-                  status=c.select_one('.tt-status, .chi-tiet')
-                  print('CARD class=',c.get('class'),'href=',novel.get('href') if novel else None,'title=',T(title),'img=',img.get('src') if img else None,'data=',img.get('data-src') if img else None,'original=',img.get('data-original') if img else None,'alt=',img.get('alt') if img else None,'status=',T(status))
-              pager=[(T(a),a.get('href')) for a in s.select('a[href]') if T(a) in ['Next','Last','Prev','First','下一页','上一页'] or re.fullmatch(r'\d+',T(a))]
-              print('pager=',pager[:20])
+          h=S('home')
+          print('===== ICONS =====')
+          for link in h.select('link[href]'):
+              rel=' '.join(link.get('rel') or [])
+              if 'icon' in rel.lower(): print('ICON',rel,link.get('href'),link.get('sizes'),link.get('type'))
+          for img in h.select('img')[:15]: print('HIMG',img.get('src'),img.get('alt'),img.get('class'))
 
-          print('\n===== DETAIL FIELDS =====')
+          print('===== LIST CARD HTML =====')
+          c=S('list').select_one('.each_truyen')
+          print(str(c)[:5000] if c else None)
+
+          print('===== DETAIL MAIN STRUCTURE =====')
           d=S('detail')
-          for e in d.select('.info > *, .info li, .info p, .info span, .info a'):
-              t=T(e)
-              if t: print('INFOCHILD',e.name,e.get('class'),t[:200],e.get('href'))
-          for e in d.select('.single-content, .entry-content, .description, .intro, .summary, .story-detail-info'):
-              print('DESCNODE',e.name,e.get('class'),T(e)[:1000])
-          for img in d.select('img'):
-              if 'wp-post-image' in (img.get('class') or []) or 'titlepic' in (img.get('src') or ''):
-                  print('COVER',img.get('src'),img.get('data-src'),img.get('alt'),img.get('class'))
-          ch=[]
-          for a in d.select('ul.list-chapter a[href*="chapter"]'):
-              if T(a): ch.append((a.get('href'),T(a)))
-          print('detail_chapters=',len(ch),'first=',ch[:5],'last=',ch[-5:])
-          dp=[(T(a),a.get('href')) for a in d.select('a[href]') if T(a) in ['First','Prev','Next','Last'] or re.fullmatch(r'\d+',T(a))]
-          print('detail_pager=',dp)
-          d2=S('detail2')
-          ch2=[(a.get('href'),T(a)) for a in d2.select('ul.list-chapter a[href*="chapter"]') if T(a)]
-          print('detail2_chapters=',len(ch2),'first=',ch2[:5],'last=',ch2[-5:])
+          target=d.select_one('h2.single_title') or d.select_one('h1')
+          if target:
+              cur=target
+              for depth in range(6):
+                  cur=cur.parent
+                  if not cur: break
+                  print('ANCESTOR',depth,cur.name,cur.get('id'),cur.get('class'),T(cur)[:1800])
+          print('===== INFO FULL =====')
+          info=d.select_one('.info')
+          print(str(info)[:8000] if info else None)
+          print('===== DESCRIPTION CANDIDATES =====')
+          for textnode in d.find_all(string=re.compile(r'介绍|簡介|简介|內容|内容')):
+              p=textnode.parent
+              print('MATCH',repr(str(textnode)[:300]),'P=',p.name,p.get('id'),p.get('class'),'PTEXT=',T(p)[:1200])
+              for depth in range(1,5):
+                  p=p.parent
+                  if not p: break
+                  print(' UP',depth,p.name,p.get('id'),p.get('class'),T(p)[:1800])
+          print('META description=', d.select_one('meta[name=description]').get('content') if d.select_one('meta[name=description]') else None)
+          print('META keywords=', d.select_one('meta[name=keywords]').get('content') if d.select_one('meta[name=keywords]') else None)
 
-          print('\n===== READER SELECTORS =====')
-          r=S('reader')
-          imgs=[]
-          for img in r.select('img.comic_img.lazy[data-original], img.comic_img[data-original]'):
-              u=img.get('data-original')
-              if u and u not in imgs: imgs.append(u)
-          print('reader_count=',len(imgs),'first=',imgs[:2],'last=',imgs[-2:])
-          Path('/tmp/cyppt/reader_urls.txt').write_text('\n'.join(imgs))
-          print('nav=',[(T(a),a.get('href')) for a in r.select('a.btn[href]') if T(a) in ['上一话','下一话']])
+          def chapter_blocks(name):
+              s=S(name)
+              blocks=s.select('ul.list-chapter')
+              print('===== CHAPTER BLOCKS',name,'count=',len(blocks),'=====')
+              for bi,b in enumerate(blocks):
+                  arr=[(a.get('href'),T(a)) for a in b.select('a[href*="chapter"]') if T(a)]
+                  print('BLOCK',bi,'parent=',b.parent.name if b.parent else None,b.parent.get('id') if b.parent else None,b.parent.get('class') if b.parent else None,'n=',len(arr),'first=',arr[:8],'last=',arr[-8:])
+              pager=[(T(a),a.get('href')) for a in s.select('a[href]') if T(a) in ['First','Prev','Next','Last'] or re.fullmatch(r'\d+',T(a))]
+              print('PAGER',pager)
+          chapter_blocks('detail')
+          chapter_blocks('detail2')
+          chapter_blocks('small')
           PY
-
-          echo '===== READER HTTPS / REFERER TEST ====='
-          mapfile -t imgs < /tmp/cyppt/reader_urls.txt
-          count=${#imgs[@]}
-          for i in 0 $((count/2)) $((count-1)); do
-            u="${imgs[$i]}"
-            hs="${u/http:\/\//https://}"
-            for mode in http https; do
-              testu="$u"; [[ "$mode" == https ]] && testu="$hs"
-              c0=$(curl -L --compressed --connect-timeout 10 --max-time 25 -A "$UA" -sS -o "/tmp/cyppt/${mode}-${i}-0" -w '%{http_code}' "$testu" || true)
-              c1=$(curl -L --compressed --connect-timeout 10 --max-time 25 -A "$UA" -e "$BASE/novel30197/chapter0.html" -sS -o "/tmp/cyppt/${mode}-${i}-1" -w '%{http_code}' "$testu" || true)
-              echo "$mode page=$i no-ref=$c0 bytes=$(wc -c < /tmp/cyppt/${mode}-${i}-0 2>/dev/null || echo 0) ref=$c1 bytes=$(wc -c < /tmp/cyppt/${mode}-${i}-1 2>/dev/null || echo 0) url=$testu"
-            done
-          done
