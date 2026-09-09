@@ -1,0 +1,9 @@
+{
+  "index_v2": "https://raw.githubusercontent.com/huoguotiankong/mx-build/main/kuaikan-v28-test/index.json",
+  "meta": {
+    "name": "Kuaikan v28 Test",
+    "shortName": "KK28",
+    "website": "https://github.com/huoguotiankong/mx-build",
+    "signingKeyFingerprint": "1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620"
+  }
+}
