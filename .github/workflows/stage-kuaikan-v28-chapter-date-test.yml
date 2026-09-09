@@ -1,0 +1,265 @@
+name: Stage Kuaikan v28 chapter-date test
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/stage-kuaikan-v28-chapter-date-test.yml"
+      - "scripts/patch_chapter_dates_v1.py"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stage-kuaikan-v28-chapter-date-test
+  cancel-in-progress: false
+
+jobs:
+  stage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout build infrastructure
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Check required secrets
+        shell: bash
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+          MX_REPO_TOKEN: ${{ secrets.MX_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]] || { echo "::error::Missing MX_PRIVATE_READ_TOKEN"; exit 1; }
+          [[ -n "$MANGA_SIGNING_BUNDLE" ]] || { echo "::error::Missing MANGA_SIGNING_BUNDLE"; exit 1; }
+          [[ -n "$MX_REPO_TOKEN" ]] || { echo "::error::Missing MX_REPO_TOKEN"; exit 1; }
+
+      - name: Checkout current private source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: dev
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Apply validated Kuaikan v28 patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/patch_chapter_dates_v1.py
+          (cd dev && python3 scripts/validate_sources.py)
+          grep -F 'versionCode = 28' dev/src/zh/kuaikanmanhua/build.gradle.kts
+          grep -F '"created_at"' dev/src/zh/kuaikanmanhua/src/eu/kanade/tachiyomi/extension/zh/kuaikanmanhua/Kuaikanmanhua.kt
+          grep -F 'item.string("updated_at")' dev/src/zh/kuaikanmanhua/src/eu/kanade/tachiyomi/extension/zh/kuaikanmanhua/Kuaikanmanhua.kt
+          printf 'zh/kuaikanmanhua\n' > "$RUNNER_TEMP/mx-test-targets.txt"
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Checkout current Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Overlay Kuaikan v28 module
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf upstream/src/zh/kuaikanmanhua
+          cp -a dev/src/zh/kuaikanmanhua upstream/src/zh/kuaikanmanhua
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Format and validate Kuaikan v28
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:kuaikanmanhua:spotlessApply
+          ./gradlew \
+            :src:zh:kuaikanmanhua:spotlessCheck \
+            :src:zh:kuaikanmanhua:assembleDebug \
+            :src:zh:kuaikanmanhua:lintRelease
+
+      - name: Prepare stable extension signing key
+        shell: bash
+        env:
+          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, json, os
+          from pathlib import Path
+          bundle = json.loads(os.environ['MANGA_SIGNING_BUNDLE'])
+          required = ('signingKey','alias','storePassword','keyPassword')
+          missing = [k for k in required if not bundle.get(k)]
+          if missing:
+              raise SystemExit('Signing bundle missing fields: ' + ', '.join(missing))
+          Path('upstream/signingkey.jks').write_bytes(base64.b64decode(bundle['signingKey']))
+          values = {
+              'ALIAS': str(bundle['alias']),
+              'KEY_STORE_PASSWORD': str(bundle['storePassword']),
+              'KEY_PASSWORD': str(bundle['keyPassword']),
+          }
+          with Path(os.environ['GITHUB_ENV']).open('a', encoding='utf-8') as f:
+              for name, value in values.items():
+                  print(f'::add-mask::{value}')
+                  f.write(f'{name}<<__MX_SIGNING_EOF__\n{value}\n__MX_SIGNING_EOF__\n')
+          PY
+
+      - name: Verify configured signing identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620'
+          actual="$(keytool -exportcert -alias "$ALIAS" -keystore upstream/signingkey.jks -storepass "$KEY_STORE_PASSWORD" | sha256sum | awk '{print $1}')"
+          actual="$(printf '%s' "$actual" | tr '[:upper:]' '[:lower:]')"
+          [[ "$actual" == "$expected" ]] || { echo '::error::Extension signing certificate mismatch'; exit 1; }
+
+      - name: Build signed Kuaikan v28 release
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:kuaikanmanhua:assembleRelease
+
+      - name: Verify APK signing certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620'
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          [[ -n "$apksigner" ]] || { echo '::error::apksigner not found'; exit 1; }
+          apk="$(find upstream/src/zh/kuaikanmanhua -path '*/build/outputs/apk/release/*.apk' -type f | head -n 1)"
+          [[ -n "$apk" ]] || { echo '::error::No Release APK found for Kuaikan'; exit 1; }
+          cert_output="$("$apksigner" verify --print-certs "$apk" 2>&1)"
+          normalized="$(printf '%s' "$cert_output" | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')"
+          [[ "$normalized" == *"$expected"* ]] || { echo '::error::APK signing certificate mismatch for Kuaikan'; exit 1; }
+
+      - name: Checkout extension staging branch
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-build
+          token: ${{ github.token }}
+          ref: extension-staging
+          path: staging
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Generate isolated Kuaikan v28 test store
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 dev/scripts/publish_test_repo.py \
+            --targets "$RUNNER_TEMP/mx-test-targets.txt" \
+            --upstream-root upstream \
+            --source-root dev \
+            --repo-dir staging/test \
+            --owner huoguotiankong \
+            --repository mx-repo \
+            --signing-key '1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620'
+
+      - name: Verify staged Kuaikan v28
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('staging/test/index.json').read_text('utf-8'))
+          versions = {x['packageName']: (x.get('versionName'), x.get('versionCode')) for x in data['extensionList']['extensions']}
+          package = 'eu.kanade.tachiyomi.extension.zh.kuaikanmanhua'
+          wanted = ('1.6.28', 106028)
+          actual = versions.get(package)
+          if actual != wanted:
+              raise SystemExit(f'{package}: expected {wanted}, got {actual}')
+          print('Kuaikan staged version verified:', actual)
+          PY
+          test -f staging/test/apk/tachiyomi-zh.kuaikanmanhua-v1.6.28.apk
+
+      - name: Commit staging store
+        working-directory: staging
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add test
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git commit -m 'Stage Kuaikan v28 chapter-date test'
+            git push origin HEAD:extension-staging
+          fi
+
+      - name: Checkout public repository
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-repo
+          ref: repo
+          token: ${{ secrets.MX_REPO_TOKEN }}
+          path: repo
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Promote Kuaikan v28 test store
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf repo/test
+          mkdir -p repo/test
+          cp -a staging/test/. repo/test/
+
+      - name: Commit public test store
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add test
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git commit -m 'Publish Kuaikan v28 chapter-date test'
+            git push origin HEAD:repo
+          fi
+
+      - name: Verify public Kuaikan v28 test online
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://raw.githubusercontent.com/huoguotiankong/mx-repo/repo/test'
+          ok=0
+          for n in 1 2 3 4 5 6; do
+            code="$(curl -L -sS -o /tmp/index.json -w '%{http_code}' "$base/index.json?ts=$(date +%s%N)" || true)"
+            if [[ "$code" == '200' ]]; then
+              if python3 - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('/tmp/index.json').read_text('utf-8'))
+          versions = {x['packageName']: (x.get('versionName'), x.get('versionCode')) for x in data['extensionList']['extensions']}
+          assert versions.get('eu.kanade.tachiyomi.extension.zh.kuaikanmanhua') == ('1.6.28', 106028), versions.get('eu.kanade.tachiyomi.extension.zh.kuaikanmanhua')
+          PY
+              then ok=1; break; fi
+            fi
+            sleep $((n * 2))
+          done
+          [[ "$ok" -eq 1 ]] || { echo '::error::Public Kuaikan v28 test index did not converge'; exit 1; }
+          curl -fL -sS "$base/apk/tachiyomi-zh.kuaikanmanhua-v1.6.28.apk?ts=$(date +%s%N)" -o /tmp/kuaikan-v28.apk
+          echo 'Public Kuaikan v28 test store verified online'
+
+      - name: Cleanup signing material
+        if: always()
+        shell: bash
+        run: rm -f upstream/signingkey.jks
