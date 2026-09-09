@@ -181,7 +181,7 @@ jobs:
           PY
 
           git diff --check
-          changed="$(git diff --name-only | sort)"
+          changed="$( { git diff --name-only; git ls-files --others --exclude-standard; } | sort )"
           expected=$'app/src/main/java/eu/kanade/tachiyomi/ui/manga/MangaScreen.kt\napp/src/main/java/eu/kanade/tachiyomi/ui/reader/ChapterContentCatalogCache.kt\napp/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderViewModel.kt'
           [[ "$changed" == "$expected" ]] || {
             echo "::error::Unexpected changed files: $changed"
