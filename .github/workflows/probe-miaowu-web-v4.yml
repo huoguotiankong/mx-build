@@ -13,74 +13,31 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
-      - name: Probe web runtime and reader markup
+      - name: Confirm web host and reader codec
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m pip install --disable-pip-version-check -q requests beautifulsoup4
           python3 - <<'PY'
-          import re
-          import requests
-          from bs4 import BeautifulSoup
-          from urllib.parse import urljoin, urlparse
-
+          import re, urllib.request
           BASE='https://mh.iqtao.cn'
           UA='Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Mobile Safari/537.36'
-          s=requests.Session(); s.headers.update({'User-Agent':UA,'Accept':'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8','Accept-Language':'zh-CN,zh;q=0.9'})
-
-          def get(path, timeout=20):
-              u=urljoin(BASE,path)
-              r=s.get(u,timeout=timeout,allow_redirects=True)
-              print(f'GET {path} -> {r.status_code} final={r.url} type={r.headers.get("content-type","")} bytes={len(r.content)}')
-              return r
-
-          for path in ['/custom/top','/custom/ticket','/category','/']:
-              r=get(path)
-              assert r.status_code == 200
-
-          r=get('/170.html'); assert r.status_code == 200
-          soup=BeautifulSoup(r.text,'html.parser')
-          chapters=[]
-          for a in soup.select('.catalog-list .chapter-item a[href], .chapter-item a[href]'):
-              p=urlparse(urljoin(BASE,a.get('href','').strip())).path
-              if re.fullmatch(r'/\d+/\d+\.html',p) and p not in chapters: chapters.append(p)
-          print('chapterCount',len(chapters),'first',chapters[:8])
-          assert chapters
-
-          def inspect_reader(path):
-              rr=get(path); print('READER_PATH',path)
-              if rr.status_code != 200: return False
-              t=rr.text
-              ss=BeautifulSoup(t,'html.parser')
-              vals=[]
-              for img in ss.select('img'):
-                  vals.extend([img.get('data-src',''),img.get('data-original',''),img.get('data-url',''),img.get('src',''),img.get('alt','')])
-              urls=[]
-              for v in vals:
-                  if not v: continue
-                  if '/scomic/' in v or 'iqtao.cn' in v:
-                      urls.append(v)
-              urls=list(dict.fromkeys(urls))
-              print('IMG_URLS',len(urls),urls[:12])
-              for key in ['scomic','comic-list','comic-page','chapter','piclist','imageList','images','imglist','manga','pages','data-src','data-original','img5.iqtao.cn','chapter_data']:
-                  if key in t:
-                      p=t.find(key)
-                      print('KEY',key,'SNIP',re.sub(r'\s+',' ',t[max(0,p-500):p+1800])[:2300])
-              abs_urls=re.findall(r'https?://[^"\'<>\s]+',t)
-              hit=[u for u in abs_urls if 'iqtao' in u or '/scomic/' in u]
-              print('RAW_URL_HITS',hit[:20])
-              return any('/scomic/' in x for x in urls) or '/scomic/' in t
-
-          found=False
-          for ch in chapters[:12]:
-              if inspect_reader(ch):
-                  found=True
-                  break
-          print('CURRENT_SCOMIC_FOUND',found)
-
-          # Control reader that previously exposed direct scomic images on 2026-09-07.
-          control=inspect_reader('/128/221583.html')
-          print('CONTROL_SCOMIC_FOUND',control)
+          def get(url):
+              req=urllib.request.Request(url,headers={'User-Agent':UA,'Accept':'text/html,application/xhtml+xml,*/*'})
+              with urllib.request.urlopen(req,timeout=20) as r:
+                  b=r.read(); print('GET',url,'status',r.status,'len',len(b)); return b
+          for path in ['/custom/top','/custom/ticket','/category','/170.html']:
+              get(BASE+path)
+          html=get(BASE+'/170/1095305.html').decode('utf-8','replace')
+          m=re.search(r'<img[^>]+(?:src|data-src|alt)=["\']((?://)?img\d*\.iqtao\.cn/(?:hp|scomic)/[^"\']+)["\']',html,re.I)
+          if not m: raise SystemExit('NO_READER_IMAGE_URL')
+          u=m.group(1); u='https:'+u if u.startswith('//') else u
+          raw=get(u)
+          dec=bytes((((x-47)&255)^0xAB) for x in raw)
+          def magic(b):
+              return b.startswith(b'\xff\xd8\xff') or b.startswith(b'\x89PNG') or b.startswith(b'GIF8') or (len(b)>=12 and b[:4]==b'RIFF' and b[8:12]==b'WEBP')
+          print('IMAGE',u,'raw',raw[:16].hex(),'decoded',dec[:16].hex(),'rawMagic',magic(raw),'decodedMagic',magic(dec))
+          if not magic(raw) and not magic(dec): raise SystemExit('IMAGE_CODEC_UNCONFIRMED')
+          print('MIAOWU_WEB_V5_CODEC_OK')
           PY
