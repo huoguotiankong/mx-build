@@ -132,7 +132,27 @@ jobs:
           python3 dev/scripts/validate_sources.py
           git -C dev diff --check
 
+      - name: Stage exact validated source bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf handoff
+          mkdir -p handoff/src/zh handoff/docs/sources
+          cp -a dev/src/zh/kuaikanmanhua handoff/src/zh/
+          cp dev/docs/sources/kuaikanmanhua.md handoff/docs/sources/
+          cp dev/docs/sources/tencentcomics.md handoff/docs/sources/
+          git -C dev diff --binary HEAD -- src/zh/kuaikanmanhua docs/sources/kuaikanmanhua.md docs/sources/tencentcomics.md > handoff/kuaikan-v28.patch
+
+      - name: Upload exact validated source bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: kuaikan-v28-validated-source
+          path: handoff
+          if-no-files-found: error
+          retention-days: 3
+
       - name: Commit validated source to main
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
