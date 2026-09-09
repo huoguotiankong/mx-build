@@ -12,8 +12,8 @@
         "name": "Kuaikan Manhua",
         "packageName": "eu.kanade.tachiyomi.extension.zh.kuaikanmanhua",
         "resources": {
-          "apkUrl": "https://github.com/huoguotiankong/mx-build/raw/refs/heads/extension-staging/test/apk/tachiyomi-zh.kuaikanmanhua-v1.6.28.apk",
-          "iconUrl": "https://github.com/huoguotiankong/mx-build/raw/refs/heads/extension-staging/test/icon/eu.kanade.tachiyomi.extension.zh.kuaikanmanhua-v106028.png"
+          "apkUrl": "https://raw.githubusercontent.com/huoguotiankong/mx-build/extension-staging/test/apk/tachiyomi-zh.kuaikanmanhua-v1.6.28.apk",
+          "iconUrl": "https://raw.githubusercontent.com/huoguotiankong/mx-build/extension-staging/test/icon/eu.kanade.tachiyomi.extension.zh.kuaikanmanhua-v106028.png"
         },
         "extensionLib": "1.6",
         "versionCode": 106028,
