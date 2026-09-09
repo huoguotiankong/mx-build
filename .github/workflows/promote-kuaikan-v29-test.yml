@@ -1,0 +1,156 @@
+name: Promote Kuaikan v29 test only
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/promote-kuaikan-v29-test.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: promote-kuaikan-v29-test-only
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check publish token
+        shell: bash
+        env:
+          MX_REPO_TOKEN: ${{ secrets.MX_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_REPO_TOKEN" ]] || { echo "::error::Missing MX_REPO_TOKEN"; exit 1; }
+
+      - name: Checkout verified extension staging
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-build
+          ref: extension-staging
+          path: staging
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify staged Kuaikan v29 payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          package = 'eu.kanade.tachiyomi.extension.zh.kuaikanmanhua'
+          data = json.loads(Path('staging/test/index.json').read_text('utf-8'))
+          item = next(x for x in data['extensionList']['extensions'] if x.get('packageName') == package)
+          assert (item.get('versionName'), item.get('versionCode')) == ('1.6.29', 106029), item
+          assert len(data['extensionList']['extensions']) >= 10, 'staging test store unexpectedly incomplete'
+          assert Path('staging/test/apk/tachiyomi-zh.kuaikanmanhua-v1.6.29.apk').is_file()
+          assert Path('staging/test/icon/eu.kanade.tachiyomi.extension.zh.kuaikanmanhua-v106029.png').is_file()
+          print('Verified staged Kuaikan v29 and full test-store context')
+          PY
+
+      - name: Checkout public repository
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-repo
+          ref: repo
+          token: ${{ secrets.MX_REPO_TOKEN }}
+          path: repo
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Merge only Kuaikan v29 into MX Test
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import shutil
+          from pathlib import Path
+
+          package = 'eu.kanade.tachiyomi.extension.zh.kuaikanmanhua'
+          staged_index = Path('staging/test/index.json')
+          public_index = Path('repo/test/index.json')
+
+          staged = json.loads(staged_index.read_text('utf-8'))
+          public = json.loads(public_index.read_text('utf-8'))
+          staged_item = next(x for x in staged['extensionList']['extensions'] if x.get('packageName') == package)
+          assert (staged_item.get('versionName'), staged_item.get('versionCode')) == ('1.6.29', 106029)
+
+          extensions = public['extensionList']['extensions']
+          matches = [i for i, x in enumerate(extensions) if x.get('packageName') == package]
+          if len(matches) != 1:
+              raise SystemExit(f'Expected exactly one public Kuaikan entry, found {len(matches)}')
+          extensions[matches[0]] = staged_item
+          public_index.write_text(json.dumps(public, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+
+          apk_src = Path('staging/test/apk/tachiyomi-zh.kuaikanmanhua-v1.6.29.apk')
+          icon_src = Path('staging/test/icon/eu.kanade.tachiyomi.extension.zh.kuaikanmanhua-v106029.png')
+          apk_dst = Path('repo/test/apk') / apk_src.name
+          icon_dst = Path('repo/test/icon') / icon_src.name
+          apk_dst.parent.mkdir(parents=True, exist_ok=True)
+          icon_dst.parent.mkdir(parents=True, exist_ok=True)
+          shutil.copy2(apk_src, apk_dst)
+          shutil.copy2(icon_src, icon_dst)
+          print('Merged only Kuaikan v29; other MX Test entries preserved')
+          PY
+
+      - name: Verify targeted diff
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add test/index.json \
+            test/apk/tachiyomi-zh.kuaikanmanhua-v1.6.29.apk \
+            test/icon/eu.kanade.tachiyomi.extension.zh.kuaikanmanhua-v106029.png
+          git diff --cached --check
+          changed="$(git diff --cached --name-only)"
+          printf '%s\n' "$changed"
+          while IFS= read -r path; do
+            case "$path" in
+              test/index.json|test/apk/tachiyomi-zh.kuaikanmanhua-v1.6.29.apk|test/icon/eu.kanade.tachiyomi.extension.zh.kuaikanmanhua-v106029.png) ;;
+              *) echo "::error::Unexpected staged path: $path"; exit 1 ;;
+            esac
+          done <<< "$changed"
+
+      - name: Commit public Kuaikan v29 test
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if ! git diff --cached --quiet; then
+            git commit -m 'Publish Kuaikan v29 chapter-date test'
+            git push origin HEAD:repo
+          fi
+
+      - name: Verify public Kuaikan v29 online
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://raw.githubusercontent.com/huoguotiankong/mx-repo/repo/test'
+          ok=0
+          for n in 1 2 3 4 5 6; do
+            code="$(curl -L -sS -o /tmp/index.json -w '%{http_code}' "$base/index.json?ts=$(date +%s%N)" || true)"
+            if [[ "$code" == '200' ]]; then
+              if python3 - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('/tmp/index.json').read_text('utf-8'))
+          item = next(x for x in data['extensionList']['extensions'] if x.get('packageName') == 'eu.kanade.tachiyomi.extension.zh.kuaikanmanhua')
+          assert (item.get('versionName'), item.get('versionCode')) == ('1.6.29', 106029), item
+          assert len(data['extensionList']['extensions']) >= 10
+          PY
+              then ok=1; break; fi
+            fi
+            sleep $((n * 2))
+          done
+          [[ "$ok" -eq 1 ]] || { echo '::error::Public MX Test index did not converge to Kuaikan v29'; exit 1; }
+          curl -fL -sS "$base/apk/tachiyomi-zh.kuaikanmanhua-v1.6.29.apk?ts=$(date +%s%N)" -o /tmp/kuaikan-v29.apk
+          test -s /tmp/kuaikan-v29.apk
+          echo 'Public Kuaikan v29 test verified online'
