@@ -10,78 +10,21 @@ on:
 jobs:
   probe:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
-      - name: Inspect Cyppt detail pagination and metadata
+      - name: Export Cyppt brand assets
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m pip install --disable-pip-version-check -q beautifulsoup4
-          UA='Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Mobile Safari/537.36'
-          BASE='https://www.cyppt.com'
-          mkdir -p /tmp/cyppt
-          fetch() {
-            local name="$1" url="$2"
-            code=$(curl -L --compressed --connect-timeout 10 --max-time 30 -A "$UA" -sS -o "/tmp/cyppt/$name.html" -w '%{http_code}' "$url" || true)
-            echo "FETCH $name http=$code bytes=$(wc -c < /tmp/cyppt/$name.html 2>/dev/null || echo 0) url=$url"
-          }
-          fetch home "$BASE/"
-          fetch detail "$BASE/novel30137/"
-          fetch detail2 "$BASE/novel30137/?p=2"
-          fetch small "$BASE/novel30197/"
-          fetch list "$BASE/latest/"
-
-          python3 - <<'PY'
-          from bs4 import BeautifulSoup
-          from pathlib import Path
-          import re
-          def S(n): return BeautifulSoup(Path(f'/tmp/cyppt/{n}.html').read_text('utf-8',errors='ignore'),'html.parser')
-          def T(e): return ' '.join(e.stripped_strings) if e else ''
-
-          h=S('home')
-          print('===== ICONS =====')
-          for link in h.select('link[href]'):
-              rel=' '.join(link.get('rel') or [])
-              if 'icon' in rel.lower(): print('ICON',rel,link.get('href'),link.get('sizes'),link.get('type'))
-          for img in h.select('img')[:15]: print('HIMG',img.get('src'),img.get('alt'),img.get('class'))
-
-          print('===== LIST CARD HTML =====')
-          c=S('list').select_one('.each_truyen')
-          print(str(c)[:5000] if c else None)
-
-          print('===== DETAIL MAIN STRUCTURE =====')
-          d=S('detail')
-          target=d.select_one('h2.single_title') or d.select_one('h1')
-          if target:
-              cur=target
-              for depth in range(6):
-                  cur=cur.parent
-                  if not cur: break
-                  print('ANCESTOR',depth,cur.name,cur.get('id'),cur.get('class'),T(cur)[:1800])
-          print('===== INFO FULL =====')
-          info=d.select_one('.info')
-          print(str(info)[:8000] if info else None)
-          print('===== DESCRIPTION CANDIDATES =====')
-          for textnode in d.find_all(string=re.compile(r'介绍|簡介|简介|內容|内容')):
-              p=textnode.parent
-              print('MATCH',repr(str(textnode)[:300]),'P=',p.name,p.get('id'),p.get('class'),'PTEXT=',T(p)[:1200])
-              for depth in range(1,5):
-                  p=p.parent
-                  if not p: break
-                  print(' UP',depth,p.name,p.get('id'),p.get('class'),T(p)[:1800])
-          print('META description=', d.select_one('meta[name=description]').get('content') if d.select_one('meta[name=description]') else None)
-          print('META keywords=', d.select_one('meta[name=keywords]').get('content') if d.select_one('meta[name=keywords]') else None)
-
-          def chapter_blocks(name):
-              s=S(name)
-              blocks=s.select('ul.list-chapter')
-              print('===== CHAPTER BLOCKS',name,'count=',len(blocks),'=====')
-              for bi,b in enumerate(blocks):
-                  arr=[(a.get('href'),T(a)) for a in b.select('a[href*="chapter"]') if T(a)]
-                  print('BLOCK',bi,'parent=',b.parent.name if b.parent else None,b.parent.get('id') if b.parent else None,b.parent.get('class') if b.parent else None,'n=',len(arr),'first=',arr[:8],'last=',arr[-8:])
-              pager=[(T(a),a.get('href')) for a in s.select('a[href]') if T(a) in ['First','Prev','Next','Last'] or re.fullmatch(r'\d+',T(a))]
-              print('PAGER',pager)
-          chapter_blocks('detail')
-          chapter_blocks('detail2')
-          chapter_blocks('small')
-          PY
+          curl -L --fail --silent --show-error --max-time 30 https://www.cyppt.com/novel/images/readnovel-logo.png -o /tmp/cyppt-logo.png
+          curl -L --fail --silent --show-error --max-time 30 https://www.cyppt.com/favicon.ico -o /tmp/cyppt-favicon.ico
+          file /tmp/cyppt-logo.png /tmp/cyppt-favicon.ico
+          sha256sum /tmp/cyppt-logo.png /tmp/cyppt-favicon.ico
+          echo "LOGO_BASE64_BEGIN"
+          base64 -w 0 /tmp/cyppt-logo.png
+          echo
+          echo "LOGO_BASE64_END"
+          echo "FAVICON_BASE64_BEGIN"
+          base64 -w 0 /tmp/cyppt-favicon.ico
+          echo
+          echo "FAVICON_BASE64_END"
