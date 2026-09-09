@@ -27,7 +27,7 @@ jobs:
           token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
           path: source
           fetch-depth: 0
-          persist-credentials: false
+          persist-credentials: true
 
       - name: Inspect merge from main
         shell: bash
