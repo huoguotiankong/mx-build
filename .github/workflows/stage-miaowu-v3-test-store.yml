@@ -193,4 +193,4 @@ jobs:
         if: always()
         run: rm -f upstream/signingkey.jks
 
-# trigger: 2026-09-09T19:43+08:00
+# trigger: 2026-09-09T23:42+08:00 v1.6.7 web runtime staging
