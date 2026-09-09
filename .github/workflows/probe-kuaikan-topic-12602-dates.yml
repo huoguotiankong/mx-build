@@ -1,0 +1,74 @@
+name: Probe Kuaikan topic 12602 chapter dates
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-kuaikan-topic-12602-dates.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Probe chapter date fields from current PC topic payload
+        shell: bash
+        env:
+          DESKTOP_UA: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+        run: |
+          set -euo pipefail
+          html="$RUNNER_TEMP/topic.html"
+          script="$RUNNER_TEMP/nuxt.js"
+          curl -L -sS -A "$DESKTOP_UA" -o "$html" "https://www.kuaikanmanhua.com/web/topic/12602/"
+          HTML="$html" SCRIPT="$script" python3 - <<'PY'
+          import os, re
+          from pathlib import Path
+          html = Path(os.environ['HTML']).read_text('utf-8', errors='replace')
+          matches = re.findall(r'<script[^>]*>(.*?)</script>', html, flags=re.S | re.I)
+          candidate = next((x for x in matches if 'window.__NUXT__' in x), '')
+          if not candidate:
+              raise SystemExit('window.__NUXT__ missing')
+          Path(os.environ['SCRIPT']).write_text(candidate, 'utf-8')
+          PY
+          SCRIPT="$script" node <<'NODE'
+          const fs = require('fs');
+          const vm = require('vm');
+          const script = fs.readFileSync(process.env.SCRIPT, 'utf8');
+          const sandbox = { window: {} };
+          vm.createContext(sandbox);
+          vm.runInContext(script, sandbox, { timeout: 2000 });
+          const root = sandbox.window.__NUXT__;
+          const wanted = new Set(['第308话 黑暗天庭！？','第307话 顾公子被抓走了！','第306话 最佳拍档','第305话 人各有命','第304话 过河拆桥','第303话 陷阱','第302话 撼天动地！','第301话 战天道','第300话 不装了。']);
+          const dateKey = /(date|time|create|update|publish)/i;
+          const seen = new Set();
+          function walk(v, path = '', depth = 0) {
+            if (depth > 12 || v == null) return;
+            if (Array.isArray(v)) {
+              for (let i = 0; i < v.length; i++) walk(v[i], `${path}[${i}]`, depth + 1);
+              return;
+            }
+            if (typeof v !== 'object') return;
+            const title = typeof v.title === 'string' ? v.title.trim() : '';
+            const interesting = wanted.has(title) || /^第(?:30[0-8])话/.test(title);
+            if (interesting) {
+              const key = `${v.id || ''}:${title}`;
+              if (!seen.has(key)) {
+                seen.add(key);
+                const out = { path, id: v.id ?? null, title };
+                for (const [k, value] of Object.entries(v)) {
+                  if (dateKey.test(k) && (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' || value == null)) out[k] = value;
+                }
+                console.log(JSON.stringify(out));
+              }
+            }
+            for (const [k, child] of Object.entries(v)) {
+              if (child && typeof child === 'object') walk(child, path ? `${path}.${k}` : k, depth + 1);
+            }
+          }
+          walk(root);
+          console.log('MATCH_COUNT=' + seen.size);
+          NODE
