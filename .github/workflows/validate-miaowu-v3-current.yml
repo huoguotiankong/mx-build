@@ -62,3 +62,5 @@ jobs:
       - name: Lint
         working-directory: upstream
         run: ./gradlew :src:zh:miaowumanhua:lint --no-daemon
+
+# trigger: 2026-09-09T23:39+08:00 validate v1.6.7 web rollback
