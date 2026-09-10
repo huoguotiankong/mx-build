@@ -1,0 +1,78 @@
+name: Probe XGYW search and tag routes
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-xgyouwu-search.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Probe search and listing DOM
+        shell: bash
+        run: |
+          set -euo pipefail
+          ua='Mozilla/5.0 (Linux; Android 16; Pixel 9 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36'
+          base='http://www.xgyouwu.com'
+          out=/tmp/xgyw-search
+          mkdir -p "$out"
+          urls=(
+            "$base/s.asp?keyword=%A1%BECROSI%D0%B4%D5%E6%A1%BF"
+            "$base/s.asp?keyword=ROSI"
+            "$base/chis/yuantu/1.html"
+            "$base/xing/ganyoum/24_1.html"
+          )
+          i=0
+          for url in "${urls[@]}"; do
+            i=$((i+1))
+            curl -L --compressed -A "$ua" -e "$base/" -m 20 -sS -D "$out/$i.headers" -o "$out/$i.bin" -w "REQ$i code=%{http_code} final=%{url_effective} size=%{size_download}\n" "$url" || true
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+          import re,html
+          out=Path('/tmp/xgyw-search')
+          def dec(raw):
+              head=raw[:5000].decode('ascii','ignore').lower(); m=re.search(r'charset\s*=\s*["\']?([a-z0-9._-]+)',head)
+              for enc in ([m.group(1)] if m else [])+['gb18030','utf-8']:
+                  try:return raw.decode(enc),enc
+                  except:pass
+              return raw.decode('utf-8','replace'),'?'
+          for p in sorted(out.glob('*.bin')):
+              raw=p.read_bytes(); t,e=dec(raw); (out/(p.stem+'.utf8.txt')).write_text(t,encoding='utf-8')
+              print('\n###',p.stem,'ENC',e,'BYTES',len(raw))
+              m=re.search(r'<title[^>]*>(.*?)</title>',t,re.I|re.S)
+              if m: print('TITLE',re.sub(r'\s+',' ',html.unescape(m.group(1))).strip())
+              # opening container tags that contain detail links
+              for sel in ['id="list"',"id='list'",'class="list"',"class='list'",'div class="img"',"div class='img'"]:
+                  idx=t.lower().find(sel.lower())
+                  if idx>=0: print('CTX',sel,re.sub(r'\s+',' ',t[max(0,idx-300):idx+2500]).strip()[:2800])
+              cards=[]
+              for m in re.finditer(r'<a\b[^>]*href=["\']([^"\']*/xing/ganyou/[^"\']+)["\'][^>]*>(.*?)</a>',t,re.I|re.S):
+                  href=html.unescape(m.group(1)); lab=re.sub(r'<[^>]+>',' ',m.group(2)); lab=re.sub(r'\s+',' ',html.unescape(lab)).strip()
+                  if (href,lab) not in cards: cards.append((href,lab))
+              print('DETAIL_LINKS',len(cards))
+              for x in cards[:8]: print('CARD',x)
+              imgs=[]
+              for m in re.finditer(r'<img\b[^>]*>',t,re.I|re.S):
+                  tag=re.sub(r'\s+',' ',m.group(0)).strip()
+                  if tag not in imgs: imgs.append(tag)
+              print('IMGS',len(imgs))
+              for x in imgs[:8]: print('IMG',x[:1000])
+              # pagination
+              for m in re.finditer(r'<a\b[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)</a>',t,re.I|re.S):
+                  lab=re.sub(r'<[^>]+>',' ',m.group(2)); lab=re.sub(r'\s+',' ',html.unescape(lab)).strip()
+                  if lab in ('下一页','下10页','尾页','末页') or lab.isdigit(): print('PAGE',repr(lab),html.unescape(m.group(1)))
+          PY
+      - name: Upload probe
+        uses: actions/upload-artifact@v4
+        with:
+          name: xgyouwu-search-probe
+          path: /tmp/xgyw-search/
+          if-no-files-found: error
