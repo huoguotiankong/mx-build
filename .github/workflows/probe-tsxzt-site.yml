@@ -20,40 +20,71 @@ jobs:
         run: |
           set -euo pipefail
           ua='Mozilla/5.0 (Linux; Android 16; Pixel 9 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36'
+          base='http://www.tsxzt.com'
           out=/tmp/tsxzt-probe
           mkdir -p "$out"
-          for url in 'http://www.tsxzt.com/' 'https://www.tsxzt.com/' 'http://tsxzt.com/' 'https://tsxzt.com/'; do
-            key="$(printf '%s' "$url" | sed 's#https\?://##; s#[/:]#_#g')"
-            echo "=== $url ==="
-            curl -L --compressed -A "$ua" -m 20 -sS -D "$out/${key}.headers" -o "$out/${key}.html" -w 'code=%{http_code} final=%{url_effective} size=%{size_download}\n' "$url" || true
-            head -c 400 "$out/${key}.html" 2>/dev/null | tr '\n' ' ' || true
-            echo
+          declare -A urls=(
+            [home]="$base/"
+            [category]="$base/tese/sezhentum/25_1.html"
+            [category2]="$base/tese/sezhentum/25_2.html"
+            [tag]="$base/chis/xiurentaotu/1.html"
+            [tag2]="$base/chis/xiurentaotu/2.html"
+            [detail]="$base/tese/sezhentu/20360607/328375.html"
+            [detail_old]="$base/tese/sezhentu/20320506/256788.html"
+            [topjs]='http://js.tsxzt.com/js/top.js'
+            [ftjs]='http://js.tsxzt.com/js/ft.js'
+          )
+          for key in "${!urls[@]}"; do
+            url="${urls[$key]}"
+            echo "=== $key $url ==="
+            curl -L --compressed -A "$ua" -e "$base/" -m 20 -sS -D "$out/${key}.headers" -o "$out/${key}.bin" -w 'code=%{http_code} final=%{url_effective} size=%{size_download}\n' "$url" || true
           done
           python3 - <<'PY'
           from pathlib import Path
-          import re, html
+          import re, html, json
           out=Path('/tmp/tsxzt-probe')
-          for p in sorted(out.glob('*.html')):
-              txt=p.read_text('utf-8',errors='replace')
-              print('\n###',p.name,'len',len(txt))
-              title=re.search(r'<title[^>]*>(.*?)</title>',txt,re.I|re.S)
+          for p in sorted(out.glob('*.bin')):
+              raw=p.read_bytes()
+              text=raw.decode('gb18030',errors='replace')
+              (out/(p.stem+'.utf8.txt')).write_text(text,encoding='utf-8')
+              print('\n###',p.stem,'bytes',len(raw))
+              title=re.search(r'<title[^>]*>(.*?)</title>',text,re.I|re.S)
               if title: print('TITLE:',re.sub(r'\s+',' ',html.unescape(title.group(1))).strip())
+              if p.stem in {'topjs','ftjs'}:
+                  print(text[:8000])
+                  continue
+              # page structure summary
+              for cls in ['nav','dh','b','img','interestline','pages','page','content','main','pic','article','title']:
+                  c=len(re.findall(r'class=["\'][^"\']*\b'+re.escape(cls)+r'\b',text,re.I))
+                  if c: print('CLASS',cls,c)
               links=[]
-              for href,label in re.findall(r'<a[^>]+href=["\']([^"\']+)["\'][^>]*>(.*?)</a>',txt,re.I|re.S):
+              for href,label in re.findall(r'<a[^>]+href=["\']([^"\']+)["\'][^>]*>(.*?)</a>',text,re.I|re.S):
                   clean=re.sub('<[^>]+>',' ',label)
                   clean=re.sub(r'\s+',' ',html.unescape(clean)).strip()
-                  if href not in [x[0] for x in links]: links.append((href,clean[:80]))
-              print('LINKS:')
-              for href,label in links[:120]: print(href,'\t',label)
+                  if (href,clean) not in links: links.append((href,clean[:100]))
+              print('LINKS_FIRST:')
+              for href,label in links[:80]: print(href,'\t',label)
+              print('LINKS_LAST:')
+              for href,label in links[-30:]: print(href,'\t',label)
               imgs=[]
-              for src in re.findall(r'<img[^>]+(?:src|data-src|data-original)=["\']([^"\']+)["\']',txt,re.I):
-                  if src not in imgs: imgs.append(src)
-              print('IMAGES:')
-              for src in imgs[:40]: print(src)
+              for m in re.finditer(r'<img\b([^>]*)>',text,re.I|re.S):
+                  attrs=m.group(1)
+                  srcm=re.search(r'(?:src|data-src|data-original)=["\']([^"\']+)["\']',attrs,re.I)
+                  if srcm:
+                      item=srcm.group(1)
+                      if item not in imgs: imgs.append(item)
+              print('IMAGES',len(imgs))
+              for src in imgs[:30]: print(src)
+              # contextual hits useful for parsing metadata/tags/paging/search
+              for kw in ['标签','关键字','关键词','Tag','tag','发布时间','更新时间','上一页','下一页','搜索','作者','来源','套图','图片']:
+                  pos=text.find(kw)
+                  if pos>=0:
+                      snip=re.sub(r'\s+',' ',text[max(0,pos-250):pos+700])
+                      print('HIT',kw,snip[:950])
           PY
       - name: Upload probe
         uses: actions/upload-artifact@v4
         with:
-          name: tsxzt-site-probe
+          name: tsxzt-site-probe-deep
           path: /tmp/tsxzt-probe/
           if-no-files-found: error
