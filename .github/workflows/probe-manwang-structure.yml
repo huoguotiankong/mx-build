@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Execute reader decoder
+      - name: Reveal reader params object
         shell: bash
         run: |
           set -euo pipefail
@@ -39,12 +39,14 @@ jobs:
           PY
           cat >/tmp/run.js <<'NODE'
           const fs=require('fs'), vm=require('vm');
-          const enc=JSON.parse(fs.readFileSync('/tmp/encrypted.json','utf8'));
+          const nativeParse=JSON.parse;
+          const enc=nativeParse(fs.readFileSync('/tmp/encrypted.json','utf8'));
           global.window={location:{hostname:'mh5.app'},innerHeight:1000};
           global.document={documentElement:{clientHeight:1000}};
           const dummy={eq(){return this},offset(){return {top:0}},scroll(){return this},append(){return this},add(){return this},length:0};
           global.$=function(x){ if(typeof x==='function'){x(); return dummy;} return dummy; };
           vm.runInThisContext(fs.readFileSync('/tmp/crypto.js','utf8'));
+          JSON.parse=function(s){ const x=nativeParse(s); if(x && typeof x==='object' && (x.images || x.host || x.source_id)) console.log('PARSED_OBJECT='+JSON.stringify(x)); return x; };
           global.params=enc;
           vm.runInThisContext(fs.readFileSync('/tmp/pic-run.js','utf8'));
           NODE
