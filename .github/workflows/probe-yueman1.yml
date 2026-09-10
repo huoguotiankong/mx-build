@@ -15,31 +15,54 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Inspect categories and mirrors
+      - name: Inspect mobile endpoints
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import re, urllib.request
+          import re, urllib.request, urllib.error, base64
+          from urllib.parse import urljoin
           from html import unescape
-          UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36'
-          def load(url):
+          from http.cookiejar import CookieJar
+          UA='Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/131.0 Mobile Safari/537.36'
+          jar=CookieJar(); op=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+          def load(url, ref=None):
+              h={'User-Agent':UA,'Accept-Language':'zh-CN,zh;q=0.9'}
+              if ref:h['Referer']=ref
               try:
-                  req=urllib.request.Request(url,headers={'User-Agent':UA,'Accept-Language':'zh-CN,zh;q=0.9'})
-                  with urllib.request.urlopen(req,timeout=12) as r:
-                      b=r.read(700000); ct=r.headers.get('content-type','').lower(); enc='gb18030' if ('gb' in ct or 'yueman1' in url) else 'utf-8'
-                      try:t=b.decode(enc)
-                      except:t=b.decode('gb18030','ignore')
-                      print('\nURL',url,'status',r.status,'final',r.geturl(),'title',re.findall(r'<title[^>]*>(.*?)</title>',t,re.I|re.S)[:1])
-                      anchors=[]
-                      for h,txt in re.findall(r'<a[^>]+href=["\']([^"\']+)["\'][^>]*>(.*?)</a>',t,re.I|re.S):
-                          plain=unescape(re.sub(r'<[^>]+>',' ',txt)); plain=re.sub(r'\s+',' ',plain).strip()
-                          if plain: anchors.append((h,plain))
-                      print('MMM',[(h,x) for h,x in anchors if '/mmm/' in h][:30])
-                      print('ORDER',[(h,x) for h,x in anchors if '/manhua/o/' in h][:30])
-                      print('MANHUA',[(h,x) for h,x in anchors if re.fullmatch(r'/manhua/\d+\.html',h)][:25])
-                      print('ALL LINKS',anchors[:80])
-              except Exception as e: print('ERR',url,repr(e))
-          for u in ['http://www.yueman1.cc/','http://reman.cc/','https://m.gugu5.com/','https://www.gugu5.com/','http://m.yueman.cc/','http://www.yueman.cc/','http://m.yueman1.cc/']:
-              load(u)
+                  with op.open(urllib.request.Request(url,headers=h),timeout=12) as r:
+                      b=r.read(800000); ct=r.headers.get('content-type','').lower();
+                      try:t=b.decode('gb18030')
+                      except:t=b.decode('utf-8','ignore')
+                      print('\nOK',url,'=>',r.status,r.geturl(),'bytes',len(b),'title',re.findall(r'<title[^>]*>(.*?)</title>',t,re.I|re.S)[:1])
+                      return r.geturl(),t
+              except urllib.error.HTTPError as e:
+                  b=e.read(200000); print('\nHTTP',url,e.code,b[:200]); return url,''
+              except Exception as e: print('\nERR',url,repr(e)); return url,''
+          base='http://m.yueman1.cc/'
+          paths=['','manhua/o/m_waprecent.html','manhua/o/m_waphit.html','manhua/o/m_waplistindex.html','manhua/o/m_wapRHmh.html']
+          for p in paths:
+              u=urljoin(base,p); final,t=load(u,base)
+              if not t: continue
+              anchors=[]
+              for h,txt in re.findall(r'<a[^>]+href=["\']([^"\']+)["\'][^>]*>(.*?)</a>',t,re.I|re.S):
+                  plain=unescape(re.sub(r'<[^>]+>',' ',txt)); plain=re.sub(r'\s+',' ',plain).strip()
+                  anchors.append((h,plain))
+              print('ANCHORS',anchors[:150])
+              print('IMGS',re.findall(r'(?:src|data-src|data-original)=["\']([^"\']+)',t,re.I)[:80])
+              print('MANGA-LIKE',[x for x in anchors if any(k in x[0].lower() for k in ('manhua','comic','book','info','detail'))][:80])
+              print('NUM-LIKE',[x for x in anchors if re.search(r'\d',x[0])][:100])
+          # Try obvious detail/chapter aliases carried from desktop IDs.
+          for u in [
+              'http://m.yueman1.cc/manhua/47956.html',
+              'http://m.yueman1.cc/p/47956/2371869.html',
+              'http://m.yueman1.cc/manhua/28993.html',
+          ]:
+              final,t=load(u,base)
+              if t:
+                  print('DETAIL/READ HEAD',re.sub(r'\s+',' ',t[:5000]))
+                  m=re.search(r'qTcms_S_m_murl_e="([^"]+)"',t)
+                  if m:
+                      raw=base64.b64decode(m.group(1)).decode('utf-8','ignore')
+                      print('PICS',len(raw.split('$qingtiandy$')),raw.split('$qingtiandy$')[:3])
           PY
