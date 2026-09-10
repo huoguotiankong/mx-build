@@ -15,27 +15,83 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Inspect Fengche search challenge
+      - name: Probe Fengche image loading
         shell: bash
         run: |
           python3 - <<'PY'
-          import re, urllib.parse, urllib.request
-          base='https://www.fengchemh.com'; ua='Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140.0 Mobile Safari/537.36'
-          def get(path):
-              req=urllib.request.Request(base+path,headers={'User-Agent':ua,'Referer':base+'/'})
-              with urllib.request.urlopen(req,timeout=20) as r:return r.read().decode('utf-8','ignore')
-          def compact(x): return re.sub(r'\s+',' ',x).strip()
-          q=urllib.parse.quote('仙武帝尊')
-          page=get('/search?key='+q)
-          print('CHALLENGE',compact(page)[:5200])
-          for path in ['/template/pc/fengchemanhua/js/ewave-global.js','/template/pc/fengchemanhua/js/home.js']:
-              text=get(path)
-              print('\nFILE',path)
-              for needle in ['Search={','Search =','Search.Init','search-dropdown','search-key','suggest','autocomplete']:
-                  start=0
-                  while True:
-                      i=text.find(needle,start)
-                      if i<0: break
-                      print('SNIP',needle,compact(text[max(0,i-900):i+2200])[:3100])
-                      start=i+len(needle)
+          import base64, hashlib, json, re, ssl, time, urllib.parse, urllib.request
+          from Crypto.Cipher import AES
+          from Crypto.Util.Padding import unpad
+
+          base='https://www.fengchemh.com'
+          ua='Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140.0 Mobile Safari/537.36'
+          chapter_path='/chapter/XzwzKUa6g4.html'
+          chapter_url=base+chapter_path
+
+          def fetch(url, headers=None, timeout=20):
+              hdr={'User-Agent':ua,'Accept':'image/avif,image/webp,image/apng,image/*,*/*;q=0.8'}
+              if headers: hdr.update(headers)
+              req=urllib.request.Request(url,headers=hdr)
+              start=time.monotonic()
+              try:
+                  with urllib.request.urlopen(req,timeout=timeout) as r:
+                      data=r.read()
+                      elapsed=time.monotonic()-start
+                      return r.status, r.geturl(), data, elapsed, dict(r.headers)
+              except urllib.error.HTTPError as e:
+                  data=e.read()
+                  return e.code, e.geturl(), data, time.monotonic()-start, dict(e.headers)
+              except Exception as e:
+                  return 0, url, repr(e).encode(), time.monotonic()-start, {}
+
+          print('=== COVER ===')
+          cover_path='/attachment/comic/2026/08/13/202608132300414275.webp'
+          cover_urls=[
+              'https://www.fengchemh.com'+cover_path,
+              'http://www.fengchemh.com'+cover_path,
+              'https://fengchemh.com'+cover_path,
+          ]
+          for u in cover_urls:
+              for label,h in [('clean',{}),('home-ref',{'Referer':base+'/'})]:
+                  st,final,data,elapsed,resp=fetch(u,h)
+                  print('COVER',label,u,'status',st,'final',final,'bytes',len(data),'time',round(elapsed,3),'sha',hashlib.sha256(data).hexdigest()[:16],'ctype',resp.get('Content-Type'),'cache',resp.get('Cache-Control'))
+
+          print('\n=== CHAPTER ===')
+          st,final,html_bytes,elapsed,_=fetch(chapter_url,{'Accept':'text/html,*/*;q=0.8'})
+          html=html_bytes.decode('utf-8','ignore')
+          print('CHAPTER','status',st,'time',round(elapsed,3),'bytes',len(html_bytes))
+          m=re.search(r"params\s*=\s*['\"]([^'\"]+)",html)
+          if not m:
+              raise SystemExit('params missing')
+          raw=base64.b64decode(m.group(1))
+          key=b'9S8$vJnU2ANeSRoF'
+          plain=unpad(AES.new(key,AES.MODE_CBC,iv=raw[:16]).decrypt(raw[16:]),16)
+          obj=json.loads(plain)
+          images=obj.get('images') or []
+          print('PARAMS host=',obj.get('host'),'source_id=',obj.get('source_id'),'images=',len(images))
+          for i,u in enumerate(images[:5]):
+              p=urllib.parse.urlsplit(u)
+              print('IMAGE',i,'scheme',p.scheme,'host',p.netloc,'path_prefix',p.path[:120],'len',len(u))
+
+          print('\n=== IMAGE HEADER BENCH ===')
+          for i,u in enumerate(images[:3]):
+              if not str(u).startswith(('http://','https://')):
+                  continue
+              for label,h in [
+                  ('clean',{}),
+                  ('chapter-ref',{'Referer':chapter_url}),
+                  ('chapter-ref-origin',{'Referer':chapter_url,'Origin':base}),
+              ]:
+                  st,final,data,elapsed,resp=fetch(u,h,30)
+                  print('BENCH',i,label,'status',st,'time',round(elapsed,3),'bytes',len(data),'host',urllib.parse.urlsplit(final).netloc,'sha',hashlib.sha256(data).hexdigest()[:16],'ctype',resp.get('Content-Type'))
+
+          print('\n=== SAME-PATH HOST REWRITE ===')
+          for i,u in enumerate(images[:2]):
+              p=urllib.parse.urlsplit(u)
+              if p.netloc.lower() != 'www.fengchemh.com':
+                  continue
+              for host in ['fengchemh.com','www.fengchemh.com']:
+                  candidate=urllib.parse.urlunsplit((p.scheme,host,p.path,p.query,p.fragment))
+                  st,final,data,elapsed,_=fetch(candidate,{'Referer':chapter_url},30)
+                  print('HOST',i,host,'status',st,'time',round(elapsed,3),'bytes',len(data),'sha',hashlib.sha256(data).hexdigest()[:16])
           PY
