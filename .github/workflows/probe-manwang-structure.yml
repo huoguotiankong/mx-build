@@ -15,33 +15,38 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Capture reader decoder inputs
+      - name: Capture Manwang HTML and reader decoder
         shell: bash
         run: |
           set -euo pipefail
           ua='Mozilla/5.0 (Linux; Android 16; Pixel 9 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36'
           base='https://mh5.app'
-          mkdir -p /tmp/manwang-probe
-          curl -fsSL --compressed -A "$ua" "$base/template/pc/24/js/pic-v2.js" -o /tmp/manwang-probe/pic-v2.js
-          curl -fsSL --compressed -A "$ua" "$base/template/pc/24/js/read.js" -o /tmp/manwang-probe/read.js
-          curl -fsSL --compressed -A "$ua" "$base/packs/js/crypto-js.min.js" -o /tmp/manwang-probe/crypto-js.min.js
-          curl -fsSL --compressed -A "$ua" "$base/chapter/r01nZfQE2w.html" -o /tmp/manwang-probe/reader.html
+          out=/tmp/manwang-probe
+          mkdir -p "$out"
+          curl -fsSL --compressed -A "$ua" "$base/" -o "$out/home.html"
+          curl -fsSL --compressed -A "$ua" "$base/category" -o "$out/category.html"
+          curl -fsSL --compressed -A "$ua" "$base/custom/update" -o "$out/update.html"
+          curl -fsSL --compressed -A "$ua" "$base/custom/hot" -o "$out/hot.html"
+          curl -fsSL --compressed -A "$ua" "$base/index.php/search?key=%E5%A6%96%E7%A5%9E%E8%AE%B0" -o "$out/search.html"
+          curl -fsSL --compressed -A "$ua" "$base/r0xMpQZOWy" -o "$out/detail.html"
+          curl -fsSL --compressed -A "$ua" "$base/chapter/r01nZfQE2w.html" -o "$out/reader.html"
+          curl -fsSL --compressed -A "$ua" "$base/template/pc/24/js/pic-v2.js" -o "$out/pic-v2.js"
+          curl -fsSL --compressed -A "$ua" "$base/template/pc/24/js/read.js" -o "$out/read.js"
+          curl -fsSL --compressed -A "$ua" "$base/packs/js/crypto-js.min.js" -o "$out/crypto-js.min.js"
           python3 - <<'PY'
           import re,json
           from pathlib import Path
-          raw=Path('/tmp/manwang-probe/reader.html').read_text('utf-8',errors='replace')
+          out=Path('/tmp/manwang-probe')
+          raw=(out/'reader.html').read_text('utf-8',errors='replace')
           m=re.search(r"params\s*=\s*'([^']+)'",raw)
           if not m: raise SystemExit('params missing')
-          Path('/tmp/manwang-probe/params.txt').write_text(m.group(1))
-          Path('/tmp/manwang-probe/meta.json').write_text(json.dumps({
-              'params_length': len(m.group(1)),
-              'pic_js_size': Path('/tmp/manwang-probe/pic-v2.js').stat().st_size,
-              'read_js_size': Path('/tmp/manwang-probe/read.js').stat().st_size,
-          }, ensure_ascii=False, indent=2))
+          (out/'params.txt').write_text(m.group(1))
+          meta={p.name:p.stat().st_size for p in out.iterdir() if p.is_file()}
+          (out/'meta.json').write_text(json.dumps(meta, ensure_ascii=False, indent=2))
           PY
-      - name: Upload decoder probe
+      - name: Upload Manwang probe
         uses: actions/upload-artifact@v4
         with:
-          name: manwang-reader-decoder
+          name: manwang-site-probe
           path: /tmp/manwang-probe/
           if-no-files-found: error
