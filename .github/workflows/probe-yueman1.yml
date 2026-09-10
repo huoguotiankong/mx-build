@@ -1,0 +1,66 @@
+name: Probe Yueman1 Manga
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-yueman1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Probe site structure
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import re, urllib.request, urllib.error
+          from urllib.parse import urljoin
+
+          UA = 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/131.0 Mobile Safari/537.36'
+          def get(url):
+              req = urllib.request.Request(url, headers={'User-Agent': UA, 'Accept-Language':'zh-CN,zh;q=0.9'})
+              try:
+                  with urllib.request.urlopen(req, timeout=15) as r:
+                      b=r.read(800000)
+                      print('GET', url, '->', r.status, 'final=', r.geturl(), 'type=', r.headers.get('content-type'), 'bytes=', len(b))
+                      return r.geturl(), b.decode('utf-8','ignore')
+              except Exception as e:
+                  print('GET', url, 'ERROR', repr(e))
+                  return url, ''
+
+          for u in ['http://www.yueman1.cc/','https://www.yueman1.cc/','http://yueman1.cc/','https://yueman1.cc/']:
+              final, html = get(u)
+              if html:
+                  print('TITLE', re.findall(r'<title[^>]*>(.*?)</title>', html, re.I|re.S)[:2])
+                  print('FORMS', re.findall(r'<form[^>]+action=["\']?([^"\' >]+)', html, re.I)[:10])
+                  hrefs = re.findall(r'href=["\']([^"\']+)', html, re.I)
+                  imgs = re.findall(r'(?:src|data-original|data-src)=["\']([^"\']+)', html, re.I)
+                  print('HREFS', hrefs[:80])
+                  print('IMGS', imgs[:30])
+                  # probe first likely manga/detail link
+                  candidates=[h for h in hrefs if any(k in h.lower() for k in ('comic','manhua','book','detail','manga')) and not h.startswith('javascript')]
+                  if not candidates:
+                      candidates=[h for h in hrefs if re.search(r'/\d+/?(?:\.html)?$',h)]
+                  if candidates:
+                      detail=urljoin(final,candidates[0]); print('DETAIL_CANDIDATE', detail)
+                      durl, dhtml=get(detail)
+                      dhrefs=re.findall(r'href=["\']([^"\']+)',dhtml,re.I)
+                      print('DETAIL_TITLE', re.findall(r'<title[^>]*>(.*?)</title>',dhtml,re.I|re.S)[:2])
+                      print('DETAIL_HREFS', dhrefs[:120])
+                      chapters=[h for h in dhrefs if any(k in h.lower() for k in ('chapter','read','view','play'))]
+                      if not chapters:
+                          chapters=[h for h in dhrefs if re.search(r'/\d+[-_/]\d+',h)]
+                      if chapters:
+                          chapter=urljoin(durl,chapters[0]); print('CHAPTER_CANDIDATE',chapter)
+                          curl, chtml=get(chapter)
+                          print('CHAPTER_TITLE', re.findall(r'<title[^>]*>(.*?)</title>',chtml,re.I|re.S)[:2])
+                          print('CHAPTER_SNIPPETS', [s[:240] for s in re.findall(r'.{0,80}(?:img|image|chapter|pages|pic|mhurl|mhttp).{0,160}',chtml,re.I|re.S)[:30]])
+                  break
+          PY
