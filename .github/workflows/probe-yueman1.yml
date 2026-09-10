@@ -15,44 +15,16 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Probe Manga Daquan CDN mirrors and logo assets
+      - name: Capture Manga Daquan official logo
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import re, urllib.request, urllib.error
-          UA='Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36'
-          BASE='http://m.yueman1.cc'
-          def get(url, ref=None, limit=65536):
-              h={'User-Agent':UA,'Accept-Language':'zh-CN,zh;q=0.9','Accept':'image/avif,image/webp,image/apng,image/*,*/*;q=0.8'}
-              if ref: h['Referer']=ref
-              try:
-                  with urllib.request.urlopen(urllib.request.Request(url,headers=h),timeout=12) as r:
-                      d=r.read(limit); return r.status,r.geturl(),d,dict(r.headers)
-              except urllib.error.HTTPError as e:
-                  return e.code,e.geturl(),e.read(limit),dict(e.headers)
-              except Exception as e:
-                  return 0,url,str(e).encode(),{}
-
-          image='https://s1.baozicdn.com/scomic/nazhachuanxinban-mimaodongman/0/41-suwp/1.jpg'
-          variants=[
-              image,
-              image.replace('s1.baozicdn.com','s1.bzcdn.net'),
-              image.replace('s1.baozicdn.com','s2.bzcdn.net'),
-              image.replace('s1.baozicdn.com','s2.baozicdn.com'),
-          ]
-          for u in variants:
-              code,final,data,h=get(u,'http://m.yueman1.cc/p/47956/2372396.html',32768)
-              sig='jpeg' if data.startswith(b'\xff\xd8\xff') else 'png' if data.startswith(b'\x89PNG') else 'riff' if data[:4]==b'RIFF' else 'other'
-              print('CDN',u,'code',code,'bytes',len(data),'sig',sig,'type',h.get('Content-Type'),'final',final)
-
-          code,final,data,h=get(BASE+'/',BASE+'/',200000)
-          html=data.decode('gb18030','ignore')
-          print('HOME',code,len(data))
-          for tag in re.findall(r'<(?:img|link)[^>]+>',html,re.I):
-              low=tag.lower()
-              if 'logo' in low or 'icon' in low:
-                  print('ASSET_TAG',tag[:1000])
-          for css in re.findall(r'url\(([^)]+)\)',html,re.I):
-              if 'logo' in css.lower() or 'icon' in css.lower(): print('CSS_ASSET',css)
+          import base64, urllib.request
+          url='http://www.yueman1.cc/template/skin4_20110501/images/logo_wap.gif'
+          req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 Chrome/131.0 Mobile Safari/537.36','Referer':'http://m.yueman1.cc/'})
+          with urllib.request.urlopen(req,timeout=15) as r:
+              data=r.read()
+              print('STATUS',r.status,'TYPE',r.headers.get('Content-Type'),'BYTES',len(data),'FINAL',r.geturl())
+              print('LOGO_B64='+base64.b64encode(data).decode())
           PY
