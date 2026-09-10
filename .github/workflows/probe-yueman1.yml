@@ -15,68 +15,31 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Probe mirrors and reader
+      - name: Inspect categories and mirrors
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import re, urllib.request, urllib.error, base64
-          from urllib.parse import urljoin
-          from http.cookiejar import CookieJar
-
+          import re, urllib.request
+          from html import unescape
           UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36'
-          def session():
-              jar=CookieJar(); return jar, urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
-          def fetch(opener,url,referer=None):
-              h={'User-Agent':UA,'Accept-Language':'zh-CN,zh;q=0.9','Accept':'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8'}
-              if referer: h['Referer']=referer
+          def load(url):
               try:
-                  with opener.open(urllib.request.Request(url,headers=h),timeout=12) as r:
-                      b=r.read(1000000); ct=r.headers.get('content-type','')
-                      enc='gb18030' if ('gb2312' in ct.lower() or 'gbk' in ct.lower()) else 'utf-8'
-                      try: t=b.decode(enc)
-                      except: t=b.decode('gb18030','ignore')
-                      print('OK',url,'=>',r.status,r.geturl(),'bytes',len(b),'title',re.findall(r'<title[^>]*>(.*?)</title>',t,re.I|re.S)[:1])
-                      return r.geturl(),t,b
-              except urllib.error.HTTPError as e:
-                  b=e.read(200000); t=b.decode('utf-8','ignore'); print('HTTP',url,e.code,'title',re.findall(r'<title[^>]*>(.*?)</title>',t,re.I|re.S)[:1],'setcookie',e.headers.get('Set-Cookie')); return url,'',b
-              except Exception as e:
-                  print('ERR',url,repr(e)); return url,'',b''
-
-          bases=['http://www.yueman1.cc/','https://www.yueman1.cc/','http://reman.cc/','https://reman.cc/','http://www.reman.cc/','https://www.reman.cc/','https://m.gugu5.com/','https://www.gugu5.com/']
-          for base in bases:
-              jar,opener=session(); final,html,_=fetch(opener,base)
-              if not html: continue
-              hrefs=re.findall(r'href=["\']([^"\']+)',html,re.I)
-              mangas=[h for h in hrefs if re.search(r'/(?:manhua|m|n)/\d+(?:\.html|/)?$',h,re.I)]
-              chapters=[h for h in hrefs if re.search(r'/(?:p|n)/\d+/\d+(?:\.html)?$',h,re.I)]
-              print('BASE',base,'mangas',mangas[:10],'chapters',chapters[:10])
-              # Try canonical Yueman IDs plus first discovered.
-              ds=[]
-              if 'yueman1.cc' in base: ds=['/manhua/47956.html']
-              ds += mangas[:2]
-              for d in dict.fromkeys(ds):
-                  u=urljoin(final,d)
-                  for attempt in range(1,4):
-                      _,dh,_=fetch(opener,u,final)
-                      if dh:
-                          print('DETAIL_OK',u,'attempt',attempt,'chapters',re.findall(r'href=["\']([^"\']*(?:/p/|/n/)\d+[^"\']*)',dh,re.I)[:15])
-                          print('DETAIL_TEXT',re.sub('<[^>]+>',' ',dh)[:2500].replace('\n',' '))
-                          break
-              cs=[]
-              if 'yueman1.cc' in base: cs=['/p/47956/2371869.html']
-              cs += chapters[:1]
-              for c in dict.fromkeys(cs):
-                  u=urljoin(final,c)
-                  ch=''
-                  for attempt in range(1,4):
-                      _,ch,_=fetch(opener,u,final)
-                      if ch: break
-                  if ch:
-                      m=re.search(r'qTcms_S_m_murl_e="([^"]+)"',ch)
-                      if m:
-                          raw=base64.b64decode(m.group(1)).decode('utf-8','ignore')
-                          pics=raw.split('$qingtiandy$')
-                          print('READER',u,'pics',len(pics),'first',pics[:3])
-              print('---')
+                  req=urllib.request.Request(url,headers={'User-Agent':UA,'Accept-Language':'zh-CN,zh;q=0.9'})
+                  with urllib.request.urlopen(req,timeout=12) as r:
+                      b=r.read(700000); ct=r.headers.get('content-type','').lower(); enc='gb18030' if ('gb' in ct or 'yueman1' in url) else 'utf-8'
+                      try:t=b.decode(enc)
+                      except:t=b.decode('gb18030','ignore')
+                      print('\nURL',url,'status',r.status,'final',r.geturl(),'title',re.findall(r'<title[^>]*>(.*?)</title>',t,re.I|re.S)[:1])
+                      anchors=[]
+                      for h,txt in re.findall(r'<a[^>]+href=["\']([^"\']+)["\'][^>]*>(.*?)</a>',t,re.I|re.S):
+                          plain=unescape(re.sub(r'<[^>]+>',' ',txt)); plain=re.sub(r'\s+',' ',plain).strip()
+                          if plain: anchors.append((h,plain))
+                      print('MMM',[(h,x) for h,x in anchors if '/mmm/' in h][:30])
+                      print('ORDER',[(h,x) for h,x in anchors if '/manhua/o/' in h][:30])
+                      print('MANHUA',[(h,x) for h,x in anchors if re.fullmatch(r'/manhua/\d+\.html',h)][:25])
+                      print('ALL LINKS',anchors[:80])
+              except Exception as e: print('ERR',url,repr(e))
+          for u in ['http://www.yueman1.cc/','http://reman.cc/','https://m.gugu5.com/','https://www.gugu5.com/','http://m.yueman.cc/','http://www.yueman.cc/','http://m.yueman1.cc/']:
+              load(u)
           PY
