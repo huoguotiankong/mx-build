@@ -1,0 +1,79 @@
+name: Probe Miaowu public config
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-miaowu-public-config.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Probe official public config endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          probe() {
+            name="$1"
+            url="$2"
+            out="/tmp/${name}.body"
+            hdr="/tmp/${name}.headers"
+            code="$(curl -L --connect-timeout 8 --max-time 15 -sS -D "$hdr" -o "$out" -w '%{http_code}' "$url" || true)"
+            size="$(wc -c < "$out" 2>/dev/null || echo 0)"
+            ctype="$(awk 'BEGIN{IGNORECASE=1} /^content-type:/ {sub(/^[^:]*:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit}' "$hdr" 2>/dev/null || true)"
+            echo "$name status=$code size=$size content-type=${ctype:-unknown}"
+            if [[ -s "$out" ]]; then
+              sha256sum "$out"
+            fi
+          }
+
+          probe mw_json 'http://121.11.204.141:8124/mw.json'
+          probe api_root 'https://maowu.iqtao.cn/'
+
+      - name: Parse only non-sensitive public config fields
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          p = Path('/tmp/mw_json.body')
+          if not p.exists() or not p.stat().st_size:
+              print('mw.json body unavailable')
+              raise SystemExit(0)
+
+          raw = p.read_text('utf-8', errors='replace').strip()
+          try:
+              data = json.loads(raw)
+          except Exception as exc:
+              print('mw.json is not plain JSON:', type(exc).__name__)
+              print('prefix:', raw[:160].replace('\n', ' '))
+              raise SystemExit(0)
+
+          allowed = {
+              'apiBaseUrl', 'api_base_url', 'baseUrl', 'base_url',
+              'shareBaseUrl', 'share_base_url', 'host', 'domain',
+              'version', 'appVersion', 'buildNumber', 'channel',
+          }
+
+          def walk(obj, path=''):
+              if isinstance(obj, dict):
+                  for key, value in obj.items():
+                      pth = f'{path}.{key}' if path else str(key)
+                      if key in allowed and isinstance(value, (str, int, float, bool, type(None))):
+                          print(f'{pth}={value}')
+                      walk(value, pth)
+              elif isinstance(obj, list):
+                  for i, value in enumerate(obj[:20]):
+                      walk(value, f'{path}[{i}]')
+
+          walk(data)
+          PY
