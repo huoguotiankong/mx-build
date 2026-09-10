@@ -15,25 +15,37 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Inspect reader decoder
+      - name: Execute reader decoder
         shell: bash
         run: |
           set -euo pipefail
           ua='Mozilla/5.0 (Linux; Android 16; Pixel 9 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36'
           base='https://mh5.app'
           curl -fsSL --compressed -A "$ua" "$base/template/pc/24/js/pic-v2.js" -o /tmp/pic.js
-          curl -fsSL --compressed -A "$ua" "$base/template/pc/24/js/read.js" -o /tmp/read.js
+          curl -fsSL --compressed -A "$ua" "$base/packs/js/crypto-js.min.js" -o /tmp/crypto.js
           curl -fsSL --compressed -A "$ua" "$base/chapter/r01nZfQE2w.html" -o /tmp/reader.html
-          echo '===== PIC-V2.JS ====='
-          cat /tmp/pic.js
-          echo '===== RELEVANT READ.JS ====='
-          grep -nE 'parr|params|pic|img-box|decrypt|CryptoJS|AES' /tmp/read.js || true
-          echo '===== INLINE READER AROUND PARAMS ====='
           python3 - <<'PY'
-          import re
+          import re,json
           from pathlib import Path
           raw=Path('/tmp/reader.html').read_text('utf-8',errors='replace')
-          for m in re.finditer(r'params\s*=\s*["\'][^"\']+', raw):
-              start=max(0,m.start()-1200); end=min(len(raw),m.end()+2500)
-              print(raw[start:end])
+          m=re.search(r"params\s*=\s*'([^']+)'",raw)
+          if not m: raise SystemExit('params missing')
+          Path('/tmp/encrypted.json').write_text(json.dumps(m.group(1)))
+          js=Path('/tmp/pic.js').read_text('utf-8',errors='replace')
+          needle='params=decryptParams(params);'
+          if needle not in js: raise SystemExit('decrypt assignment missing')
+          js=js.replace(needle, needle+"console.log('DECRYPTED='+JSON.stringify(params));process.exit(0);",1)
+          Path('/tmp/pic-run.js').write_text(js)
           PY
+          cat >/tmp/run.js <<'NODE'
+          const fs=require('fs'), vm=require('vm');
+          const enc=JSON.parse(fs.readFileSync('/tmp/encrypted.json','utf8'));
+          global.window={location:{hostname:'mh5.app'},innerHeight:1000};
+          global.document={documentElement:{clientHeight:1000}};
+          const dummy={eq(){return this},offset(){return {top:0}},scroll(){return this},append(){return this},add(){return this},length:0};
+          global.$=function(x){ if(typeof x==='function'){x(); return dummy;} return dummy; };
+          vm.runInThisContext(fs.readFileSync('/tmp/crypto.js','utf8'));
+          global.params=enc;
+          vm.runInThisContext(fs.readFileSync('/tmp/pic-run.js','utf8'));
+          NODE
+          node /tmp/run.js
