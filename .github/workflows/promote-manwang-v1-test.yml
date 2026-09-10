@@ -1,0 +1,151 @@
+name: Promote Manwang v1 test only
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/promote-manwang-v1-test.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: promote-manwang-v1-test-only
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check publish token
+        shell: bash
+        env:
+          MX_REPO_TOKEN: ${{ secrets.MX_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_REPO_TOKEN" ]] || { echo "::error::Missing MX_REPO_TOKEN"; exit 1; }
+
+      - name: Checkout verified extension staging
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-build
+          ref: extension-staging
+          path: staging
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify staged Manwang v1 payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          package = 'eu.kanade.tachiyomi.extension.zh.manwang'
+          data = json.loads(Path('staging/test/index.json').read_text('utf-8'))
+          item = next(x for x in data['extensionList']['extensions'] if x.get('packageName') == package)
+          assert (item.get('versionName'), item.get('versionCode')) == ('1.6.1', 106001), item
+          assert Path('staging/test/apk/tachiyomi-zh.manwang-v1.6.1.apk').is_file()
+          assert Path('staging/test/icon/eu.kanade.tachiyomi.extension.zh.manwang-v106001.png').is_file()
+          print('Verified staged Manwang v1 payload')
+          PY
+
+      - name: Checkout public repository
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-repo
+          ref: repo
+          token: ${{ secrets.MX_REPO_TOKEN }}
+          path: repo
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Merge only Manwang v1 into MX Test
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import shutil
+          from pathlib import Path
+          package = 'eu.kanade.tachiyomi.extension.zh.manwang'
+          staged = json.loads(Path('staging/test/index.json').read_text('utf-8'))
+          public_index = Path('repo/test/index.json')
+          public = json.loads(public_index.read_text('utf-8'))
+          staged_item = next(x for x in staged['extensionList']['extensions'] if x.get('packageName') == package)
+          assert (staged_item.get('versionName'), staged_item.get('versionCode')) == ('1.6.1', 106001)
+          extensions = public['extensionList']['extensions']
+          matches = [i for i, x in enumerate(extensions) if x.get('packageName') == package]
+          if len(matches) > 1:
+              raise SystemExit(f'Expected at most one public Manwang entry, found {len(matches)}')
+          if matches:
+              extensions[matches[0]] = staged_item
+          else:
+              extensions.append(staged_item)
+          extensions.sort(key=lambda x: (str(x.get('name', '')).lower(), str(x.get('packageName', '')).lower()))
+          public_index.write_text(json.dumps(public, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          apk_src = Path('staging/test/apk/tachiyomi-zh.manwang-v1.6.1.apk')
+          icon_src = Path('staging/test/icon/eu.kanade.tachiyomi.extension.zh.manwang-v106001.png')
+          Path('repo/test/apk').mkdir(parents=True, exist_ok=True)
+          Path('repo/test/icon').mkdir(parents=True, exist_ok=True)
+          shutil.copy2(apk_src, Path('repo/test/apk') / apk_src.name)
+          shutil.copy2(icon_src, Path('repo/test/icon') / icon_src.name)
+          print('Merged Manwang v1 only; other test entries preserved')
+          PY
+
+      - name: Verify targeted diff
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add test/index.json \
+            test/apk/tachiyomi-zh.manwang-v1.6.1.apk \
+            test/icon/eu.kanade.tachiyomi.extension.zh.manwang-v106001.png
+          git diff --cached --check
+          changed="$(git diff --cached --name-only)"
+          printf '%s\n' "$changed"
+          while IFS= read -r path; do
+            case "$path" in
+              test/index.json|test/apk/tachiyomi-zh.manwang-v1.6.1.apk|test/icon/eu.kanade.tachiyomi.extension.zh.manwang-v106001.png) ;;
+              *) echo "::error::Unexpected staged path: $path"; exit 1 ;;
+            esac
+          done <<< "$changed"
+
+      - name: Commit public Manwang v1 test
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if ! git diff --cached --quiet; then
+            git commit -m 'Publish Manwang v1.6.1 test'
+            git push origin HEAD:repo
+          fi
+
+      - name: Verify public Manwang v1 online
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://raw.githubusercontent.com/huoguotiankong/mx-repo/repo/test'
+          ok=0
+          for n in 1 2 3 4 5 6; do
+            code="$(curl -L -sS -o /tmp/index.json -w '%{http_code}' "$base/index.json?ts=$(date +%s%N)" || true)"
+            if [[ "$code" == '200' ]]; then
+              if python3 - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('/tmp/index.json').read_text('utf-8'))
+          item = next(x for x in data['extensionList']['extensions'] if x.get('packageName') == 'eu.kanade.tachiyomi.extension.zh.manwang')
+          assert (item.get('versionName'), item.get('versionCode')) == ('1.6.1', 106001), item
+          PY
+              then ok=1; break; fi
+            fi
+            sleep $((n * 2))
+          done
+          [[ "$ok" -eq 1 ]] || { echo '::error::Public MX Test index did not converge to Manwang v1'; exit 1; }
+          curl -fL -sS "$base/apk/tachiyomi-zh.manwang-v1.6.1.apk?ts=$(date +%s%N)" -o /tmp/manwang-v1.apk
+          test -s /tmp/manwang-v1.apk
+          echo 'Public Manwang v1 test verified online'
