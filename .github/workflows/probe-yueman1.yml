@@ -15,23 +15,24 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Capture Manga Daquan official logo
+      - name: Check private source token
         shell: bash
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
         run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import urllib.request
-          from pathlib import Path
-          url='http://www.yueman1.cc/template/skin4_20110501/images/logo_wap.gif'
-          req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 Chrome/131.0 Mobile Safari/537.36','Referer':'http://m.yueman1.cc/'})
-          with urllib.request.urlopen(req,timeout=15) as r:
-              data=r.read()
-              print('STATUS',r.status,'TYPE',r.headers.get('Content-Type'),'BYTES',len(data),'FINAL',r.geturl())
-              Path('/tmp/logo_wap.png').write_bytes(data)
-          PY
-      - name: Upload logo
+          test -n "$MX_PRIVATE_READ_TOKEN"
+      - name: Checkout private source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Upload Manga Daquan module
         uses: actions/upload-artifact@v4
         with:
-          name: manhuadaquan-logo
-          path: /tmp/logo_wap.png
+          name: manhuadaquan-module
+          path: source/src/zh/manhuadaquan
           if-no-files-found: error
