@@ -15,48 +15,33 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Reveal reader image crypto
+      - name: Capture reader decoder inputs
         shell: bash
         run: |
           set -euo pipefail
           ua='Mozilla/5.0 (Linux; Android 16; Pixel 9 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36'
           base='https://mh5.app'
-          mkdir -p /tmp/mw
-          curl -fsSL --compressed -A "$ua" "$base/template/pc/24/js/pic-v2.js" -o /tmp/mw/pic.js
-          curl -fsSL --compressed -A "$ua" "$base/packs/js/crypto-js.min.js" -o /tmp/mw/crypto.js
-          curl -fsSL --compressed -A "$ua" "$base/chapter/r01nZfQE2w.html" -o /tmp/mw/reader.html
+          mkdir -p /tmp/manwang-probe
+          curl -fsSL --compressed -A "$ua" "$base/template/pc/24/js/pic-v2.js" -o /tmp/manwang-probe/pic-v2.js
+          curl -fsSL --compressed -A "$ua" "$base/template/pc/24/js/read.js" -o /tmp/manwang-probe/read.js
+          curl -fsSL --compressed -A "$ua" "$base/packs/js/crypto-js.min.js" -o /tmp/manwang-probe/crypto-js.min.js
+          curl -fsSL --compressed -A "$ua" "$base/chapter/r01nZfQE2w.html" -o /tmp/manwang-probe/reader.html
           python3 - <<'PY'
           import re,json
           from pathlib import Path
-          raw=Path('/tmp/mw/reader.html').read_text('utf-8',errors='replace')
+          raw=Path('/tmp/manwang-probe/reader.html').read_text('utf-8',errors='replace')
           m=re.search(r"params\s*=\s*'([^']+)'",raw)
-          Path('/tmp/mw/encrypted.json').write_text(json.dumps(m.group(1)))
-          js=Path('/tmp/mw/pic.js').read_text('utf-8',errors='replace')
-          # Let all obfuscator initialization execute, but replace the final UI render call.
-          if 'pic_show();' not in js: raise SystemExit('pic_show marker missing')
-          js=js.replace('pic_show();',"console.log('AFTER_INIT');decryptImage(new Uint8Array(16));",1)
-          Path('/tmp/mw/pic-run.js').write_text(js)
+          if not m: raise SystemExit('params missing')
+          Path('/tmp/manwang-probe/params.txt').write_text(m.group(1))
+          Path('/tmp/manwang-probe/meta.json').write_text(json.dumps({
+              'params_length': len(m.group(1)),
+              'pic_js_size': Path('/tmp/manwang-probe/pic-v2.js').stat().st_size,
+              'read_js_size': Path('/tmp/manwang-probe/read.js').stat().st_size,
+          }, ensure_ascii=False, indent=2))
           PY
-          cat >/tmp/mw/run.js <<'NODE'
-          const fs=require('fs'), vm=require('vm');
-          const nativeParse=JSON.parse;
-          const enc=nativeParse(fs.readFileSync('/tmp/mw/encrypted.json','utf8'));
-          global.window={location:{hostname:'mh5.app'},innerHeight:1000};
-          global.document={documentElement:{clientHeight:1000},body:{scrollTop:0}};
-          const dummy={eq(){return this},offset(){return {top:0}},scroll(){return this},append(){return this},add(){return this},length:0};
-          global.$=function(x){ if(typeof x==='function'){x(); return dummy;} return dummy; };
-          vm.runInThisContext(fs.readFileSync('/tmp/mw/crypto.js','utf8'));
-          const hex=x=>x&&x.toString?x.toString(CryptoJS.enc.Hex):String(x);
-          const u8=CryptoJS.enc.Utf8.parse.bind(CryptoJS.enc.Utf8);
-          CryptoJS.enc.Utf8.parse=function(s){ console.log('UTF8_PARSE='+s); return u8(s); };
-          const adec=CryptoJS.AES.decrypt.bind(CryptoJS.AES);
-          CryptoJS.AES.decrypt=function(ct,key,cfg){
-            const raw=ct&&ct.ciphertext?ct.ciphertext:ct;
-            console.log('AES_DECRYPT keyBytes='+(key&&key.sigBytes)+' key='+hex(key)+' ivBytes='+(cfg&&cfg.iv&&cfg.iv.sigBytes)+' iv='+hex(cfg&&cfg.iv)+' mode='+(cfg&&cfg.mode===CryptoJS.mode.CBC?'CBC':'other')+' padding='+(cfg&&cfg.padding===CryptoJS.pad.Pkcs7?'Pkcs7':cfg&&cfg.padding===CryptoJS.pad.NoPadding?'NoPadding':'other')+' ctBytes='+(raw&&raw.sigBytes));
-            return adec(ct,key,cfg);
-          };
-          JSON.parse=function(s){ const x=nativeParse(s); if(x && typeof x==='object' && x.images) console.log('PARAM_SOURCE='+x.source_id+' HOST='+x.host+' IMAGES='+x.images.length); return x; };
-          global.params=enc;
-          vm.runInThisContext(fs.readFileSync('/tmp/mw/pic-run.js','utf8'));
-          NODE
-          node /tmp/mw/run.js || true
+      - name: Upload decoder probe
+        uses: actions/upload-artifact@v4
+        with:
+          name: manwang-reader-decoder
+          path: /tmp/manwang-probe/
+          if-no-files-found: error
