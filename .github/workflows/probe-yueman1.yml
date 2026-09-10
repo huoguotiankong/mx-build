@@ -13,93 +13,46 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
-      - name: Probe Manga Daquan reader CDN and icon
+      - name: Probe Manga Daquan CDN mirrors and logo assets
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import base64, re, urllib.request, urllib.error
-          from html import unescape
-          from http.cookiejar import CookieJar
-          from urllib.parse import urljoin
-
-          MOBILE_UA='Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36'
-          DESKTOP_UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+          import re, urllib.request, urllib.error
+          UA='Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36'
           BASE='http://m.yueman1.cc'
-          jar=CookieJar()
-          opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
-
-          def request(url, headers=None, limit=900000):
-              h={'User-Agent':MOBILE_UA,'Accept-Language':'zh-CN,zh;q=0.9'}
-              if headers: h.update(headers)
-              req=urllib.request.Request(url,headers=h)
+          def get(url, ref=None, limit=65536):
+              h={'User-Agent':UA,'Accept-Language':'zh-CN,zh;q=0.9','Accept':'image/avif,image/webp,image/apng,image/*,*/*;q=0.8'}
+              if ref: h['Referer']=ref
               try:
-                  with opener.open(req,timeout=15) as r:
-                      data=r.read(limit)
-                      return r.status, r.geturl(), data, dict(r.headers)
+                  with urllib.request.urlopen(urllib.request.Request(url,headers=h),timeout=12) as r:
+                      d=r.read(limit); return r.status,r.geturl(),d,dict(r.headers)
               except urllib.error.HTTPError as e:
-                  data=e.read(min(limit,65536))
-                  return e.code, e.geturl(), data, dict(e.headers)
-
-          def load_text(url, ref=None, tries=3):
-              for attempt in range(tries):
-                  headers={'Referer':ref} if ref else {}
-                  code, final, data, hdr=request(url,headers)
-                  text=data.decode('gb18030','ignore')
-                  print('HTML',code,url,'=>',final,'bytes',len(data),'attempt',attempt+1)
-                  if code==200 and ('initIntroData(' in text or '/manhua/' in text or attempt+1==tries):
-                      return text
-              return text
-
-          home=load_text(BASE+'/',BASE+'/',1)
-          print('ICON_TAGS', re.findall(r'<link[^>]+(?:rel=["\'][^"\']*(?:icon|shortcut)[^"\']*["\'][^>]+href=["\']([^"\']+)["\']|href=["\']([^"\']+)["\'][^>]+rel=["\'][^"\']*(?:icon|shortcut)[^"\']*["\'])',home,re.I)[:10])
-          for candidate in ('/favicon.ico','/favicon.png','/images/favicon.ico','/images/logo.png'):
-              code, final, data, hdr=request(BASE+candidate,{'Referer':BASE+'/'},65536)
-              print('ICON_CANDIDATE',candidate,'code',code,'bytes',len(data),'type',hdr.get('Content-Type'),'final',final,'b64',base64.b64encode(data[:20000]).decode() if code==200 and len(data)<=20000 else '')
-
-          latest=load_text(BASE+'/manhua/o/m_waprecent.html',BASE+'/',3)
-          found=[]
-          for href,title in re.findall(r'<a[^>]+href=["\'](http://m\.yueman1\.cc/manhua/\d+\.html)["\'][^>]*class=["\']title["\'][^>]*>(.*?)</a>',latest,re.I|re.S):
-              title=unescape(re.sub(r'<[^>]+>','',title)).strip()
-              if href not in [x[0] for x in found]: found.append((href,title))
-              if len(found)>=12: break
-          print('MANGA_SAMPLES',len(found),found)
-
-          def first_chapter(detail):
-              m=re.search(r'"chapter_name"\s*:\s*"([^"]+)".*?"h"\s*:\s*"([^"]+/p/\d+/\d+\.html)"',detail,re.S)
-              return m.groups() if m else None
-
-          for manga_url,title in found:
-              detail=load_text(manga_url,BASE+'/',3)
-              ch=first_chapter(detail)
-              if not ch:
-                  print('NO_CHAPTER',title,manga_url); continue
-              chapter_name,chapter_url=ch
-              chapter=load_text(chapter_url,manga_url,3)
-              values=re.findall(r'qTcms_S_m_murl_e(?:2|3)?\s*=\s*["\']([^"\']*)["\']',chapter,re.I)
-              encoded=next((v.strip() for v in values if v.strip()),None)
-              if not encoded:
-                  print('NO_READER_PAYLOAD',title,chapter_url); continue
-              try: decoded=base64.b64decode(encoded).decode('utf-8','ignore')
+                  return e.code,e.geturl(),e.read(limit),dict(e.headers)
               except Exception as e:
-                  print('DECODE_FAIL',title,e); continue
-              images=[u.strip() for u in decoded.split('$qingtiandy$') if u.strip()]
-              if not images:
-                  print('NO_IMAGES',title); continue
-              image=images[0]
-              print('\nREADER',title,chapter_name,'count',len(images),'image',image)
-              variants=[
-                  ('current',{'Referer':chapter_url,'Accept':'image/avif,image/webp,image/apng,image/*,*/*;q=0.8'}),
-                  ('no-ref',{'Accept':'image/avif,image/webp,image/apng,image/*,*/*;q=0.8'}),
-                  ('site-ref',{'Referer':BASE+'/','Accept':'image/avif,image/webp,image/apng,image/*,*/*;q=0.8'}),
-                  ('desktop',{'User-Agent':DESKTOP_UA,'Referer':chapter_url,'Accept':'image/avif,image/webp,image/apng,image/*,*/*;q=0.8'}),
-              ]
-              for name,h in variants:
-                  code,final,data,hdr=request(image,h,32768)
-                  sig='jpeg' if data.startswith(b'\xff\xd8\xff') else 'png' if data.startswith(b'\x89PNG') else 'riff' if data[:4]==b'RIFF' else 'other'
-                  print('IMAGE_VARIANT',name,'code',code,'bytes',len(data),'sig',sig,'type',hdr.get('Content-Type'),'server',hdr.get('Server'),'final',final)
+                  return 0,url,str(e).encode(),{}
 
-          print('MANGA_DAQUAN_MULTI_CDN_PROBE_DONE')
+          image='https://s1.baozicdn.com/scomic/nazhachuanxinban-mimaodongman/0/41-suwp/1.jpg'
+          variants=[
+              image,
+              image.replace('s1.baozicdn.com','s1.bzcdn.net'),
+              image.replace('s1.baozicdn.com','s2.bzcdn.net'),
+              image.replace('s1.baozicdn.com','s2.baozicdn.com'),
+          ]
+          for u in variants:
+              code,final,data,h=get(u,'http://m.yueman1.cc/p/47956/2372396.html',32768)
+              sig='jpeg' if data.startswith(b'\xff\xd8\xff') else 'png' if data.startswith(b'\x89PNG') else 'riff' if data[:4]==b'RIFF' else 'other'
+              print('CDN',u,'code',code,'bytes',len(data),'sig',sig,'type',h.get('Content-Type'),'final',final)
+
+          code,final,data,h=get(BASE+'/',BASE+'/',200000)
+          html=data.decode('gb18030','ignore')
+          print('HOME',code,len(data))
+          for tag in re.findall(r'<(?:img|link)[^>]+>',html,re.I):
+              low=tag.lower()
+              if 'logo' in low or 'icon' in low:
+                  print('ASSET_TAG',tag[:1000])
+          for css in re.findall(r'url\(([^)]+)\)',html,re.I):
+              if 'logo' in css.lower() or 'icon' in css.lower(): print('CSS_ASSET',css)
           PY
