@@ -147,3 +147,5 @@ jobs:
           git -C source commit -m 'perf(fengchemanhua): prefer origin-backed reader requests'
           git -C source pull --rebase origin main
           git -C source push origin HEAD:main
+
+# trigger: 2026-09-10
