@@ -1,0 +1,59 @@
+name: Probe TSXZT site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-tsxzt-site.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Probe TSXZT endpoints and structure
+        shell: bash
+        run: |
+          set -euo pipefail
+          ua='Mozilla/5.0 (Linux; Android 16; Pixel 9 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36'
+          out=/tmp/tsxzt-probe
+          mkdir -p "$out"
+          for url in 'http://www.tsxzt.com/' 'https://www.tsxzt.com/' 'http://tsxzt.com/' 'https://tsxzt.com/'; do
+            key="$(printf '%s' "$url" | sed 's#https\?://##; s#[/:]#_#g')"
+            echo "=== $url ==="
+            curl -L --compressed -A "$ua" -m 20 -sS -D "$out/${key}.headers" -o "$out/${key}.html" -w 'code=%{http_code} final=%{url_effective} size=%{size_download}\n' "$url" || true
+            head -c 400 "$out/${key}.html" 2>/dev/null | tr '\n' ' ' || true
+            echo
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, html
+          out=Path('/tmp/tsxzt-probe')
+          for p in sorted(out.glob('*.html')):
+              txt=p.read_text('utf-8',errors='replace')
+              print('\n###',p.name,'len',len(txt))
+              title=re.search(r'<title[^>]*>(.*?)</title>',txt,re.I|re.S)
+              if title: print('TITLE:',re.sub(r'\s+',' ',html.unescape(title.group(1))).strip())
+              links=[]
+              for href,label in re.findall(r'<a[^>]+href=["\']([^"\']+)["\'][^>]*>(.*?)</a>',txt,re.I|re.S):
+                  clean=re.sub('<[^>]+>',' ',label)
+                  clean=re.sub(r'\s+',' ',html.unescape(clean)).strip()
+                  if href not in [x[0] for x in links]: links.append((href,clean[:80]))
+              print('LINKS:')
+              for href,label in links[:120]: print(href,'\t',label)
+              imgs=[]
+              for src in re.findall(r'<img[^>]+(?:src|data-src|data-original)=["\']([^"\']+)["\']',txt,re.I):
+                  if src not in imgs: imgs.append(src)
+              print('IMAGES:')
+              for src in imgs[:40]: print(src)
+          PY
+      - name: Upload probe
+        uses: actions/upload-artifact@v4
+        with:
+          name: tsxzt-site-probe
+          path: /tmp/tsxzt-probe/
+          if-no-files-found: error
