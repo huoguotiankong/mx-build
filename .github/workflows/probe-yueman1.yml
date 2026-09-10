@@ -1,4 +1,4 @@
-name: Probe Yueman1 Manga
+name: Patch Manga Daquan v1.6.3
 
 on:
   push:
@@ -11,28 +11,141 @@ permissions:
   contents: read
 
 jobs:
-  probe:
+  patch:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - name: Check private source token
         shell: bash
         env:
           MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
         run: |
+          set -euo pipefail
           test -n "$MX_PRIVATE_READ_TOKEN"
-      - name: Checkout private source
+
+      - name: Checkout Manga Daquan work branch
         uses: actions/checkout@v5
         with:
           repository: huoguotiankong/mx-dev
-          ref: main
+          ref: work/manhuadaquan-v163
           token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
           path: source
-          fetch-depth: 1
-          persist-credentials: false
-      - name: Upload Manga Daquan module
-        uses: actions/upload-artifact@v4
-        with:
-          name: manhuadaquan-module
-          path: source/src/zh/manhuadaquan
-          if-no-files-found: error
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Patch reader fallback and version
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/zh/manhuadaquan/src/eu/kanade/tachiyomi/extension/zh/manhuadaquan/ManhuaDaquan.kt')
+          text = path.read_text('utf-8')
+
+          old = '''import okhttp3.FormBody\nimport okhttp3.Headers\nimport okhttp3.Request\n'''
+          new = '''import okhttp3.FormBody\nimport okhttp3.Headers\nimport okhttp3.Interceptor\nimport okhttp3.OkHttpClient\nimport okhttp3.Request\nimport okhttp3.Response\n'''
+          if old not in text:
+              raise SystemExit('import anchor missing')
+          text = text.replace(old, new, 1)
+
+          old = '''    override fun Headers.Builder.configureHeaders() = apply {\n        set("User-Agent", MOBILE_UA)\n        set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.7")\n        set("Referer", "$baseUrl/")\n    }\n\n    override suspend fun getPopularManga(page: Int): MangasPage {\n'''
+          new = '''    override fun Headers.Builder.configureHeaders() = apply {\n        set("User-Agent", MOBILE_UA)\n        set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.7")\n        set("Referer", "$baseUrl/")\n    }\n\n    override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = apply {\n        addInterceptor(::retryReaderImage)\n    }\n\n    override suspend fun getPopularManga(page: Int): MangasPage {\n'''
+          if old not in text:
+              raise SystemExit('client anchor missing')
+          text = text.replace(old, new, 1)
+
+          old = '''    override fun imageRequest(page: Page): Request {\n        val imageHeaders = headers.newBuilder()\n            .set("Referer", page.url.ifBlank { "$baseUrl/" })\n            .removeAll("Origin")\n            .set("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8")\n            .build()\n        return GET(requireNotNull(page.imageUrl), imageHeaders)\n    }\n\n    private suspend fun getDocumentWithRetry(\n'''
+          new = '''    override fun imageRequest(page: Page): Request {\n        val imageHeaders = headers.newBuilder()\n            .set("Referer", page.url.ifBlank { "$baseUrl/" })\n            .removeAll("Origin")\n            .set("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8")\n            .set(READER_IMAGE_HEADER, "1")\n            .build()\n        return GET(requireNotNull(page.imageUrl), imageHeaders)\n    }\n\n    private fun retryReaderImage(chain: Interceptor.Chain): Response {\n        val original = chain.request()\n        if (original.header(READER_IMAGE_HEADER) == null) return chain.proceed(original)\n\n        val cleanRequest = original.newBuilder()\n            .removeHeader(READER_IMAGE_HEADER)\n            .build()\n        val candidates = readerImageCandidates(cleanRequest)\n        var lastException: IOException? = null\n\n        for ((index, request) in candidates.withIndex()) {\n            try {\n                val response = chain.proceed(request)\n                val retryable = response.code == 403 || response.code == 429 || response.code in 500..599\n                if (!retryable || index == candidates.lastIndex) return response\n                response.close()\n            } catch (error: IOException) {\n                lastException = error\n                if (index == candidates.lastIndex) throw error\n            }\n        }\n\n        throw lastException ?: IOException("漫画大全正文图片请求失败")\n    }\n\n    private fun readerImageCandidates(request: Request): List<Request> {\n        val originalHost = request.url.host.lowercase()\n        val mirrorHosts = when (originalHost) {\n            "s1.baozicdn.com" -> listOf("s1.bzcdn.net", "s2.baozicdn.com", "s2.bzcdn.net")\n            "s2.baozicdn.com" -> listOf("s2.bzcdn.net", "s1.baozicdn.com", "s1.bzcdn.net")\n            "s1.bzcdn.net" -> listOf("s1.baozicdn.com", "s2.bzcdn.net", "s2.baozicdn.com")\n            "s2.bzcdn.net" -> listOf("s2.baozicdn.com", "s1.bzcdn.net", "s1.baozicdn.com")\n            else -> emptyList()\n        }\n\n        if (mirrorHosts.isEmpty()) return List(READER_RETRY_ATTEMPTS) { request }\n\n        return buildList {\n            add(request)\n            mirrorHosts.forEach { host ->\n                add(\n                    request.newBuilder()\n                        .url(request.url.newBuilder().host(host).build())\n                        .build(),\n                )\n            }\n        }\n    }\n\n    private suspend fun getDocumentWithRetry(\n'''
+          if old not in text:
+              raise SystemExit('image request anchor missing')
+          text = text.replace(old, new, 1)
+
+          old = '''        private const val IMAGE_DELIMITER = "\\$qingtiandy\\$"\n        private const val SEARCH_VERIFICATION_MESSAGE =\n'''
+          new = '''        private const val IMAGE_DELIMITER = "\\$qingtiandy\\$"\n        private const val READER_IMAGE_HEADER = "X-ManhuaDaquan-Reader"\n        private const val READER_RETRY_ATTEMPTS = 3\n        private const val SEARCH_VERIFICATION_MESSAGE =\n'''
+          if old not in text:
+              raise SystemExit('constant anchor missing')
+          text = text.replace(old, new, 1)
+          path.write_text(text, 'utf-8')
+
+          gradle = Path('src/zh/manhuadaquan/build.gradle.kts')
+          gtext = gradle.read_text('utf-8')
+          if 'versionCode = 2' not in gtext:
+              raise SystemExit('expected versionCode 2')
+          gradle.write_text(gtext.replace('versionCode = 2', 'versionCode = 3', 1), 'utf-8')
+          PY
+
+      - name: Build correct official icon resources
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check --quiet pillow
+          python3 - <<'PY'
+          from io import BytesIO
+          from pathlib import Path
+          import urllib.request
+          from PIL import Image
+
+          url = 'http://www.yueman1.cc/template/skin4_20110501/images/logo_wap.gif'
+          req = urllib.request.Request(url, headers={
+              'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 Chrome/131.0 Mobile Safari/537.36',
+              'Referer': 'http://m.yueman1.cc/',
+          })
+          with urllib.request.urlopen(req, timeout=15) as r:
+              data = r.read()
+          logo = Image.open(BytesIO(data)).convert('RGBA')
+          if logo.size != (208, 61):
+              raise SystemExit(f'unexpected official logo size: {logo.size}')
+
+          # Official logo contains four adjacent rounded tiles. Rearrange them 2x2 so the
+          # source remains legible in Mihon/Komikku's square launcher-icon slot.
+          boxes = [(0, 0, 50, 61), (52, 0, 102, 61), (104, 0, 154, 61), (156, 0, 208, 61)]
+          tiles = [logo.crop(box) for box in boxes]
+          master = Image.new('RGBA', (192, 192), (0, 0, 0, 0))
+          positions = [(12, 12), (100, 12), (12, 100), (100, 100)]
+          for tile, pos in zip(tiles, positions):
+              tile.thumbnail((80, 80), Image.Resampling.LANCZOS)
+              x = pos[0] + (80 - tile.width) // 2
+              y = pos[1] + (80 - tile.height) // 2
+              master.alpha_composite(tile, (x, y))
+
+          root = Path('src/zh/manhuadaquan/res')
+          sizes = {
+              'mipmap-mdpi': 48,
+              'mipmap-hdpi': 72,
+              'mipmap-xhdpi': 96,
+              'mipmap-xxhdpi': 144,
+              'mipmap-xxxhdpi': 192,
+          }
+          for folder, size in sizes.items():
+              target = root / folder / 'ic_launcher.png'
+              target.parent.mkdir(parents=True, exist_ok=True)
+              master.resize((size, size), Image.Resampling.LANCZOS).save(target, 'PNG', optimize=True)
+          PY
+
+      - name: Sanity-check patch
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'versionCode = 3' src/zh/manhuadaquan/build.gradle.kts
+          grep -q 'addInterceptor(::retryReaderImage)' src/zh/manhuadaquan/src/eu/kanade/tachiyomi/extension/zh/manhuadaquan/ManhuaDaquan.kt
+          grep -q 's1.bzcdn.net' src/zh/manhuadaquan/src/eu/kanade/tachiyomi/extension/zh/manhuadaquan/ManhuaDaquan.kt
+          for d in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            test -s "src/zh/manhuadaquan/res/mipmap-$d/ic_launcher.png"
+          done
+          git diff --check
+          git status --short
+
+      - name: Commit and push work branch
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/zh/manhuadaquan
+          git commit -m 'fix(manhuadaquan): retry reader CDN and replace icon'
+          git push origin HEAD:work/manhuadaquan-v163
