@@ -1,0 +1,99 @@
+name: Probe XGYW detail and reader
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-xgyouwu-detail.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Probe detail, tags, pagination and image headers
+        shell: bash
+        run: |
+          set -euo pipefail
+          ua='Mozilla/5.0 (Linux; Android 16; Pixel 9 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36'
+          base='http://www.xgyouwu.com'
+          url="$base/xing/ganyou/20360307/323786.html"
+          out=/tmp/xgyw-detail
+          mkdir -p "$out"
+          curl -L --compressed -A "$ua" -e "$base/" -m 20 -sS -D "$out/detail.headers" -o "$out/detail.bin" -w 'DETAIL code=%{http_code} final=%{url_effective} size=%{size_download}\n' "$url"
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, html, urllib.parse, subprocess
+          out=Path('/tmp/xgyw-detail')
+          raw=(out/'detail.bin').read_bytes()
+          def dec(raw):
+              head=raw[:5000].decode('ascii','ignore').lower()
+              m=re.search(r'charset\s*=\s*["\']?([a-z0-9._-]+)', head)
+              for enc in ([m.group(1)] if m else []) + ['gb18030','utf-8']:
+                  try:return raw.decode(enc),enc
+                  except: pass
+              return raw.decode('utf-8','replace'),'utf8?'
+          text,enc=dec(raw)
+          (out/'detail.utf8.txt').write_text(text,encoding='utf-8')
+          print('ENCODING',enc)
+          for pat,name in [(r'<title[^>]*>(.*?)</title>','TITLE'),(r'<h1[^>]*>(.*?)</h1>','H1')]:
+              m=re.search(pat,text,re.I|re.S)
+              if m: print(name,re.sub(r'\s+',' ',html.unescape(re.sub(r'<[^>]+>',' ',m.group(1)))).strip())
+          # Forms/search endpoints
+          for m in re.finditer(r'<form\b[^>]*>.*?</form>',text,re.I|re.S):
+              tag=re.sub(r'\s+',' ',m.group(0)).strip()
+              if any(k in tag.lower() for k in ('search','keyword','key','wd')): print('FORM',tag[:2500])
+          # Links of interest
+          for m in re.finditer(r'<a\b[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)</a>',text,re.I|re.S):
+              href=html.unescape(m.group(1)).strip(); label=re.sub(r'<[^>]+>',' ',m.group(2)); label=re.sub(r'\s+',' ',html.unescape(label)).strip()
+              if '/chis/' in href or '/xing/ganyoum/' in href or re.search(r'\d+\.html$',href): print('LINK',repr(label[:120]),href)
+          # Relevant containers around tags/category/pagination
+          for token in ['id="tags"',"id='tags'",'class="tags"',"class='tags'",'pagelist','page','keyword']:
+              idx=text.lower().find(token.lower())
+              if idx>=0: print('CTX',token,re.sub(r'\s+',' ',text[max(0,idx-800):idx+3000]).strip()[:3800])
+          imgs=[]
+          for m in re.finditer(r'<img\b[^>]*>',text,re.I|re.S):
+              tag=re.sub(r'\s+',' ',m.group(0)).strip()
+              if tag not in imgs: imgs.append(tag)
+          print('IMG_COUNT',len(imgs))
+          for tag in imgs[:120]: print('IMG',tag[:1500])
+          # detect likely detail subpages
+          hrefs=re.findall(r'href=["\']([^"\']+)["\']',text,re.I)
+          subs=[]
+          for h in hrefs:
+              if re.search(r'323786_\d+\.html$',h): subs.append(h)
+          print('SUBPAGES',subs[:50])
+          # choose first plausible content image: prefer picg/imgc containers by regex, else largest non-cover context
+          candidates=[]
+          for m in re.finditer(r'<img\b[^>]*>',text,re.I|re.S):
+              tag=m.group(0)
+              attrs=dict((k.lower(),html.unescape(v)) for k,v in re.findall(r'([\w-]+)\s*=\s*["\']([^"\']*)["\']',tag,re.I))
+              src=next((attrs.get(k) for k in ('lazy-src','data-original','data-src','data-lazy-src','src') if attrs.get(k) and not attrs.get(k).startswith('data:')),None)
+              if src: candidates.append(urllib.parse.urljoin('http://www.xgyouwu.com/',src))
+          print('IMAGE_CANDIDATES',candidates[:20])
+          if candidates:
+              img=candidates[0]
+              print('TEST_IMAGE',img)
+              for key,ref in [('none',''),('home','http://www.xgyouwu.com/'),('detail','http://www.xgyouwu.com/xing/ganyou/20360307/323786.html')]:
+                  args=['curl','-L','--compressed','-A','Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140 Mobile Safari/537.36','-m','20','-sS','-o',str(out/f'img-{key}.bin'),'-w',f'IMG {key} code=%{{http_code}} size=%{{size_download}} type=%{{content_type}} time=%{{time_total}}\\n']
+                  if ref: args += ['-e',ref]
+                  args += [img]
+                  subprocess.run(args,check=False)
+          # fetch subpage 2 if present or derived
+          sub='http://www.xgyouwu.com/xing/ganyou/20360307/323786_2.html'
+          subprocess.run(['curl','-L','--compressed','-A','Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140 Mobile Safari/537.36','-e','http://www.xgyouwu.com/xing/ganyou/20360307/323786.html','-m','20','-sS','-o',str(out/'sub2.bin'),'-w','SUB2 code=%{http_code} size=%{size_download}\\n',sub],check=False)
+          if (out/'sub2.bin').exists():
+              t,e=dec((out/'sub2.bin').read_bytes()); (out/'sub2.utf8.txt').write_text(t,encoding='utf-8'); print('SUB2ENC',e)
+              im=list(re.finditer(r'<img\b[^>]*>',t,re.I|re.S)); print('SUB2_IMG_COUNT',len(im))
+              for m in im[:60]: print('SUB2IMG',re.sub(r'\s+',' ',m.group(0)).strip()[:1500])
+          PY
+      - name: Upload probe
+        uses: actions/upload-artifact@v4
+        with:
+          name: xgyouwu-detail-probe
+          path: /tmp/xgyw-detail/
+          if-no-files-found: error
