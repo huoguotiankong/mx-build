@@ -162,6 +162,28 @@
         ]
       },
       {
+        "name": "Fengche Manhua",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.fengchemanhua",
+        "resources": {
+          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.fengchemanhua-v1.6.1.apk",
+          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.fengchemanhua-v106001.png"
+        },
+        "extensionLib": "1.6",
+        "versionCode": 106001,
+        "versionName": "1.6.1",
+        "contentWarning": "MIXED",
+        "sources": [
+          {
+            "id": 517481997322915305,
+            "name": "风车漫画",
+            "language": "zh",
+            "homeUrl": "https://www.fengchemh.com",
+            "mirrorUrls": [],
+            "message": null
+          }
+        ]
+      },
+      {
         "name": "JMComic Plus",
         "packageName": "eu.kanade.tachiyomi.extension.zh.jmcomicplus",
         "resources": {
