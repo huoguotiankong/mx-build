@@ -1,0 +1,149 @@
+name: Patch Fengche Manhua v1.6.3
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/patch-fengchemanhua-v3.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout private source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply focused v1.6.3 patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          kt = Path('source/src/zh/fengchemanhua/src/eu/kanade/tachiyomi/extension/zh/fengchemanhua/FengcheManhua.kt')
+          text = kt.read_text('utf-8')
+
+          old = '''    override fun imageRequest(page: Page): Request {
+        val chapterUrl = normalizeChapterUrl(page.url)
+        val imageHeaders = headers.newBuilder()
+            .removeAll("Origin")
+            .set("Referer", chapterUrl)
+            .set("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8")
+            .set(READER_CHAPTER_HEADER, chapterUrl)
+            .build()
+        return GET(requireNotNull(page.imageUrl), imageHeaders)
+    }
+
+    private fun retryForbiddenReaderImage(chain: Interceptor.Chain): Response {
+        val original = chain.request()
+        val chapterUrl = original.header(READER_CHAPTER_HEADER) ?: return chain.proceed(original)
+        val primaryRequest = original.newBuilder()
+            .removeHeader(READER_CHAPTER_HEADER)
+            .removeHeader("Origin")
+            .header("Referer", chapterUrl)
+            .build()
+
+        var response = chain.proceed(primaryRequest)
+        if (response.code != 403) return response
+        response.close()
+
+        val cleanRequest = primaryRequest.newBuilder()
+            .removeHeader("Referer")
+            .removeHeader("Origin")
+            .build()
+        response = chain.proceed(cleanRequest)
+        if (response.code != 403) return response
+        response.close()
+
+        return chain.proceed(
+            primaryRequest.newBuilder()
+                .header("Origin", baseUrl)
+                .build(),
+        )
+    }
+'''
+
+          new = '''    override fun imageRequest(page: Page): Request {
+        val chapterUrl = normalizeChapterUrl(page.url)
+        val imageHeaders = headers.newBuilder()
+            .set("Referer", chapterUrl)
+            .set("Origin", baseUrl)
+            .set("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8")
+            .set(READER_CHAPTER_HEADER, chapterUrl)
+            .build()
+        return GET(requireNotNull(page.imageUrl), imageHeaders)
+    }
+
+    private fun retryForbiddenReaderImage(chain: Interceptor.Chain): Response {
+        val original = chain.request()
+        val chapterUrl = original.header(READER_CHAPTER_HEADER) ?: return chain.proceed(original)
+        val primaryRequest = original.newBuilder()
+            .removeHeader(READER_CHAPTER_HEADER)
+            .header("Referer", chapterUrl)
+            .header("Origin", baseUrl)
+            .build()
+
+        var response = chain.proceed(primaryRequest)
+        if (response.code != 403) return response
+        response.close()
+
+        val refererOnlyRequest = primaryRequest.newBuilder()
+            .removeHeader("Origin")
+            .build()
+        response = chain.proceed(refererOnlyRequest)
+        if (response.code != 403) return response
+        response.close()
+
+        return chain.proceed(
+            refererOnlyRequest.newBuilder()
+                .removeHeader("Referer")
+                .build(),
+        )
+    }
+'''
+
+          if old not in text:
+              raise SystemExit('expected v1.6.2 image request block not found')
+          kt.write_text(text.replace(old, new, 1), 'utf-8')
+
+          gradle = Path('source/src/zh/fengchemanhua/build.gradle.kts')
+          g = gradle.read_text('utf-8')
+          if 'versionCode = 2' not in g:
+              raise SystemExit('expected versionCode 2 not found')
+          gradle.write_text(g.replace('versionCode = 2', 'versionCode = 3', 1), 'utf-8')
+          PY
+
+      - name: Validate patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 source/scripts/validate_sources.py
+          git -C source diff --check
+          grep -q 'versionCode = 3' source/src/zh/fengchemanhua/build.gradle.kts
+          grep -q '.set("Origin", baseUrl)' source/src/zh/fengchemanhua/src/eu/kanade/tachiyomi/extension/zh/fengchemanhua/FengcheManhua.kt
+          for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            test -s "source/src/zh/fengchemanhua/src/main/res/mipmap-$density/ic_launcher.png"
+          done
+
+      - name: Commit private source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C source config user.name "github-actions[bot]"
+          git -C source config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C source add src/zh/fengchemanhua
+          git -C source commit -m 'perf(fengchemanhua): prefer origin-backed reader requests'
+          git -C source pull --rebase origin main
+          git -C source push origin HEAD:main
