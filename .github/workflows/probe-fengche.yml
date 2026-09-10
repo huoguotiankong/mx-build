@@ -18,47 +18,45 @@ jobs:
       - name: Probe Fengche site
         shell: bash
         run: |
-          set -euo pipefail
-          ua='Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140.0 Mobile Safari/537.36'
+          python3 - <<'PY'
+          import base64, hashlib, json, re, urllib.parse, urllib.request
           base='https://www.fengchemh.com'
-          mkdir -p /tmp/fengche
-          for path in '/' '/custom/update' '/category/list/1' '/comic/2r0w81JrnN' '/chapter/XzwzKUa6g4.html'; do
-            name="$(printf '%s' "$path" | sed 's#[^A-Za-z0-9]#_#g')"
-            code="$(curl -L -sS --retry 2 -A "$ua" -o "/tmp/fengche/$name.html" -w '%{http_code}' "$base$path" || true)"
-            echo "PATH $path HTTP $code bytes=$(wc -c < "/tmp/fengche/$name.html" 2>/dev/null || echo 0)"
-            if [[ -s "/tmp/fengche/$name.html" ]]; then
-              grep -Eo '<script[^>]+src=["'"'][^"'"']+' "/tmp/fengche/$name.html" | sed 's/^/SCRIPT /' | head -n 20 || true
-              grep -Eo 'params[[:space:]]*=[[:space:]]*["'"'][^"'"']+' "/tmp/fengche/$name.html" | sed -E 's/(params[[:space:]]*=[[:space:]]*["'"']).*/\1<redacted>/' | head -n 5 || true
-              grep -Eo 'href=["'"']/chapter/[^"'"']+' "/tmp/fengche/$name.html" | head -n 5 || true
-              grep -Eo 'class=["'"'][^"'"']*(comic-item|detail-title|chapter-list|detail-info|img-box)[^"'"']*["'"']' "/tmp/fengche/$name.html" | sort -u | head -n 40 || true
-            fi
-          done
-          chapter='/tmp/fengche/_chapter_XzwzKUa6g4_html.html'
-          if [[ -s "$chapter" ]]; then
-            python3 - <<'PY'
-          import re, pathlib
-          p=pathlib.Path('/tmp/fengche/_chapter_XzwzKUa6g4_html.html').read_text('utf-8','ignore')
-          m=re.search(r"params\s*=\s*['\"]([^'\"]+)",p)
-          print('PARAMS_PRESENT', bool(m), 'LEN', len(m.group(1)) if m else 0)
-          scripts=re.findall(r'<script[^>]+src=["\']([^"\']+)',p,re.I)
-          print('SCRIPTS', scripts)
+          ua='Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140.0 Mobile Safari/537.36'
+          def fetch(url):
+              req=urllib.request.Request(url, headers={'User-Agent':ua,'Accept-Language':'zh-CN,zh;q=0.9'})
+              try:
+                  with urllib.request.urlopen(req, timeout=20) as r:
+                      return r.status, r.geturl(), r.read()
+              except Exception as e:
+                  print('FETCH_ERROR', url, type(e).__name__, str(e)[:180])
+                  return 0, url, b''
+          pages={}
+          for path in ['/', '/custom/update', '/category/list/1', '/comic/2r0w81JrnN', '/chapter/XzwzKUa6g4.html']:
+              status,url,data=fetch(base+path)
+              text=data.decode('utf-8','ignore')
+              pages[path]=text
+              print('PATH',path,'HTTP',status,'FINAL',url,'BYTES',len(data))
+              print('TITLE', (re.search(r'<title>(.*?)</title>',text,re.I|re.S).group(1).strip() if re.search(r'<title>(.*?)</title>',text,re.I|re.S) else ''))
+              print('SCRIPTS', re.findall(r'<script[^>]+src=["\']([^"\']+)',text,re.I)[:20])
+              print('CLASSES', sorted(set(re.findall(r'class=["\']([^"\']*(?:comic-item|detail-title|detail-info|img-box|chapter)[^"\']*)["\']',text,re.I)))[:30])
+              print('CHAPTER_LINKS', re.findall(r'href=["\'](/chapter/[^"\']+)',text,re.I)[:5])
+          chapter=pages.get('/chapter/XzwzKUa6g4.html','')
+          m=re.search(r"params\s*=\s*['\"]([^'\"]+)",chapter)
+          print('PARAMS_PRESENT',bool(m),'LEN',len(m.group(1)) if m else 0)
+          if m:
+              raw=base64.b64decode(m.group(1))
+              print('PARAMS_RAW_LEN',len(raw),'IV_HEX',raw[:16].hex())
+          scripts=re.findall(r'<script[^>]+src=["\']([^"\']+)',chapter,re.I)
+          for src in scripts:
+              url=urllib.parse.urljoin(base+'/',src)
+              status,final,data=fetch(url)
+              text=data.decode('utf-8','ignore')
+              print('JS',src,'HTTP',status,'BYTES',len(data),'SHA256',hashlib.sha256(data).hexdigest())
+              tokens=sorted(set(re.findall(r'(?:source_id|CryptoJS|AES|CBC|Pkcs7|PKCS7|img1\.[A-Za-z0-9.-]+|[A-Za-z0-9$]{16})',text)))
+              print('TOKENS',tokens[:80])
+              for needle in ['source_id','CryptoJS','decrypt','params','img1.']:
+                  i=text.find(needle)
+                  if i>=0:
+                      snippet=re.sub(r'\s+',' ',text[max(0,i-240):i+520])
+                      print('SNIPPET',needle,snippet[:800])
           PY
-            while IFS= read -r src; do
-              [[ -z "$src" ]] && continue
-              case "$src" in
-                http*) url="$src" ;;
-                //*) url="https:$src" ;;
-                /*) url="$base$src" ;;
-                *) url="$base/${src#./}" ;;
-              esac
-              js="/tmp/fengche/$(basename "${src%%\?*}")"
-              code="$(curl -L -sS --retry 2 -A "$ua" -o "$js" -w '%{http_code}' "$url" || true)"
-              echo "JS $url HTTP $code bytes=$(wc -c < "$js" 2>/dev/null || echo 0) sha256=$(sha256sum "$js" 2>/dev/null | awk '{print $1}')"
-              grep -Eo 'source_id|AES|CBC|PKCS7|CryptoJS|img1\.[A-Za-z0-9.-]+|[A-Za-z0-9$]{16}' "$js" | sort -u | head -n 80 || true
-            done < <(python3 - <<'PY'
-          import re, pathlib
-          p=pathlib.Path('/tmp/fengche/_chapter_XzwzKUa6g4_html.html').read_text('utf-8','ignore')
-          for s in re.findall(r'<script[^>]+src=["\']([^"\']+)',p,re.I): print(s)
-          PY
-            )
-          fi
