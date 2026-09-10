@@ -275,6 +275,28 @@
         ]
       },
       {
+        "name": "Manwang",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.manwang",
+        "resources": {
+          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.manwang-v1.6.1.apk",
+          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.manwang-v106001.png"
+        },
+        "extensionLib": "1.6",
+        "versionCode": 106001,
+        "versionName": "1.6.1",
+        "contentWarning": "MIXED",
+        "sources": [
+          {
+            "id": 1352607934319327929,
+            "name": "漫网",
+            "language": "zh",
+            "homeUrl": "https://mh5.app",
+            "mirrorUrls": [],
+            "message": null
+          }
+        ]
+      },
+      {
         "name": "Manwa Plus",
         "packageName": "eu.kanade.tachiyomi.extension.zh.manwaplus",
         "resources": {
