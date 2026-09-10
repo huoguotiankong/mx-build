@@ -454,12 +454,12 @@
         "name": "Miaowu Manhua",
         "packageName": "eu.kanade.tachiyomi.extension.zh.miaowumanhua",
         "resources": {
-          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.miaowumanhua-v1.6.9.apk",
-          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.miaowumanhua-v106009.png"
+          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.miaowumanhua-v1.6.10.apk",
+          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.miaowumanhua-v106010.png"
         },
         "extensionLib": "1.6",
-        "versionCode": 106009,
-        "versionName": "1.6.9",
+        "versionCode": 106010,
+        "versionName": "1.6.10",
         "contentWarning": "SAFE",
         "sources": [
           {
