@@ -31,97 +31,26 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-
           kt = Path('source/src/zh/fengchemanhua/src/eu/kanade/tachiyomi/extension/zh/fengchemanhua/FengcheManhua.kt')
           text = kt.read_text('utf-8')
-
-          old = '''    override fun imageRequest(page: Page): Request {
-        val chapterUrl = normalizeChapterUrl(page.url)
-        val imageHeaders = headers.newBuilder()
-            .removeAll("Origin")
-            .set("Referer", chapterUrl)
-            .set("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8")
-            .set(READER_CHAPTER_HEADER, chapterUrl)
-            .build()
-        return GET(requireNotNull(page.imageUrl), imageHeaders)
-    }
-
-    private fun retryForbiddenReaderImage(chain: Interceptor.Chain): Response {
-        val original = chain.request()
-        val chapterUrl = original.header(READER_CHAPTER_HEADER) ?: return chain.proceed(original)
-        val primaryRequest = original.newBuilder()
-            .removeHeader(READER_CHAPTER_HEADER)
-            .removeHeader("Origin")
-            .header("Referer", chapterUrl)
-            .build()
-
-        var response = chain.proceed(primaryRequest)
-        if (response.code != 403) return response
-        response.close()
-
-        val cleanRequest = primaryRequest.newBuilder()
-            .removeHeader("Referer")
-            .removeHeader("Origin")
-            .build()
-        response = chain.proceed(cleanRequest)
-        if (response.code != 403) return response
-        response.close()
-
-        return chain.proceed(
-            primaryRequest.newBuilder()
-                .header("Origin", baseUrl)
-                .build(),
-        )
-    }
-'''
-
-          new = '''    override fun imageRequest(page: Page): Request {
-        val chapterUrl = normalizeChapterUrl(page.url)
-        val imageHeaders = headers.newBuilder()
-            .set("Referer", chapterUrl)
-            .set("Origin", baseUrl)
-            .set("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8")
-            .set(READER_CHAPTER_HEADER, chapterUrl)
-            .build()
-        return GET(requireNotNull(page.imageUrl), imageHeaders)
-    }
-
-    private fun retryForbiddenReaderImage(chain: Interceptor.Chain): Response {
-        val original = chain.request()
-        val chapterUrl = original.header(READER_CHAPTER_HEADER) ?: return chain.proceed(original)
-        val primaryRequest = original.newBuilder()
-            .removeHeader(READER_CHAPTER_HEADER)
-            .header("Referer", chapterUrl)
-            .header("Origin", baseUrl)
-            .build()
-
-        var response = chain.proceed(primaryRequest)
-        if (response.code != 403) return response
-        response.close()
-
-        val refererOnlyRequest = primaryRequest.newBuilder()
-            .removeHeader("Origin")
-            .build()
-        response = chain.proceed(refererOnlyRequest)
-        if (response.code != 403) return response
-        response.close()
-
-        return chain.proceed(
-            refererOnlyRequest.newBuilder()
-                .removeHeader("Referer")
-                .build(),
-        )
-    }
-'''
-
-          if old not in text:
-              raise SystemExit('expected v1.6.2 image request block not found')
-          kt.write_text(text.replace(old, new, 1), 'utf-8')
-
+          changes = [
+              ('.removeAll("Origin")\n            .set("Referer", chapterUrl)', '.set("Referer", chapterUrl)\n            .set("Origin", baseUrl)'),
+              ('.removeHeader("READER_CHAPTER_HEADER")', '.removeHeader("READER_CHAPTER_HEADER")'),
+              ('.removeHeader("Origin")\n            .header("Referer", chapterUrl)', '.header("Referer", chapterUrl)\n            .header("Origin", baseUrl)'),
+              ('val cleanRequest = primaryRequest.newBuilder()\n            .removeHeader("Referer")\n            .removeHeader("Origin")\n            .build()\n        response = chain.proceed(cleanRequest)', 'val refererOnlyRequest = primaryRequest.newBuilder()\n            .removeHeader("Origin")\n            .build()\n        response = chain.proceed(refererOnlyRequest)'),
+              ('primaryRequest.newBuilder()\n                .header("Origin", baseUrl)\n                .build()', 'refererOnlyRequest.newBuilder()\n                .removeHeader("Referer")\n                .build()'),
+          ]
+          for old, new in changes:
+              if old == new:
+                  continue
+              if text.count(old) != 1:
+                  raise SystemExit(f'expected one match, found {text.count(old)} for {old!r}')
+              text = text.replace(old, new, 1)
+          kt.write_text(text, 'utf-8')
           gradle = Path('source/src/zh/fengchemanhua/build.gradle.kts')
           g = gradle.read_text('utf-8')
-          if 'versionCode = 2' not in g:
-              raise SystemExit('expected versionCode 2 not found')
+          if g.count('versionCode = 2') != 1:
+              raise SystemExit('expected versionCode 2 exactly once')
           gradle.write_text(g.replace('versionCode = 2', 'versionCode = 3', 1), 'utf-8')
           PY
 
@@ -132,7 +61,7 @@ jobs:
           python3 source/scripts/validate_sources.py
           git -C source diff --check
           grep -q 'versionCode = 3' source/src/zh/fengchemanhua/build.gradle.kts
-          grep -q '.set("Origin", baseUrl)' source/src/zh/fengchemanhua/src/eu/kanade/tachiyomi/extension/zh/fengchemanhua/FengcheManhua.kt
+          grep -q 'set("Origin", baseUrl)' source/src/zh/fengchemanhua/src/eu/kanade/tachiyomi/extension/zh/fengchemanhua/FengcheManhua.kt
           for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
             test -s "source/src/zh/fengchemanhua/src/main/res/mipmap-$density/ic_launcher.png"
           done
@@ -147,5 +76,3 @@ jobs:
           git -C source commit -m 'perf(fengchemanhua): prefer origin-backed reader requests'
           git -C source pull --rebase origin main
           git -C source push origin HEAD:main
-
-# trigger: 2026-09-10
