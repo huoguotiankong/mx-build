@@ -15,61 +15,31 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Probe Fengche site
+      - name: Probe Fengche search
         shell: bash
         run: |
           python3 - <<'PY'
-          import base64, hashlib, html, json, re, subprocess, tempfile, urllib.parse, urllib.request
+          import re, urllib.parse, urllib.request
           base='https://www.fengchemh.com'
           ua='Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140.0 Mobile Safari/537.36'
-          def fetch(path):
-              url=path if path.startswith('http') else base+path
-              req=urllib.request.Request(url, headers={'User-Agent':ua,'Accept-Language':'zh-CN,zh;q=0.9'})
-              with urllib.request.urlopen(req, timeout=20) as r:
-                  data=r.read()
-                  return r.status,r.geturl(),data.decode('utf-8','ignore')
-          def compact(s): return re.sub(r'\s+',' ',s).strip()
-          pages={}
-          for path in ['/', '/custom/hot', '/custom/update', '/custom/top', '/category/list/1', '/index.php/search?key=%E4%BB%99%E6%AD%A6%E5%B8%9D%E5%B0%8A', '/comic/2r0w81JrnN', '/chapter/XzwzKUa6g4.html']:
+          def fetch(url):
+              req=urllib.request.Request(url,headers={'User-Agent':ua,'Accept-Language':'zh-CN,zh;q=0.9','Referer':base+'/'})
               try:
-                  status,url,text=fetch(path)
-              except Exception as e:
-                  print('FETCH_ERROR',path,type(e).__name__,str(e)[:180]); continue
-              pages[path]=text
-              print('\nPATH',path,'HTTP',status,'FINAL',url,'BYTES',len(text.encode()))
-              title=re.search(r'<title>(.*?)</title>',text,re.I|re.S)
-              print('TITLE',compact(html.unescape(title.group(1))) if title else '')
-              print('COMIC_LINK_COUNT',len(re.findall(r'href=["\'](?:https?://[^/]+)?/comic/[^"\']+',text,re.I)))
-              for m in list(re.finditer(r'href=["\'](?:https?://[^/]+)?/comic/[^"\']+',text,re.I))[:3]:
-                  print('COMIC_SNIPPET',compact(text[max(0,m.start()-700):m.end()+900])[:1700])
-              print('NEXT_LINKS',[compact(html.unescape(x)) for x in re.findall(r'<a[^>]+href=["\']([^"\']+)["\'][^>]*>\s*下一页\s*</a>',text,re.I|re.S)][:3])
-              form=re.search(r'<form[^>]+action=["\']([^"\']+)["\'][^>]*>(.*?)</form>',text,re.I|re.S)
-              if form: print('SEARCH_FORM',form.group(1),compact(form.group(2))[:900])
-          detail=pages.get('/comic/2r0w81JrnN','')
-          for needle in ['og:title','og:image','og:description','作者','章节列表','/chapter/']:
-              i=detail.find(needle)
-              if i>=0: print('DETAIL_SNIPPET',needle,compact(detail[max(0,i-650):i+1200])[:1850])
-          chapter=pages.get('/chapter/XzwzKUa6g4.html','')
-          m=re.search(r"params\s*=\s*['\"]([^'\"]+)",chapter)
-          print('PARAMS_PRESENT',bool(m),'LEN',len(m.group(1)) if m else 0)
-          if m:
-              raw=base64.b64decode(m.group(1))
-              key=b'9S8$vJnU2ANeSRoF'
-              with tempfile.NamedTemporaryFile() as inp, tempfile.NamedTemporaryFile() as out:
-                  inp.write(raw[16:]); inp.flush()
-                  proc=subprocess.run(['openssl','enc','-d','-aes-128-cbc','-K',key.hex(),'-iv',raw[:16].hex(),'-in',inp.name,'-out',out.name],capture_output=True)
-                  if proc.returncode==0:
-                      out.seek(0); plain=out.read().decode('utf-8','replace')
-                      try:
-                          obj=json.loads(plain)
-                          print('PARAMS_KEY_MATCH',True)
-                          print('PARAMS_FIELDS',sorted(obj.keys()))
-                          print('PARAMS_HOST',obj.get('host'))
-                          print('PARAMS_SOURCE_ID',obj.get('source_id'))
-                          imgs=obj.get('images') or []
-                          print('PARAMS_IMAGE_COUNT',len(imgs))
-                          print('PARAMS_IMAGE_SHAPES',[('absolute' if str(x).startswith(('http://','https://','//')) else 'relative', str(x).rsplit('.',1)[-1][:8]) for x in imgs[:3]])
-                      except Exception as e: print('PARAMS_JSON_ERROR',type(e).__name__,str(e)[:100])
-                  else:
-                      print('PARAMS_KEY_MATCH',False,proc.stderr.decode('utf-8','ignore')[:120])
+                  with urllib.request.urlopen(req,timeout=20) as r: return r.status,r.geturl(),r.read().decode('utf-8','ignore')
+              except Exception as e: return 0,url,str(e)
+          q=urllib.parse.quote('仙武帝尊')
+          for path in [f'/search?key={q}',f'/search/{q}',f'/search/{q}/page/2',f'/index.php/search?key={q}']:
+              st,url,text=fetch(base+path)
+              print('PATH',path,'HTTP',st,'FINAL',url,'BYTES',len(text.encode()))
+              print('TITLE',re.sub(r'\s+',' ',re.search(r'<title>(.*?)</title>',text,re.I|re.S).group(1)).strip() if re.search(r'<title>(.*?)</title>',text,re.I|re.S) else '')
+              print('COMICS',re.findall(r'href=["\'](/comic/[^"\']+)["\']',text,re.I)[:8])
+          for path in ['/packs/mccms/base.js','/template/pc/fengchemanhua/js/home.js','/template/pc/fengchemanhua/js/ewave-global.js']:
+              st,url,text=fetch(base+path)
+              print('\nJS',path,'HTTP',st,'BYTES',len(text.encode()))
+              for pat in [r'/api/[^"\'\s]+',r'/search[^"\'\s]+',r'ajax[^"\'\s]{0,100}',r'search[^"\'\s]{0,120}']:
+                  vals=[]
+                  for x in re.findall(pat,text,re.I):
+                      x=re.sub(r'\s+',' ',x)
+                      if x not in vals: vals.append(x)
+                  print('MATCH',pat,vals[:25])
           PY
