@@ -15,32 +15,13 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Finalize compatible engine probe
+      - name: Reveal reader image crypto
         shell: bash
         run: |
           set -euo pipefail
           ua='Mozilla/5.0 (Linux; Android 16; Pixel 9 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36'
           base='https://mh5.app'
           mkdir -p /tmp/mw
-          for pair in 'category /category' 'update /custom/update' 'hot /custom/hot' 'search /index.php/search?key=%E5%A6%96%E7%A5%9E%E8%AE%B0'; do
-            set -- $pair
-            curl -fsSL --compressed -A "$ua" "$base$2" -o "/tmp/mw/$1.html"
-          done
-          python3 - <<'PY'
-          import html,re
-          from pathlib import Path
-          for name in ('category','update','hot','search'):
-              raw=Path(f'/tmp/mw/{name}.html').read_text('utf-8',errors='replace')
-              print(f'===== {name.upper()} PAGINATION =====')
-              seen=set()
-              for m in re.finditer(r'<a\b([^>]*)>(.*?)</a>',raw,re.I|re.S):
-                  attrs=html.unescape(m.group(1)); hm=re.search(r'href\s*=\s*["\']([^"\']+)',attrs,re.I)
-                  if not hm: continue
-                  href=hm.group(1)
-                  text=re.sub(r'<[^>]+>',' ',m.group(2)); text=re.sub(r'\s+',' ',html.unescape(text)).strip()
-                  if ('page' in href.lower() or text in {'1','2','3','4','5','下一页','下页','›','»','Next'}) and href not in seen:
-                      seen.add(href); print(href,'|',text)
-          PY
           curl -fsSL --compressed -A "$ua" "$base/template/pc/24/js/pic-v2.js" -o /tmp/mw/pic.js
           curl -fsSL --compressed -A "$ua" "$base/packs/js/crypto-js.min.js" -o /tmp/mw/crypto.js
           curl -fsSL --compressed -A "$ua" "$base/chapter/r01nZfQE2w.html" -o /tmp/mw/reader.html
@@ -51,14 +32,15 @@ jobs:
           m=re.search(r"params\s*=\s*'([^']+)'",raw)
           Path('/tmp/mw/encrypted.json').write_text(json.dumps(m.group(1)))
           js=Path('/tmp/mw/pic.js').read_text('utf-8',errors='replace')
-          needle='params=decryptParams(params);'
-          inject=needle+"console.log('PARAM_SOURCE='+params.source_id);decryptImage(new Uint8Array(16));return;"
-          js=js.replace(needle,inject,1)
+          # Let all obfuscator initialization execute, but replace the final UI render call.
+          if 'pic_show();' not in js: raise SystemExit('pic_show marker missing')
+          js=js.replace('pic_show();',"console.log('AFTER_INIT');decryptImage(new Uint8Array(16));",1)
           Path('/tmp/mw/pic-run.js').write_text(js)
           PY
           cat >/tmp/mw/run.js <<'NODE'
           const fs=require('fs'), vm=require('vm');
-          const enc=JSON.parse(fs.readFileSync('/tmp/mw/encrypted.json','utf8'));
+          const nativeParse=JSON.parse;
+          const enc=nativeParse(fs.readFileSync('/tmp/mw/encrypted.json','utf8'));
           global.window={location:{hostname:'mh5.app'},innerHeight:1000};
           global.document={documentElement:{clientHeight:1000},body:{scrollTop:0}};
           const dummy={eq(){return this},offset(){return {top:0}},scroll(){return this},append(){return this},add(){return this},length:0};
@@ -73,7 +55,8 @@ jobs:
             console.log('AES_DECRYPT keyBytes='+(key&&key.sigBytes)+' key='+hex(key)+' ivBytes='+(cfg&&cfg.iv&&cfg.iv.sigBytes)+' iv='+hex(cfg&&cfg.iv)+' mode='+(cfg&&cfg.mode===CryptoJS.mode.CBC?'CBC':'other')+' padding='+(cfg&&cfg.padding===CryptoJS.pad.Pkcs7?'Pkcs7':cfg&&cfg.padding===CryptoJS.pad.NoPadding?'NoPadding':'other')+' ctBytes='+(raw&&raw.sigBytes));
             return adec(ct,key,cfg);
           };
+          JSON.parse=function(s){ const x=nativeParse(s); if(x && typeof x==='object' && x.images) console.log('PARAM_SOURCE='+x.source_id+' HOST='+x.host+' IMAGES='+x.images.length); return x; };
           global.params=enc;
           vm.runInThisContext(fs.readFileSync('/tmp/mw/pic-run.js','utf8'));
           NODE
-          node /tmp/mw/run.js
+          node /tmp/mw/run.js || true
