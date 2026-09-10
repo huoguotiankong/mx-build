@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Reveal reader params object
+      - name: Trace reader crypto
         shell: bash
         run: |
           set -euo pipefail
@@ -29,24 +29,33 @@ jobs:
           from pathlib import Path
           raw=Path('/tmp/reader.html').read_text('utf-8',errors='replace')
           m=re.search(r"params\s*=\s*'([^']+)'",raw)
-          if not m: raise SystemExit('params missing')
           Path('/tmp/encrypted.json').write_text(json.dumps(m.group(1)))
           js=Path('/tmp/pic.js').read_text('utf-8',errors='replace')
           needle='params=decryptParams(params);'
-          if needle not in js: raise SystemExit('decrypt assignment missing')
-          js=js.replace(needle, needle+"console.log('DECRYPTED='+JSON.stringify(params));process.exit(0);",1)
+          js=js.replace(needle, needle+"console.log('DECRYPTED_TYPE='+typeof params);process.exit(0);",1)
           Path('/tmp/pic-run.js').write_text(js)
           PY
           cat >/tmp/run.js <<'NODE'
           const fs=require('fs'), vm=require('vm');
-          const nativeParse=JSON.parse;
-          const enc=nativeParse(fs.readFileSync('/tmp/encrypted.json','utf8'));
+          const enc=JSON.parse(fs.readFileSync('/tmp/encrypted.json','utf8'));
           global.window={location:{hostname:'mh5.app'},innerHeight:1000};
           global.document={documentElement:{clientHeight:1000}};
           const dummy={eq(){return this},offset(){return {top:0}},scroll(){return this},append(){return this},add(){return this},length:0};
           global.$=function(x){ if(typeof x==='function'){x(); return dummy;} return dummy; };
           vm.runInThisContext(fs.readFileSync('/tmp/crypto.js','utf8'));
-          JSON.parse=function(s){ const x=nativeParse(s); if(x && typeof x==='object' && (x.images || x.host || x.source_id)) console.log('PARSED_OBJECT='+JSON.stringify(x)); return x; };
+          const hex=x=>x&&x.toString?x.toString(CryptoJS.enc.Hex):String(x);
+          const u8=CryptoJS.enc.Utf8.parse.bind(CryptoJS.enc.Utf8);
+          CryptoJS.enc.Utf8.parse=function(s){ console.log('UTF8_PARSE='+s); return u8(s); };
+          const b64=CryptoJS.enc.Base64.parse.bind(CryptoJS.enc.Base64);
+          CryptoJS.enc.Base64.parse=function(s){ const x=b64(s); console.log('BASE64_PARSE bytes='+x.sigBytes+' head='+hex(x).slice(0,96)); return x; };
+          const hparse=CryptoJS.enc.Hex.parse.bind(CryptoJS.enc.Hex);
+          CryptoJS.enc.Hex.parse=function(s){ console.log('HEX_PARSE len='+s.length+' head='+s.slice(0,96)); return hparse(s); };
+          const adec=CryptoJS.AES.decrypt.bind(CryptoJS.AES);
+          CryptoJS.AES.decrypt=function(ct,key,cfg){
+            const raw=ct&&ct.ciphertext?ct.ciphertext:ct;
+            console.log('AES_DECRYPT keyBytes='+(key&&key.sigBytes)+' key='+hex(key)+' ivBytes='+(cfg&&cfg.iv&&cfg.iv.sigBytes)+' iv='+hex(cfg&&cfg.iv)+' ctBytes='+(raw&&raw.sigBytes)+' ctHead='+hex(raw).slice(0,96));
+            return adec(ct,key,cfg);
+          };
           global.params=enc;
           vm.runInThisContext(fs.readFileSync('/tmp/pic-run.js','utf8'));
           NODE
