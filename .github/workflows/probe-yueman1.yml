@@ -15,80 +15,68 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Probe site structure
+      - name: Probe mirrors and reader
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import re, urllib.request, urllib.error
-          from urllib.parse import urljoin, quote
+          import re, urllib.request, urllib.error, base64
+          from urllib.parse import urljoin
           from http.cookiejar import CookieJar
 
-          BASE='http://www.yueman1.cc/'
-          UA='Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/131.0 Mobile Safari/537.36'
-          jar=CookieJar(); opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
-          def decode(b, ctype=''):
-              m=re.search(r'charset=([\w-]+)',ctype or '',re.I)
-              enc=m.group(1) if m else None
-              for e in [enc,'gb18030','gbk','utf-8']:
-                  if not e: continue
-                  try: return b.decode(e)
-                  except Exception: pass
-              return b.decode('latin1','ignore')
-          def get(url, referer=None):
+          UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36'
+          def session():
+              jar=CookieJar(); return jar, urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+          def fetch(opener,url,referer=None):
               h={'User-Agent':UA,'Accept-Language':'zh-CN,zh;q=0.9','Accept':'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8'}
               if referer: h['Referer']=referer
-              req=urllib.request.Request(url,headers=h)
               try:
-                  with opener.open(req,timeout=15) as r:
-                      b=r.read(1200000); text=decode(b,r.headers.get('content-type',''))
-                      print('\nGET',url,'->',r.status,'final=',r.geturl(),'type=',r.headers.get('content-type'),'bytes=',len(b),'cookies=',[(c.name,c.value[:20]) for c in jar])
-                      return r.geturl(),text,b
+                  with opener.open(urllib.request.Request(url,headers=h),timeout=12) as r:
+                      b=r.read(1000000); ct=r.headers.get('content-type','')
+                      enc='gb18030' if ('gb2312' in ct.lower() or 'gbk' in ct.lower()) else 'utf-8'
+                      try: t=b.decode(enc)
+                      except: t=b.decode('gb18030','ignore')
+                      print('OK',url,'=>',r.status,r.geturl(),'bytes',len(b),'title',re.findall(r'<title[^>]*>(.*?)</title>',t,re.I|re.S)[:1])
+                      return r.geturl(),t,b
               except urllib.error.HTTPError as e:
-                  b=e.read(300000); print('\nGET',url,'HTTPERR',e.code,'headers=',dict(e.headers),'body=',decode(b,e.headers.get('content-type',''))[:500]); return url,'',b
+                  b=e.read(200000); t=b.decode('utf-8','ignore'); print('HTTP',url,e.code,'title',re.findall(r'<title[^>]*>(.*?)</title>',t,re.I|re.S)[:1],'setcookie',e.headers.get('Set-Cookie')); return url,'',b
               except Exception as e:
-                  print('\nGET',url,'ERROR',repr(e)); return url,'',b''
+                  print('ERR',url,repr(e)); return url,'',b''
 
-          home,html,_=get(BASE)
-          print('TITLE',re.findall(r'<title[^>]*>(.*?)</title>',html,re.I|re.S)[:2])
-          print('META CHARSET',re.findall(r'charset\s*=\s*["\']?([^"\' >;]+)',html,re.I)[:5])
-          print('FORMS',re.findall(r'<form[^>]*.*?</form>',html,re.I|re.S)[:2])
-          print('MANGA LINKS',re.findall(r'href=["\'](/manhua/\d+\.html)["\']',html,re.I)[:30])
-          print('CHAPTER LINKS',re.findall(r'href=["\'](/p/\d+/\d+\.html)["\']',html,re.I)[:20])
-          print('CATEGORY LINKS',[x for x in re.findall(r'href=["\']([^"\']+)',html,re.I) if '/manhua/' in x][:80])
-
-          detail=urljoin(home,'/manhua/47956.html')
-          durl,dhtml,_=get(detail,home)
-          if not dhtml:
-              durl,dhtml,_=get(detail)
-          print('DETAIL TITLE',re.findall(r'<title[^>]*>(.*?)</title>',dhtml,re.I|re.S)[:2])
-          print('DETAIL H1',re.findall(r'<h1[^>]*>(.*?)</h1>',dhtml,re.I|re.S)[:5])
-          print('DETAIL IMGS',re.findall(r'(?:src|data-original|data-src)=["\']([^"\']+)',dhtml,re.I)[:30])
-          print('DETAIL CHAPTERS',re.findall(r'href=["\'](/p/\d+/\d+\.html)["\'][^>]*>(.*?)</a>',dhtml,re.I|re.S)[:30])
-          print('DETAIL TEXT SNIPS',[re.sub('<[^>]+>',' ',s)[:500] for s in re.findall(r'.{0,100}(?:作者|状态|地区|类型|简介|介绍).{0,400}',dhtml,re.I|re.S)[:20]])
-
-          chapter=urljoin(home,'/p/47956/2371869.html')
-          curl,chtml,_=get(chapter,durl or home)
-          if not chtml:
-              curl,chtml,_=get(chapter,home)
-          print('CHAPTER TITLE',re.findall(r'<title[^>]*>(.*?)</title>',chtml,re.I|re.S)[:2])
-          print('CHAPTER SCRIPTS',re.findall(r'<script[^>]+src=["\']([^"\']+)',chtml,re.I)[:50])
-          print('CHAPTER IMGS',re.findall(r'(?:src|data-original|data-src)=["\']([^"\']+)',chtml,re.I)[:50])
-          for pat in ['mhurl','mhttpurl','chapterid','page','pic','image','qTcms']:
-              vals=[re.sub(r'\s+',' ',x)[:500] for x in re.findall(r'.{0,120}'+pat+r'.{0,380}',chtml,re.I|re.S)[:20]]
-              print('SNIP',pat,vals)
-
-          # fetch reader scripts likely involved in page image resolution
-          for src in re.findall(r'<script[^>]+src=["\']([^"\']+)',chtml,re.I):
-              if any(k in src.lower() for k in ('show','read','comic','qtcms','public','js')):
-                  surl=urljoin(curl,src)
-                  _,stext,_=get(surl,curl)
-                  print('SCRIPT',surl,'HEAD',stext[:1800].replace('\n',' '))
-
-          # search behavior
-          for q in ['海贼王','斗罗大陆']:
-              for u in [urljoin(home,'search.asp?key='+quote(q.encode('gbk'))),urljoin(home,'search.asp?keyword='+quote(q.encode('gbk'))),urljoin(home,'search.asp?searchword='+quote(q.encode('gbk')))]:
-                  _,shtml,_=get(u,home)
-                  if shtml:
-                      print('SEARCH',u,'TITLE',re.findall(r'<title[^>]*>(.*?)</title>',shtml,re.I|re.S)[:1],'MANGA',re.findall(r'/manhua/\d+\.html',shtml,re.I)[:10])
+          bases=['http://www.yueman1.cc/','https://www.yueman1.cc/','http://reman.cc/','https://reman.cc/','http://www.reman.cc/','https://www.reman.cc/','https://m.gugu5.com/','https://www.gugu5.com/']
+          for base in bases:
+              jar,opener=session(); final,html,_=fetch(opener,base)
+              if not html: continue
+              hrefs=re.findall(r'href=["\']([^"\']+)',html,re.I)
+              mangas=[h for h in hrefs if re.search(r'/(?:manhua|m|n)/\d+(?:\.html|/)?$',h,re.I)]
+              chapters=[h for h in hrefs if re.search(r'/(?:p|n)/\d+/\d+(?:\.html)?$',h,re.I)]
+              print('BASE',base,'mangas',mangas[:10],'chapters',chapters[:10])
+              # Try canonical Yueman IDs plus first discovered.
+              ds=[]
+              if 'yueman1.cc' in base: ds=['/manhua/47956.html']
+              ds += mangas[:2]
+              for d in dict.fromkeys(ds):
+                  u=urljoin(final,d)
+                  for attempt in range(1,4):
+                      _,dh,_=fetch(opener,u,final)
+                      if dh:
+                          print('DETAIL_OK',u,'attempt',attempt,'chapters',re.findall(r'href=["\']([^"\']*(?:/p/|/n/)\d+[^"\']*)',dh,re.I)[:15])
+                          print('DETAIL_TEXT',re.sub('<[^>]+>',' ',dh)[:2500].replace('\n',' '))
+                          break
+              cs=[]
+              if 'yueman1.cc' in base: cs=['/p/47956/2371869.html']
+              cs += chapters[:1]
+              for c in dict.fromkeys(cs):
+                  u=urljoin(final,c)
+                  ch=''
+                  for attempt in range(1,4):
+                      _,ch,_=fetch(opener,u,final)
+                      if ch: break
+                  if ch:
+                      m=re.search(r'qTcms_S_m_murl_e="([^"]+)"',ch)
+                      if m:
+                          raw=base64.b64decode(m.group(1)).decode('utf-8','ignore')
+                          pics=raw.split('$qingtiandy$')
+                          print('READER',u,'pics',len(pics),'first',pics[:3])
+              print('---')
           PY
