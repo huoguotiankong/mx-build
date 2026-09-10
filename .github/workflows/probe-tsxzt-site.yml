@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Probe TSXZT endpoints and structure
+      - name: Probe TSXZT tag cover attributes
         shell: bash
         run: |
           set -euo pipefail
@@ -25,14 +25,10 @@ jobs:
           mkdir -p "$out"
           declare -A urls=(
             [home]="$base/"
-            [category]="$base/tese/sezhentum/25_1.html"
-            [category2]="$base/tese/sezhentum/25_2.html"
-            [tag]="$base/chis/xiurentaotu/1.html"
-            [tag2]="$base/chis/xiurentaotu/2.html"
-            [detail]="$base/tese/sezhentu/20360607/328375.html"
-            [detail_old]="$base/tese/sezhentu/20320506/256788.html"
-            [topjs]='http://js.tsxzt.com/js/top.js'
-            [ftjs]='http://js.tsxzt.com/js/ft.js'
+            [tag_korea]="$base/chis/hanguo/1.html"
+            [tag_korea2]="$base/chis/hanguo/2.html"
+            [tag_xiuren]="$base/chis/xiurentaotu/1.html"
+            [category]="$base/tese/sezhentum/2_1.html"
           )
           for key in "${!urls[@]}"; do
             url="${urls[$key]}"
@@ -41,7 +37,7 @@ jobs:
           done
           python3 - <<'PY'
           from pathlib import Path
-          import re, html, json
+          import re, html
           out=Path('/tmp/tsxzt-probe')
           for p in sorted(out.glob('*.bin')):
               raw=p.read_bytes()
@@ -49,42 +45,20 @@ jobs:
               (out/(p.stem+'.utf8.txt')).write_text(text,encoding='utf-8')
               print('\n###',p.stem,'bytes',len(raw))
               title=re.search(r'<title[^>]*>(.*?)</title>',text,re.I|re.S)
-              if title: print('TITLE:',re.sub(r'\s+',' ',html.unescape(title.group(1))).strip())
-              if p.stem in {'topjs','ftjs'}:
-                  print(text[:8000])
-                  continue
-              # page structure summary
-              for cls in ['nav','dh','b','img','interestline','pages','page','content','main','pic','article','title']:
-                  c=len(re.findall(r'class=["\'][^"\']*\b'+re.escape(cls)+r'\b',text,re.I))
-                  if c: print('CLASS',cls,c)
-              links=[]
-              for href,label in re.findall(r'<a[^>]+href=["\']([^"\']+)["\'][^>]*>(.*?)</a>',text,re.I|re.S):
-                  clean=re.sub('<[^>]+>',' ',label)
-                  clean=re.sub(r'\s+',' ',html.unescape(clean)).strip()
-                  if (href,clean) not in links: links.append((href,clean[:100]))
-              print('LINKS_FIRST:')
-              for href,label in links[:80]: print(href,'\t',label)
-              print('LINKS_LAST:')
-              for href,label in links[-30:]: print(href,'\t',label)
-              imgs=[]
-              for m in re.finditer(r'<img\b([^>]*)>',text,re.I|re.S):
-                  attrs=m.group(1)
-                  srcm=re.search(r'(?:src|data-src|data-original)=["\']([^"\']+)["\']',attrs,re.I)
-                  if srcm:
-                      item=srcm.group(1)
-                      if item not in imgs: imgs.append(item)
-              print('IMAGES',len(imgs))
-              for src in imgs[:30]: print(src)
-              # contextual hits useful for parsing metadata/tags/paging/search
-              for kw in ['标签','关键字','关键词','Tag','tag','发布时间','更新时间','上一页','下一页','搜索','作者','来源','套图','图片']:
-                  pos=text.find(kw)
-                  if pos>=0:
-                      snip=re.sub(r'\s+',' ',text[max(0,pos-250):pos+700])
-                      print('HIT',kw,snip[:950])
+              if title:
+                  print('TITLE:',re.sub(r'\s+',' ',html.unescape(title.group(1))).strip())
+              tags=[]
+              for m in re.finditer(r'<img\b[^>]*>',text,re.I|re.S):
+                  tag=re.sub(r'\s+',' ',m.group(0)).strip()
+                  if tag not in tags:
+                      tags.append(tag)
+              print('IMG_TAGS',len(tags))
+              for tag in tags[:60]:
+                  print('IMG_TAG',tag[:1000])
           PY
       - name: Upload probe
         uses: actions/upload-artifact@v4
         with:
-          name: tsxzt-site-probe-deep
+          name: tsxzt-tag-cover-probe
           path: /tmp/tsxzt-probe/
           if-no-files-found: error
