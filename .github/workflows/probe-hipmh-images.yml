@@ -20,65 +20,71 @@ jobs:
         run: |
           set -euo pipefail
           node <<'JS'
-          const vm = require('vm');
-          const { TextEncoder, TextDecoder } = require('util');
-          const crypto = require('crypto').webcrypto;
-          const apiHid = 'YzoxOTEwNTQ-Mjc4MzE6MTg1LjAw';
-          const decoderUrl = 'https://reader.hipmh.top/assets/runtime/chapter-decoder.js';
-          const apiUrl = 'https://hipapi1.s3file.top/v2/chapter?hid=' + encodeURIComponent(apiHid);
-          const headers = {'user-agent':'Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 Chrome/126.0 Mobile Safari/537.36','referer':'https://reader.hipmh.top/'};
-          const [decoderRes, apiRes] = await Promise.all([fetch(decoderUrl,{headers}), fetch(apiUrl,{headers})]);
-          if (!decoderRes.ok || !apiRes.ok) throw new Error(`fetch failed decoder=${decoderRes.status} api=${apiRes.status}`);
-          const decoderCode = await decoderRes.text();
-          const payload = await apiRes.json();
-          const info = payload.data;
-          const sandbox = {
-            window: {},
-            globalThis: null,
-            crypto,
-            TextEncoder,
-            TextDecoder,
-            atob: globalThis.atob,
-            btoa: globalThis.btoa,
-            Uint8Array,
-            ArrayBuffer,
-            DataView,
-            Promise,
-            console,
-            setTimeout,
-            clearTimeout,
-          };
-          sandbox.globalThis = sandbox;
-          vm.createContext(sandbox);
-          vm.runInContext(decoderCode, sandbox, {timeout: 5000});
-          if (!sandbox.window.__cimg?.r) throw new Error('decoder did not expose window.__cimg.r');
-          let images = Array.isArray(info.images) ? info.images : await sandbox.window.__cimg.r(info.images);
-          if (!Array.isArray(images) || !images.length) throw new Error('decode returned no images');
-          const size = images.length;
-          const order = Number(info.order_id), seed = Number(info.sid);
-          if (Number.isFinite(order) && Number.isFinite(seed) && typeof BigInt === 'function') {
-            const A=BigInt(2654435761), B=BigInt(2246822507);
-            let offset=Number((BigInt(Math.floor(seed))*A ^ BigInt(size)*B)%BigInt(size));
-            if(offset<0) offset+=size;
-            const trap=Number(BigInt(Math.floor(order)) ^ BigInt(offset));
-            if(trap>=0 && trap<size) images=images.slice(0,trap).concat(images.slice(trap+1));
-          }
-          const rawOf = item => typeof item === 'string' ? item : (item?.url || item?.src || item?.img || item?.image || item?.path || '');
-          const hosts = {line1:'https://hip-tx-1.s3imgs.top', line2:'https://hip-cf-1.s3imgs.top'};
-          console.log('decoded_count', images.length, 'line_value', info.line, 'order', info.order_id, 'sid', info.sid);
-          for (const idx of [0, Math.floor(images.length/2), images.length-1]) {
-            const raw=rawOf(images[idx]);
-            console.log('raw', idx, raw);
-            let hashes=[];
-            for(const [line,host] of Object.entries(hosts)){
-              const url=new URL(raw, host + '/').href;
-              const t0=Date.now();
-              const r=await fetch(url,{headers:{...headers, referer:'https://reader.hipmh.top/chapter/x', origin:'https://reader.hipmh.top'}});
-              const bytes=Buffer.from(await r.arrayBuffer());
-              const hash=require('crypto').createHash('sha256').update(bytes).digest('hex');
-              console.log(line, idx, 'status', r.status, 'bytes', bytes.length, 'ms', Date.now()-t0, 'sha256', hash, 'url', url);
-              hashes.push(hash);
+          (async () => {
+            const vm = require('vm');
+            const { TextEncoder, TextDecoder } = require('util');
+            const cryptoModule = require('crypto');
+            const crypto = cryptoModule.webcrypto;
+            const apiHid = 'YzoxOTEwNTQ-Mjc4MzE6MTg1LjAw';
+            const decoderUrl = 'https://reader.hipmh.top/assets/runtime/chapter-decoder.js';
+            const apiUrl = 'https://hipapi1.s3file.top/v2/chapter?hid=' + encodeURIComponent(apiHid);
+            const headers = {'user-agent':'Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 Chrome/126.0 Mobile Safari/537.36','referer':'https://reader.hipmh.top/'};
+            const [decoderRes, apiRes] = await Promise.all([fetch(decoderUrl,{headers}), fetch(apiUrl,{headers})]);
+            if (!decoderRes.ok || !apiRes.ok) throw new Error(`fetch failed decoder=${decoderRes.status} api=${apiRes.status}`);
+            const decoderCode = await decoderRes.text();
+            const payload = await apiRes.json();
+            const info = payload.data;
+            const sandbox = {
+              window: {},
+              globalThis: null,
+              crypto,
+              TextEncoder,
+              TextDecoder,
+              atob: globalThis.atob,
+              btoa: globalThis.btoa,
+              Uint8Array,
+              ArrayBuffer,
+              DataView,
+              Promise,
+              console,
+              setTimeout,
+              clearTimeout,
+            };
+            sandbox.globalThis = sandbox;
+            vm.createContext(sandbox);
+            vm.runInContext(decoderCode, sandbox, {timeout: 5000});
+            if (!sandbox.window.__cimg?.r) throw new Error('decoder did not expose window.__cimg.r');
+            let images = Array.isArray(info.images) ? info.images : await sandbox.window.__cimg.r(info.images);
+            if (!Array.isArray(images) || !images.length) throw new Error('decode returned no images');
+            const size = images.length;
+            const order = Number(info.order_id), seed = Number(info.sid);
+            if (Number.isFinite(order) && Number.isFinite(seed) && typeof BigInt === 'function') {
+              const A=BigInt(2654435761), B=BigInt(2246822507);
+              let offset=Number((BigInt(Math.floor(seed))*A ^ BigInt(size)*B)%BigInt(size));
+              if(offset<0) offset+=size;
+              const trap=Number(BigInt(Math.floor(order)) ^ BigInt(offset));
+              if(trap>=0 && trap<size) images=images.slice(0,trap).concat(images.slice(trap+1));
             }
-            console.log('same_bytes', idx, hashes[0]===hashes[1]);
-          }
+            const rawOf = item => typeof item === 'string' ? item : (item?.url || item?.src || item?.img || item?.image || item?.path || '');
+            const hosts = {line1:'https://hip-tx-1.s3imgs.top', line2:'https://hip-cf-1.s3imgs.top'};
+            console.log('decoded_count', images.length, 'line_value', info.line, 'order', info.order_id, 'sid', info.sid);
+            for (const idx of [0, Math.floor(images.length/2), images.length-1]) {
+              const raw=rawOf(images[idx]);
+              console.log('raw', idx, raw);
+              let hashes=[];
+              for(const [line,host] of Object.entries(hosts)){
+                const url=new URL(raw, host + '/').href;
+                const t0=Date.now();
+                const r=await fetch(url,{headers:{...headers, referer:'https://reader.hipmh.top/chapter/x', origin:'https://reader.hipmh.top'}});
+                const bytes=Buffer.from(await r.arrayBuffer());
+                const hash=cryptoModule.createHash('sha256').update(bytes).digest('hex');
+                console.log(line, idx, 'status', r.status, 'bytes', bytes.length, 'ms', Date.now()-t0, 'sha256', hash, 'url', url);
+                hashes.push(hash);
+              }
+              console.log('same_bytes', idx, hashes[0]===hashes[1]);
+            }
+          })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
           JS
