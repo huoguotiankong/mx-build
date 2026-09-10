@@ -22,10 +22,10 @@ jobs:
           ref: main
           token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
           path: source
-          fetch-depth: 0
-          persist-credentials: true
+          fetch-depth: 1
+          persist-credentials: false
 
-      - name: Fetch and prepare site icon
+      - name: Build official site icon payload
         shell: bash
         run: |
           set -euo pipefail
@@ -36,40 +36,21 @@ jobs:
             -o "$logo" \
             'http://www.yueman1.cc/template/skin4_20110501/images/logo_wap.gif'
           test -s "$logo"
-          file "$logo"
           python3 -m pip install --disable-pip-version-check --quiet pillow
           python3 - <<'PY'
           from pathlib import Path
           from PIL import Image
-
           src = Image.open('/tmp/manhuadaquan-logo.png').convert('RGBA')
-          sizes = {'mdpi':48, 'hdpi':72, 'xhdpi':96, 'xxhdpi':144, 'xxxhdpi':192}
-          root = Path('source/src/zh/manhuadaquan/res')
-          if root.exists():
-              import shutil
-              shutil.rmtree(root)
-          for density, size in sizes.items():
-              canvas = Image.new('RGBA', (size, size), 'white')
-              target_w = int(size * 0.88)
-              target_h = max(1, round(src.height * target_w / src.width))
-              logo = src.resize((target_w, target_h), Image.Resampling.LANCZOS)
-              canvas.alpha_composite(logo, ((size-target_w)//2, (size-target_h)//2))
-              out = root / f'mipmap-{density}' / 'ic_launcher.png'
-              out.parent.mkdir(parents=True, exist_ok=True)
-              canvas.convert('RGB').save(out, 'PNG', optimize=True)
-              assert Image.open(out).size == (size, size)
-              print(density, out, size)
+          size = 96
+          canvas = Image.new('RGBA', (size, size), 'white')
+          target_w = int(size * 0.88)
+          target_h = max(1, round(src.height * target_w / src.width))
+          logo = src.resize((target_w, target_h), Image.Resampling.LANCZOS)
+          canvas.alpha_composite(logo, ((size-target_w)//2, (size-target_h)//2))
+          out = Path('/tmp/ic_launcher.png')
+          canvas.convert('RGB').save(out, 'PNG', optimize=True)
+          assert Image.open(out).size == (96, 96)
           PY
-
-      - name: Validate and commit icon
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 source/scripts/validate_sources.py
-          git -C source diff --check
-          git -C source config user.name 'github-actions[bot]'
-          git -C source config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git -C source add src/zh/manhuadaquan/res
-          git -C source commit -m 'feat(manhuadaquan): add site icon'
-          git -C source pull --rebase origin main
-          git -C source push origin HEAD:main
+          printf 'ICON_BASE64='
+          base64 -w0 /tmp/ic_launcher.png
+          printf '\n'
