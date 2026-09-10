@@ -716,6 +716,27 @@
         ]
       },
       {
+        "name": "TSXZT",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.tsxzt",
+        "resources": {
+          "apkUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.tsxzt-v1.6.1.apk",
+          "iconUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/icon/eu.kanade.tachiyomi.extension.zh.tsxzt-v106001.png",
+          "jarUrl": "https://cdn.jsdelivr.net/gh/huoguotiankong/mx-repo@repo/tachiyomi-zh.tsxzt-v1.6.1.jar"
+        },
+        "extensionLib": "1.6",
+        "versionCode": "106001",
+        "versionName": "1.6.1",
+        "contentWarning": "CONTENT_WARNING_NSFW",
+        "sources": [
+          {
+            "id": "1887914543952804794",
+            "name": "\u7279\u8272\u5199\u771f\u7f51",
+            "language": "zh",
+            "homeUrl": "http://www.tsxzt.com"
+          }
+        ]
+      },
+      {
         "name": "Webtoons",
         "packageName": "eu.kanade.tachiyomi.extension.zh.webtoons",
         "resources": {

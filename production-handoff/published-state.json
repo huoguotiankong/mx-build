@@ -318,6 +318,17 @@
     "versionCode": 104029,
     "versionName": "1.4.29"
   },
+  "eu.kanade.tachiyomi.extension.zh.tsxzt": {
+    "androidVersionCode": 212001,
+    "apk": "tachiyomi-zh.tsxzt-v1.6.1.apk",
+    "apkSha256": "68fdb8506219e92df49b4b59c204ec41c6ec1227f8cd7ade8c6a5cb505374d12",
+    "jar": "tachiyomi-zh.tsxzt-v1.6.1.jar",
+    "jarSha256": "f5f328797847c65e540c910ec080d46f87a7117f7ec3bef8e75459b99c16c303",
+    "module": "zh.tsxzt",
+    "sourceHash": "ec985002e90f67f265687220d34de5286e92695a2c8f17e66e1eac15a55781c8",
+    "versionCode": 106001,
+    "versionName": "1.6.1"
+  },
   "eu.kanade.tachiyomi.extension.zh.webtoons": {
     "androidVersionCode": 212002,
     "apk": "tachiyomi-zh.webtoons-v1.6.2.apk",
