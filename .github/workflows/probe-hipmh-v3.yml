@@ -1,0 +1,107 @@
+name: Probe HipMH v3 endpoints
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-hipmh-v3.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Probe current HipMH chapter API and reader lines
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, html, json, re, time, urllib.parse, urllib.request
+
+          UA = 'Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36'
+          MAIN = 'https://m.hipmh.com'
+          API = 'https://hipapi1.s3file.top'
+          READER = 'https://reader.hipmh.top'
+          WORK = '/works/bToyNzgzMQ-jian-zun-gui-lai-dongman-1639-20709'
+          MID = '27831'
+
+          def fetch(url, referer=None, accept='*/*'):
+              headers = {'User-Agent': UA, 'Accept': accept, 'Accept-Language': 'zh-CN,zh;q=0.9,zh-TW;q=0.8'}
+              if referer: headers['Referer'] = referer
+              req = urllib.request.Request(url, headers=headers)
+              start = time.perf_counter()
+              with urllib.request.urlopen(req, timeout=20) as r:
+                  body = r.read()
+                  return r.status, dict(r.headers), body, time.perf_counter() - start
+
+          print('=== detail ===')
+          status, headers, body, elapsed = fetch(MAIN + WORK, MAIN + '/')
+          print('detail_status', status, 'bytes', len(body), 'seconds', round(elapsed, 3))
+          text = body.decode('utf-8', 'replace')
+          for element_id in ('chapters-config',):
+              m = re.search(r'<[^>]+id=["\']%s["\'][^>]*>' % re.escape(element_id), text, re.I)
+              if m:
+                  attrs = dict((k.lower(), html.unescape(v)) for k, q, v in re.findall(r'([\w:-]+)\s*=\s*(["\'])(.*?)\2', m.group(0), re.S))
+                  print(element_id, json.dumps({k:v for k,v in attrs.items() if k.startswith('data-')}, ensure_ascii=False, sort_keys=True))
+
+          print('=== chapter list page sizes ===')
+          for per_page in (50, 200, 500):
+              url = f'{API}/v1/manga/chapters?mid={MID}&page=1&per_page={per_page}&order=desc'
+              st, hd, bd, sec = fetch(url, MAIN + '/', 'application/json, text/plain, */*')
+              obj = json.loads(bd)
+              data = obj.get('data') or {}
+              items = data.get('items') or []
+              print('per_page', per_page, 'status', st, 'seconds', round(sec,3), 'items', len(items), 'page', data.get('page'), 'total_pages', data.get('total_pages'), 'total', data.get('total'))
+              if per_page == 50:
+                  print('data_keys', sorted(data.keys()))
+                  for i, item in enumerate(items[:5]):
+                      print('item', i, json.dumps(item, ensure_ascii=False, sort_keys=True))
+                  newest = items[0] if items else {}
+                  hid = str(newest.get('hid') or '')
+
+          if not hid:
+              raise SystemExit('No chapter hid')
+
+          print('=== reader page ===')
+          reader_url = f'{READER}/chapter/{urllib.parse.quote(hid)}'
+          st, hd, bd, sec = fetch(reader_url, MAIN + '/')
+          print('reader_status', st, 'bytes', len(bd), 'seconds', round(sec,3), 'url', reader_url)
+          reader_html = bd.decode('utf-8', 'replace')
+          content_attrs = {}
+          config_attrs = {}
+          for element_id, target in [('chapcontent', content_attrs), ('chapters-config', config_attrs)]:
+              m = re.search(r'<[^>]+id=["\']%s["\'][^>]*>' % re.escape(element_id), reader_html, re.I)
+              if m:
+                  target.update((k.lower(), html.unescape(v)) for k, q, v in re.findall(r'([\w:-]+)\s*=\s*(["\'])(.*?)\2', m.group(0), re.S))
+                  print(element_id, json.dumps({k:v for k,v in target.items() if k.startswith('data-')}, ensure_ascii=False, sort_keys=True))
+
+          api_hid = content_attrs.get('data-api-hid','')
+          print('api_hid_present', bool(api_hid))
+          for line in ('line1','line2'):
+              base = content_attrs.get(f'data-api-base-url-{line}') or content_attrs.get('data-api-base-url') or API
+              base = base.rstrip('/')
+              base = re.sub(r'/v\d+$', '', base)
+              url = f'{base}/v2/chapter?hid={urllib.parse.quote(api_hid)}'
+              try:
+                  st, hd, bd, sec = fetch(url, READER + '/', 'application/json, text/plain, */*')
+                  obj = json.loads(bd)
+                  info = obj.get('data') or {}
+                  images = info.get('images')
+                  if isinstance(images, list): imeta = {'type':'list','count':len(images),'first_type':type(images[0]).__name__ if images else None}
+                  elif isinstance(images, str): imeta = {'type':'string','length':len(images),'prefix':images[:24]}
+                  elif isinstance(images, dict): imeta = {'type':'dict','keys':list(images)[:10]}
+                  else: imeta = {'type':type(images).__name__}
+                  print(line, 'base', base, 'status', st, 'seconds', round(sec,3), 'code', obj.get('code'), 'data_keys', sorted(info.keys()), 'image_meta', json.dumps(imeta, ensure_ascii=False), 'line_value', info.get('line'), 'order_id', info.get('order_id'), 'sid', info.get('sid'))
+              except Exception as e:
+                  print(line, 'base', base, 'ERROR', type(e).__name__, str(e))
+
+          print('=== decoder ===')
+          st, hd, bd, sec = fetch(READER + '/assets/runtime/chapter-decoder.js', READER + '/', 'application/javascript, text/javascript, */*')
+          print('decoder_status', st, 'bytes', len(bd), 'seconds', round(sec,3))
+          dec = bd.decode('utf-8','replace')
+          print('decoder_head', dec[:1200].replace('\n',' '))
+          PY
