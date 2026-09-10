@@ -22,15 +22,18 @@ jobs:
           python3 - <<'PY'
           import base64, re, urllib.request
           from html import unescape
+          from http.cookiejar import CookieJar
           UA='Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 Chrome/131.0 Mobile Safari/537.36'
           BASE='http://m.yueman1.cc'
+          jar=CookieJar()
+          opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
           def load(url, ref=None, limit=900000):
               headers={'User-Agent':UA,'Accept-Language':'zh-CN,zh;q=0.9'}
               if ref: headers['Referer']=ref
               req=urllib.request.Request(url,headers=headers)
-              with urllib.request.urlopen(req,timeout=15) as r:
+              with opener.open(req,timeout=15) as r:
                   data=r.read(limit)
-                  print('HTTP',r.status,url,'=>',r.geturl(),'bytes',len(data),'type',r.headers.get('content-type'))
+                  print('HTTP',r.status,url,'=>',r.geturl(),'bytes',len(data),'type',r.headers.get('content-type'),'cookies',len(jar))
                   return data
           def text(data):
               try:return data.decode('gb18030')
@@ -44,8 +47,11 @@ jobs:
           print('LATEST',manga_title,manga_url)
 
           detail=text(load(manga_url,BASE+'/'))
+          print('DETAIL_TITLE',re.findall(r'<title[^>]*>(.*?)</title>',detail,re.I|re.S)[:1])
           marker='initIntroData('
-          start=detail.find('[', detail.find(marker)+len(marker))
+          marker_index=detail.find(marker)
+          assert marker_index >= 0, 'chapter JSON marker not found'
+          start=detail.find('[',marker_index+len(marker))
           assert start >= 0, 'chapter JSON start not found'
           depth=0; quote=None; esc=False; end=-1
           for i,ch in enumerate(detail[start:],start):
