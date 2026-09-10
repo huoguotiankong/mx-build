@@ -24,8 +24,10 @@ jobs:
           out=/tmp/xgyw-search
           mkdir -p "$out"
           urls=(
-            "$base/s.asp?keyword=%A1%BECROSI%D0%B4%D5%E6%A1%BF"
+            "$base/s.asp?keyword=%A1%BER"
             "$base/s.asp?keyword=ROSI"
+            "$base/s.asp?keyword=ROSI%D0%B4%D5%E6"
+            "$base/s.asp?keyword=%CB%AE%C3%E7Aqua"
             "$base/chis/yuantu/1.html"
             "$base/xing/ganyoum/24_1.html"
           )
@@ -49,26 +51,20 @@ jobs:
               print('\n###',p.stem,'ENC',e,'BYTES',len(raw))
               m=re.search(r'<title[^>]*>(.*?)</title>',t,re.I|re.S)
               if m: print('TITLE',re.sub(r'\s+',' ',html.unescape(m.group(1))).strip())
-              # opening container tags that contain detail links
-              for sel in ['id="list"',"id='list'",'class="list"',"class='list'",'div class="img"',"div class='img'"]:
-                  idx=t.lower().find(sel.lower())
-                  if idx>=0: print('CTX',sel,re.sub(r'\s+',' ',t[max(0,idx-300):idx+2500]).strip()[:2800])
               cards=[]
               for m in re.finditer(r'<a\b[^>]*href=["\']([^"\']*/xing/ganyou/[^"\']+)["\'][^>]*>(.*?)</a>',t,re.I|re.S):
                   href=html.unescape(m.group(1)); lab=re.sub(r'<[^>]+>',' ',m.group(2)); lab=re.sub(r'\s+',' ',html.unescape(lab)).strip()
-                  if (href,lab) not in cards: cards.append((href,lab))
-              print('DETAIL_LINKS',len(cards))
-              for x in cards[:8]: print('CARD',x)
+                  if href not in [x[0] for x in cards]: cards.append((href,lab))
+              print('UNIQUE_DETAIL_LINKS',len(cards))
+              for x in cards[:5]: print('CARD',x)
               imgs=[]
               for m in re.finditer(r'<img\b[^>]*>',t,re.I|re.S):
                   tag=re.sub(r'\s+',' ',m.group(0)).strip()
                   if tag not in imgs: imgs.append(tag)
-              print('IMGS',len(imgs))
-              for x in imgs[:8]: print('IMG',x[:1000])
-              # pagination
+              print('IMGS',len(imgs)); [print('IMG',x[:1000]) for x in imgs[:5]]
               for m in re.finditer(r'<a\b[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)</a>',t,re.I|re.S):
                   lab=re.sub(r'<[^>]+>',' ',m.group(2)); lab=re.sub(r'\s+',' ',html.unescape(lab)).strip()
-                  if lab in ('下一页','下10页','尾页','末页') or lab.isdigit(): print('PAGE',repr(lab),html.unescape(m.group(1)))
+                  if lab in ('下一页','末页'): print('PAGE',repr(lab),html.unescape(m.group(1)))
           PY
       - name: Upload probe
         uses: actions/upload-artifact@v4
