@@ -1,3 +1,4 @@
+# CopyManga v7: validate current Copy chapter/reader contract before publishing.
 name: CopyManga Plus v7 reader contract
 
 on:
