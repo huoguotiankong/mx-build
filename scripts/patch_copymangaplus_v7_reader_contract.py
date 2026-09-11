@@ -112,6 +112,11 @@ if "private fun requestChapterListJson(" not in s:
         raise SystemExit("requestDetailJson helper anchor missing")
     s = s.replace(helper_anchor, helpers + helper_anchor)
 
+if 'private const val CHAPTER_PAGE = 500' in s:
+    s = s.replace('private const val CHAPTER_PAGE = 500', 'private const val CHAPTER_PAGE = 100')
+elif 'private const val CHAPTER_PAGE = 100' not in s:
+    raise SystemExit("chapter page size anchor missing")
+
 if 'private const val ROUTE_SCHEMA = 5' in s:
     s = s.replace('private const val ROUTE_SCHEMA = 5', 'private const val ROUTE_SCHEMA = 6')
 elif 'private const val ROUTE_SCHEMA = 6' not in s:
@@ -144,7 +149,7 @@ v6 已完成列表、搜索、详情协议修复，并已发布 `1.6.6 / 106006`
 
 在线探针使用《魔都精兵的奴隶》样本时，七个 Copy 固定节点均返回 100 条章节，`chapter2` 返回 61 页正文图片；列表、搜索、详情、章节、正文五段链路全部通过。该结果是网络协议验证，不等同于 Android 实机验证。
 
-v7 将 Copy 章节和正文改为上述当前协议，同时保留热辣线路原有 `platform=3` 请求契约，避免修复 Copy 时造成已实机正常的热辣回归。正文节点必须实际返回非空 `contents` 才会被记为成功节点。路由 schema 从 5 升到 6，以清除 v6 旧 Copy 动态节点和最近成功节点缓存。
+v7 将 Copy 章节和正文改为上述当前协议，章节分页按当前客户端的 100 条分页读取；同时保留热辣线路原有 `platform=3` 请求契约，避免修复 Copy 时造成已实机正常的热辣回归。正文节点必须实际返回非空 `contents` 才会被记为成功节点。路由 schema 从 5 升到 6，以清除 v6 旧 Copy 动态节点和最近成功节点缓存。
 '''
 if '## v7 Copy 章节 / 正文请求契约' not in d:
     d += section
