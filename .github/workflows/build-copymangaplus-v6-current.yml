@@ -1,0 +1,82 @@
+name: Build CopyManga Plus v6 current
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/build-copymangaplus-v6-current.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-copymangaplus-v6-current
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check private source token
+        env:
+          MX_PRIVATE_READ_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "$MX_PRIVATE_READ_TOKEN" ]]
+
+      - name: Checkout pinned Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          ref: 0ca8b46ec5229955a6a76b736de27642bca0808f
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout MX development source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: dev
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Validate and overlay CopyManga Plus
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'versionCode = 6' dev/src/zh/copymangaplus/build.gradle.kts
+          grep -q 'COPY_VERSION = "3.0.6"' dev/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt
+          grep -q 'q_type=' dev/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt
+          grep -q 'validatePayload' dev/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt
+          python3 dev/scripts/validate_sources.py
+          git -C dev diff --check
+          rm -rf upstream/src/zh/copymangaplus
+          cp -a dev/src/zh/copymangaplus upstream/src/zh/copymangaplus
+
+      - name: Format and compile validation
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :src:zh:copymangaplus:spotlessApply
+          ./gradlew :src:zh:copymangaplus:spotlessCheck
+          ./gradlew :src:zh:copymangaplus:assembleDebug :src:zh:copymangaplus:lintRelease
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: copymangaplus-v1.6.6-debug
+          path: upstream/src/zh/copymangaplus/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
