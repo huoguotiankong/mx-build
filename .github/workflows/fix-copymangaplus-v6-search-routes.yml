@@ -1,0 +1,465 @@
+name: Fix CopyManga Plus v6 search and Copy routes
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/fix-copymangaplus-v6-search-routes.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fix-and-check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout mx-dev with publish token
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          path: dev
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply CopyManga Plus v6 fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          root = Path('dev')
+          source = root / 'src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt'
+          gradle = root / 'src/zh/copymangaplus/build.gradle.kts'
+          docs = root / 'docs/sources/copymangaplus.md'
+          text = source.read_text('utf-8')
+
+          def replace_once(old: str, new: str, label: str):
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected 1 match, got {count}')
+              text = text.replace(old, new, 1)
+
+          replace_once(
+          '''        val offset = (page.coerceAtLeast(1) - 1) * PAGE_SIZE
+          val root = requestJson(
+              "/api/v3/search/comic?platform=3&q=${enc(cleanQuery)}&limit=$PAGE_SIZE&offset=$offset&_update=true",
+          )
+          return mangaPage(root.results(), page, PAGE_SIZE)
+      }
+
+      private fun listManga(''',
+          '''        return searchManga(page, cleanQuery)
+      }
+
+      private fun searchManga(page: Int, query: String): MangasPage {
+          val p = page.coerceAtLeast(1)
+          val offset = (p - 1) * PAGE_SIZE
+          val encoded = enc(query)
+          val paths = listOf(
+              "/api/v3/search/comic?platform=3&limit=$PAGE_SIZE&offset=$offset&q=$encoded&q_type=",
+              "/api/kb/web/searchb/comics?platform=3&limit=$PAGE_SIZE&offset=$offset&q=$encoded&q_type=",
+          )
+          var firstEmpty: JsonObject? = null
+          var last: Throwable? = null
+          for (path in paths) {
+              try {
+                  val results = requestJson(path).results()
+                  val list = results?.array("list")
+                  if (!list.isNullOrEmpty()) return mangaPage(results, p, PAGE_SIZE)
+                  if (firstEmpty == null && results != null) firstEmpty = results
+              } catch (e: Throwable) {
+                  last = e
+              }
+          }
+          if (firstEmpty != null) return mangaPage(firstEmpty, p, PAGE_SIZE)
+          throw IOException(last?.message ?: "搜索接口没有返回有效结果", last)
+      }
+
+      private fun listManga(''',
+          'search fallback',
+          )
+
+          replace_once(
+          '''    private fun requestDetailJson(pathWord: String): JsonObject {
+          var last: Throwable? = null
+          apiCandidates(includeLast = true).distinctBy { it.serialized }.forEach { route ->
+              try {
+                  val query = if (route.kind == RouteKind.COPY) {
+                      "in_mainland=true&request_id=&platform=3"
+                  } else {
+                      "in_mainland=true&platform=3"
+                  }
+                  val request = Request.Builder()
+                      .url("https://${route.host}/api/v3/comic2/${enc(pathWord)}?$query")
+                      .headers(
+                          if (route.kind == RouteKind.COPY) {
+                              copyDetailHeaders(includeToken = true)
+                          } else {
+                              apiHeaders(RouteKind.HOT, includeToken = true)
+                          },
+                      )
+                      .get()
+                      .build()
+                  client.newCall(request).execute().use { response ->
+                      val root = parseResponse(response.code, response.body.string())
+                      if (root.results()?.obj("comic") == null) {
+                          throw IOException("当前节点没有返回漫画详情")
+                      }
+                      preferences.edit().putString(PREF_LAST_HOST, route.serialized).apply()
+                      return root
+                  }
+              } catch (e: Throwable) {
+                  last = e
+              }
+          }
+          throw IOException(last?.message ?: "所有拷贝/热辣详情线路均不可用", last)
+      }
+
+      private fun copyDetailHeaders(includeToken: Boolean): Headers {
+          val timestamp = (System.currentTimeMillis() / 1000L).toString()
+          return Headers.Builder()
+              .set("User-Agent", "COPY/$COPY_DETAIL_VERSION")
+              .set("source", "copyApp")
+              .set("deviceinfo", copyDeviceInfo())
+              .set("dt", SimpleDateFormat("yyyy.MM.dd", Locale.US).format(Date()))
+              .set("platform", "3")
+              .set("referer", "com.copymanga.app-$COPY_DETAIL_VERSION")
+              .set("version", COPY_DETAIL_VERSION)
+              .set("device", copyDevice())
+              .set("pseudoid", copyPseudoId())
+              .set("Accept", "application/json")
+              .set("region", "0")
+              .set(
+                  "Authorization",
+                  if (includeToken && token().isNotBlank()) "Token ${token()}" else "Token",
+              )
+              .set("umstring", COPY_UMSTRING)
+              .set("x-auth-timestamp", timestamp)
+              .set("x-auth-signature", copySignature(timestamp))
+              .build()
+      }
+''',
+          '''    private fun requestDetailJson(pathWord: String): JsonObject {
+          var last: Throwable? = null
+          for (route in apiCandidates(includeLast = true).distinctBy { it.serialized }) {
+              val query = if (route.kind == RouteKind.COPY) {
+                  "in_mainland=true&request_id=&platform=3"
+              } else {
+                  "in_mainland=true&platform=3"
+              }
+              for (headers in apiHeaderCandidates(route.kind, includeToken = true)) {
+                  try {
+                      val request = Request.Builder()
+                          .url("https://${route.host}/api/v3/comic2/${enc(pathWord)}?$query")
+                          .headers(headers)
+                          .get()
+                          .build()
+                      client.newCall(request).execute().use { response ->
+                          val root = parseResponse(response.code, response.body.string())
+                          if (root.results()?.obj("comic") == null) {
+                              throw IOException("当前节点没有返回漫画详情")
+                          }
+                          preferences.edit().putString(PREF_LAST_HOST, route.serialized).apply()
+                          return root
+                      }
+                  } catch (e: Throwable) {
+                      last = e
+                  }
+              }
+          }
+          throw IOException(last?.message ?: "所有拷贝/热辣详情线路均不可用", last)
+      }
+
+      private fun copyDetailHeaders(includeToken: Boolean): Headers = copySignedHeaders(includeToken, "0")
+
+      private fun copySignedHeaders(includeToken: Boolean, region: String): Headers {
+          val timestamp = (System.currentTimeMillis() / 1000L).toString()
+          return Headers.Builder()
+              .set("User-Agent", "COPY/$COPY_DETAIL_VERSION")
+              .set("source", "copyApp")
+              .set("deviceinfo", copyDeviceInfo())
+              .set("dt", SimpleDateFormat("yyyy.MM.dd", Locale.US).format(Date()))
+              .set("platform", "3")
+              .set("referer", "com.copymanga.app-$COPY_DETAIL_VERSION")
+              .set("version", COPY_DETAIL_VERSION)
+              .set("device", copyDevice())
+              .set("pseudoid", copyPseudoId())
+              .set("Accept", "application/json")
+              .set("webp", "1")
+              .set("region", region)
+              .set(
+                  "Authorization",
+                  if (includeToken && token().isNotBlank()) "Token ${token()}" else "Token",
+              )
+              .set("umstring", COPY_UMSTRING)
+              .set("x-auth-timestamp", timestamp)
+              .set("x-auth-signature", copySignature(timestamp))
+              .build()
+      }
+
+      private fun apiHeaderCandidates(kind: RouteKind, includeToken: Boolean): List<Headers> =
+          if (kind == RouteKind.COPY) {
+              listOf(
+                  copySignedHeaders(includeToken, "0"),
+                  copySignedHeaders(includeToken, "1"),
+                  apiHeaders(RouteKind.COPY, includeToken),
+              )
+          } else {
+              listOf(apiHeaders(RouteKind.HOT, includeToken))
+          }
+''',
+          'Copy signed header candidates',
+          )
+
+          replace_once(
+          '''    private fun requestChapterCommentJson(
+          path: String,
+          method: String = "GET",
+          body: FormBody? = null,
+      ): JsonObject {
+          if (method == "POST") requireLogin()
+          val normalized = if (path.startsWith('/')) path else "/$path"
+          var last: Throwable? = null
+          COPY_HOSTS.distinct().forEach { host ->
+              val route = ApiRoute(RouteKind.COPY, host)
+              try {
+                  val requestBuilder = Request.Builder()
+                      .url("https://$host$normalized")
+                      .headers(apiHeaders(RouteKind.COPY, includeToken = true))
+                  when (method.uppercase(Locale.US)) {
+                      "POST" -> requestBuilder.post(body ?: FormBody.Builder().build())
+                      else -> requestBuilder.get()
+                  }
+                  client.newCall(requestBuilder.build()).execute().use { response ->
+                      val root = parseResponse(response.code, response.body.string())
+                      if (method != "POST" && root.results()?.array("list") == null) {
+                          throw IOException("当前节点没有返回章评列表")
+                      }
+                      preferences.edit().putString(PREF_LAST_HOST, route.serialized).apply()
+                      return root
+                  }
+              } catch (e: Throwable) {
+                  last = e
+              }
+          }
+          throw IOException(last?.message ?: "所有拷贝章评线路均不可用", last)
+      }
+''',
+          '''    private fun requestChapterCommentJson(
+          path: String,
+          method: String = "GET",
+          body: FormBody? = null,
+      ): JsonObject {
+          if (method == "POST") requireLogin()
+          val normalized = if (path.startsWith('/')) path else "/$path"
+          var last: Throwable? = null
+          for (host in COPY_HOSTS.distinct()) {
+              val route = ApiRoute(RouteKind.COPY, host)
+              for (headers in apiHeaderCandidates(RouteKind.COPY, includeToken = true)) {
+                  try {
+                      val requestBuilder = Request.Builder()
+                          .url("https://$host$normalized")
+                          .headers(headers)
+                      when (method.uppercase(Locale.US)) {
+                          "POST" -> requestBuilder.post(body ?: FormBody.Builder().build())
+                          else -> requestBuilder.get()
+                      }
+                      client.newCall(requestBuilder.build()).execute().use { response ->
+                          val root = parseResponse(response.code, response.body.string())
+                          if (method != "POST" && root.results()?.array("list") == null) {
+                              throw IOException("当前节点没有返回章评列表")
+                          }
+                          preferences.edit().putString(PREF_LAST_HOST, route.serialized).apply()
+                          return root
+                      }
+                  } catch (e: Throwable) {
+                      last = e
+                  }
+              }
+          }
+          throw IOException(last?.message ?: "所有拷贝章评线路均不可用", last)
+      }
+''',
+          'chapter comment header fallback',
+          )
+
+          start = text.index('    private fun requestWithCandidates(')
+          end = text.index('    private fun parseResponse(', start)
+          text = text[:start] + '''    private fun requestWithCandidates(
+          path: String,
+          method: String,
+          body: FormBody?,
+          includeToken: Boolean,
+          commentOnly: Boolean,
+      ): JsonObject {
+          val normalized = if (path.startsWith('/')) path else "/$path"
+          val routes = if (commentOnly) commentCandidates() else apiCandidates(includeLast = true)
+          var last: Throwable? = null
+          for (route in routes.distinctBy { it.serialized }) {
+              for (headers in apiHeaderCandidates(route.kind, includeToken)) {
+                  try {
+                      val requestBuilder = Request.Builder()
+                          .url("https://${route.host}$normalized")
+                          .headers(headers)
+                      when (method.uppercase(Locale.US)) {
+                          "POST" -> requestBuilder.post(body ?: FormBody.Builder().build())
+                          else -> requestBuilder.get()
+                      }
+                      client.newCall(requestBuilder.build()).execute().use { response ->
+                          val root = parseResponse(response.code, response.body.string())
+                          if (
+                              method.equals("GET", ignoreCase = true) &&
+                              normalized.startsWith("/api/v3/comic2/") &&
+                              !normalized.contains("/query") &&
+                              root.results()?.obj("comic") == null
+                          ) {
+                              throw IOException("当前节点没有返回漫画详情")
+                          }
+                          preferences.edit().putString(PREF_LAST_HOST, route.serialized).apply()
+                          return root
+                      }
+                  } catch (e: Throwable) {
+                      last = e
+                  }
+              }
+          }
+          throw IOException(last?.message ?: "所有拷贝/热辣线路均不可用", last)
+      }
+
+''' + text[end:]
+
+          start = text.index('    private fun discover(kind: RouteKind): List<String> {')
+          end = text.index('    private fun apiHeaders(', start)
+          text = text[:start] + '''    private fun discover(kind: RouteKind): List<String> {
+          val bootstrap = if (kind == RouteKind.HOT) HOT_BOOTSTRAP else COPY_BOOTSTRAP
+          var last: Throwable? = null
+          for (headers in apiHeaderCandidates(kind, includeToken = false)) {
+              try {
+                  val request = Request.Builder()
+                      .url("https://$bootstrap/api/v3/system/network2?platform=3")
+                      .headers(headers)
+                      .get()
+                      .build()
+                  client.newCall(request).execute().use { response ->
+                      val root = parseResponse(response.code, response.body.string())
+                      val results = root.results() ?: JsonObject(emptyMap())
+                      val hosts = buildList {
+                          results.array("api")?.forEach { node ->
+                              when (node) {
+                                  is JsonArray -> node.forEach { add((it as? JsonPrimitive)?.contentOrNull.orEmpty()) }
+                                  is JsonPrimitive -> add(node.contentOrNull.orEmpty())
+                                  else -> Unit
+                              }
+                          }
+                          results.array("share")?.forEach { add((it as? JsonPrimitive)?.contentOrNull.orEmpty()) }
+                      }.map(::normalizeHost).filter(String::isNotBlank).distinct()
+                      if (hosts.isEmpty()) throw IOException("动态线路接口没有返回可用节点")
+                      preferences.edit().putString(
+                          if (kind == RouteKind.HOT) PREF_HOT_DISCOVERED else PREF_COPY_DISCOVERED,
+                          hosts.joinToString(","),
+                      ).apply()
+                      return hosts
+                  }
+              } catch (e: Throwable) {
+                  last = e
+              }
+          }
+          return emptyList()
+      }
+
+''' + text[end:]
+
+          replace_once(
+              '        private const val COPY_BOOTSTRAP = "api.2026copy.com"',
+              '        private const val COPY_BOOTSTRAP = "api.copy-manga.com"',
+              'Copy bootstrap',
+          )
+          replace_once(
+              '        private const val ROUTE_SCHEMA = 4',
+              '        private const val ROUTE_SCHEMA = 5',
+              'route schema',
+          )
+
+          source.write_text(text, 'utf-8')
+
+          g = gradle.read_text('utf-8')
+          if g.count('versionCode = 5') != 1:
+              raise SystemExit('expected versionCode = 5 exactly once')
+          gradle.write_text(g.replace('versionCode = 5', 'versionCode = 6', 1), 'utf-8')
+
+          d = docs.read_text('utf-8')
+          d = d.replace('- 源码 `versionCode = 5`', '- 源码 `versionCode = 6`', 1)
+          d = d.replace('- Android APK versionCode：`106005`', '- Android APK versionCode：`106006`', 1)
+          d = d.replace('- APK versionName：`1.6.5`', '- APK versionName：`1.6.6`', 1)
+          marker = '## v6 搜索与 Copy 线路修复（2026-09-12）'
+          if marker not in d:
+              d += f'''\n\n{marker}\n\n用户实机反馈：v5 的源内搜索不可用；Copy 漫画线路持续不可用，只有热辣漫画线路可用。该反馈优先于此前探针结论。\n\nv6 做定向兼容修复，不改动已经实机可用的热辣主协议：\n\n1. 搜索基础接口补齐当前客户端使用的 `q_type=` 参数，并移除旧的 `_update=true`；当 `/api/v3/search/comic` 无有效结果时，自动回退当前网页搜索接口 `/api/kb/web/searchb/comics`。\n2. Copy 普通请求不再二选一地固定为 v4 完整签名或 v5 轻量头；同一节点依次尝试当前 `COPY/3.0.6` 完整签名协议（海外 region=0）、完整签名大陆协议（region=1），最后回退 v5 轻量协议。\n3. 当前完整签名协议使用稳定 `deviceinfo/device/pseudoid`、`dt/umstring`、`x-auth-timestamp/x-auth-signature`，并在未登录时保留 `Authorization: Token`。\n4. Copy 动态线路发现入口从旧 `api.2026copy.com` 切换为当前客户端使用的 `api.copy-manga.com/api/v3/system/network2?platform=3`；固定候选仍保留 `api.copy2000.online` 等节点。\n5. 详情、章评和普通内容请求统一获得协议候选回退能力；热辣线路保持现有请求头。\n6. `ROUTE_SCHEMA` 从 4 升到 5，升级后自动清理旧 Copy 动态节点和最近成功节点缓存。\n7. 正式版本按规则从 v5 升到 `versionCode=6`（Android `106006` / `1.6.6`）。\n\n本节的“修复”表示源码兼容逻辑已更新；CI 构建通过只能证明编译/静态检查通过，搜索和 Copy 线路最终仍以 Android 实机验证为准。\n'''
+          docs.write_text(d, 'utf-8')
+          PY
+
+          grep -F 'versionCode = 6' dev/src/zh/copymangaplus/build.gradle.kts
+          grep -F 'private const val ROUTE_SCHEMA = 5' dev/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt
+          grep -F 'private const val COPY_BOOTSTRAP = "api.copy-manga.com"' dev/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt
+          grep -F '/api/kb/web/searchb/comics' dev/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt
+
+      - name: Validate source layout
+        working-directory: dev
+        run: python3 scripts/validate_sources.py
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Checkout current Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Overlay CopyManga Plus module
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf upstream/src/zh/copymangaplus
+          cp -a dev/src/zh/copymangaplus upstream/src/zh/copymangaplus
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Spotless, debug build, release lint
+        working-directory: upstream
+        run: ./gradlew :src:zh:copymangaplus:spotlessCheck :src:zh:copymangaplus:assembleDebug :src:zh:copymangaplus:lintRelease --stacktrace
+
+      - name: Commit and push validated v6 to mx-dev main
+        working-directory: dev
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/zh/copymangaplus docs/sources/copymangaplus.md
+          if git diff --cached --quiet; then
+            echo 'No CopyManga Plus changes to commit.'
+            exit 0
+          fi
+          git commit -m 'fix(copymangaplus): repair search and Copy route compatibility v6'
+          git pull --rebase origin main
+          git push origin HEAD:main
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: copymangaplus-v6-debug
+          path: upstream/src/zh/copymangaplus/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 7
