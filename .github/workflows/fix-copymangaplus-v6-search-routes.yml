@@ -33,14 +33,8 @@ jobs:
           fetch-depth: 1
           persist-credentials: true
 
-      - name: Checkout MX development source read-only
-        uses: actions/checkout@v5
-        with:
-          repository: huoguotiankong/mx-dev
-          ref: main
-          path: dev
-          fetch-depth: 1
-          persist-credentials: false
+      - name: Clone MX development source anonymously
+        run: git clone --depth 1 --branch main https://github.com/huoguotiankong/mx-dev.git dev
 
       - name: Apply final v6 source and documentation patch
         run: |
@@ -133,8 +127,7 @@ jobs:
           grep -Fq 'eu/kanade/tachiyomi/source/mx/MangaDetailSource' /tmp/copymanga-strings.txt
 
       - name: Save validated source snapshot
-        run: |
-          tar -czf copymangaplus-v6-source.tgz -C dev src/zh/copymangaplus docs/sources/copymangaplus.md
+        run: tar -czf copymangaplus-v6-source.tgz -C dev src/zh/copymangaplus docs/sources/copymangaplus.md
 
       - name: Checkout extension staging
         uses: actions/checkout@v5
