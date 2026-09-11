@@ -20,14 +20,12 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Check required secrets
-        shell: bash
         env:
           MX_APP_PUBLISH_TOKEN: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
           MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
         run: |
-          set -euo pipefail
-          [[ -n "$MX_APP_PUBLISH_TOKEN" ]]
-          [[ -n "$MANGA_SIGNING_BUNDLE" ]]
+          test -n "$MX_APP_PUBLISH_TOKEN"
+          test -n "$MANGA_SIGNING_BUNDLE"
 
       - name: Checkout build helper
         uses: actions/checkout@v5
@@ -48,119 +46,13 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
-      - name: Patch final v6 search fallback and maintenance record
-        shell: bash
+      - name: Apply final v6 source and documentation patch
         run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-
-          source = Path('dev/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt')
-          text = source.read_text('utf-8')
-          old = '''    private fun requestSearchJson(page: Int, query: String): JsonObject {
-              val offset = (page.coerceAtLeast(1) - 1) * PAGE_SIZE
-              val encodedQuery = enc(query)
-              var last: Throwable? = null
-              apiCandidates(includeLast = true).distinctBy { it.serialized }.forEach { route ->
-                  val paths = if (route.kind == RouteKind.COPY) {
-                      listOf(
-                          "/api/v3/search/comic?limit=$PAGE_SIZE&offset=$offset&q=$encodedQuery&q_type=",
-                          "$COPY_WEB_SEARCH_PATH?limit=$PAGE_SIZE&offset=$offset&q=$encodedQuery&q_type=",
-                      )
-                  } else {
-                      listOf(
-                          "/api/v3/search/comic?platform=3&q=$encodedQuery&limit=$PAGE_SIZE&offset=$offset&_update=true",
-                      )
-                  }
-                  paths.forEach { path ->
-                      try {
-                          val request = Request.Builder()
-                              .url("https://${route.host}$path")
-                              .headers(apiHeaders(route.kind, includeToken = true))
-                              .get()
-                              .build()
-                          client.newCall(request).execute().use { response ->
-                              val root = parseResponse(response.code, response.body.string())
-                              if (root.results()?.array("list") == null) {
-                                  throw IOException("当前节点没有返回搜索列表")
-                              }
-                              preferences.edit().putString(PREF_LAST_HOST, route.serialized).apply()
-                              return root
-                          }
-                      } catch (e: Throwable) {
-                          last = e
-                      }
-                  }
-              }
-              throw IOException(last?.message ?: "所有搜索线路均不可用", last)
-          }
-'''
-          new = '''    private fun requestSearchJson(page: Int, query: String): JsonObject {
-              val offset = (page.coerceAtLeast(1) - 1) * PAGE_SIZE
-              val encodedQuery = enc(query)
-              var firstEmpty: Pair<ApiRoute, JsonObject>? = null
-              var last: Throwable? = null
-              apiCandidates(includeLast = true).distinctBy { it.serialized }.forEach { route ->
-                  val paths = if (route.kind == RouteKind.COPY) {
-                      listOf(
-                          "/api/v3/search/comic?limit=$PAGE_SIZE&offset=$offset&q=$encodedQuery&q_type=",
-                          "$COPY_WEB_SEARCH_PATH?limit=$PAGE_SIZE&offset=$offset&q=$encodedQuery&q_type=",
-                      )
-                  } else {
-                      listOf(
-                          "/api/v3/search/comic?platform=3&q=$encodedQuery&limit=$PAGE_SIZE&offset=$offset&_update=true",
-                      )
-                  }
-                  paths.forEach { path ->
-                      try {
-                          val request = Request.Builder()
-                              .url("https://${route.host}$path")
-                              .headers(apiHeaders(route.kind, includeToken = true))
-                              .get()
-                              .build()
-                          client.newCall(request).execute().use { response ->
-                              val root = parseResponse(response.code, response.body.string())
-                              val list = root.results()?.array("list")
-                                  ?: throw IOException("当前节点没有返回搜索列表")
-                              if (list.isNotEmpty()) {
-                                  preferences.edit().putString(PREF_LAST_HOST, route.serialized).apply()
-                                  return root
-                              }
-                              if (firstEmpty == null) firstEmpty = route to root
-                          }
-                      } catch (e: Throwable) {
-                          last = e
-                      }
-                  }
-              }
-              firstEmpty?.let { (route, root) ->
-                  preferences.edit().putString(PREF_LAST_HOST, route.serialized).apply()
-                  return root
-              }
-              throw IOException(last?.message ?: "所有搜索线路均不可用", last)
-          }
-'''
-          if old in text:
-              text = text.replace(old, new, 1)
-          elif 'var firstEmpty: Pair<ApiRoute, JsonObject>? = null' not in text:
-              raise SystemExit('requestSearchJson did not match expected v6 state')
-          source.write_text(text, 'utf-8')
-
-          docs = Path('dev/docs/sources/copymangaplus.md')
-          d = docs.read_text('utf-8')
-          d = d.replace('- 源码 `versionCode = 5`', '- 源码 `versionCode = 6`', 1)
-          d = d.replace('- Android APK versionCode：`106005`', '- Android APK versionCode：`106006`', 1)
-          d = d.replace('- APK versionName：`1.6.5`', '- APK versionName：`1.6.6`', 1)
-          d = d.replace('`https://api.2026copy.com/api/v3/system/network2?platform=3`', '`https://api.copy-manga.com/api/v3/system/network2?platform=3`', 1)
-          marker = '## v6 搜索与 Copy 线路修复（2026-09-12）'
-          if marker not in d:
-              d += '''\n\n## v6 搜索与 Copy 线路修复（2026-09-12）\n\n用户实机反馈优先：v5 搜索不可用；Copy 漫画线路持续不可用，只有热辣漫画线路可用。\n\nv6 定向修复：\n\n1. Copy 普通内容请求从旧的轻量 `COPY/3.0.0 + version=3.0.9 + region=1` 切换为当前仍在使用的 `COPY/3.0.6` 完整移动签名契约，包含稳定 `deviceinfo / device / pseudoid`、`dt / umstring / x-auth-*`，默认 `region=0`。\n2. Copy 动态发现入口改为 `api.copy-manga.com/api/v3/system/network2?platform=3`；`ROUTE_SCHEMA` 升到 5，升级后清除旧 Copy 动态节点与最近成功节点缓存。\n3. Copy 搜索先尝试 `/api/v3/search/comic`，再尝试 `/api/kb/web/searchb/comics`。接口报错、缺少 `results.list` 或合法但为空时继续下一个接口/节点；只有所有候选都没有命中时才返回第一个合法空结果。\n4. 普通路由增加业务 payload 校验：列表必须有 `results.list`、正文必须有 `results.chapter`、详情必须有 `results.comic`，避免伪 HTTP/API 200 节点被错误缓存为成功线路。\n5. 热辣线路请求协议保持不变，避免破坏已实机确认可用的线路。\n6. 本轮源码版本为 `versionCode=6`，Android versionCode `106006`，versionName `1.6.6`。\n\nCI、签名和测试商店成功只证明源码、构建、签名与分发链路；Copy 线路和搜索最终仍以 Android 实机测试为准。\n'''
-          docs.write_text(d, 'utf-8')
-          PY
+          python3 helper/scripts/finalize_copymangaplus_v6.py dev
           grep -F 'versionCode = 6' dev/src/zh/copymangaplus/build.gradle.kts
+          grep -F 'var firstEmpty: Pair<ApiRoute, JsonObject>? = null' dev/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt
           grep -F 'COPY_VERSION = "3.0.6"' dev/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt
-          grep -F 'if (list.isNotEmpty())' dev/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt
-          grep -F '## v6 搜索与 Copy 线路修复（2026-09-12）' dev/docs/sources/copymangaplus.md
+          grep -F 'ROUTE_SCHEMA = 5' dev/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt
           python3 dev/scripts/validate_sources.py
           git -C dev diff --check
 
@@ -173,10 +65,8 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Overlay CopyManga Plus into current framework
-        shell: bash
+      - name: Overlay CopyManga Plus
         run: |
-          set -euo pipefail
           rm -rf upstream/src/zh/copymangaplus
           cp -a dev/src/zh/copymangaplus upstream/src/zh/copymangaplus
 
@@ -191,16 +81,12 @@ jobs:
 
       - name: Format and validate source
         working-directory: upstream
-        shell: bash
         run: |
-          set -euo pipefail
           ./gradlew :src:zh:copymangaplus:spotlessApply
           ./gradlew :src:zh:copymangaplus:spotlessCheck
 
-      - name: Restore formatted module to mx-dev checkout
-        shell: bash
+      - name: Restore formatted module to development checkout
         run: |
-          set -euo pipefail
           rm -rf dev/src/zh/copymangaplus
           mkdir -p dev/src/zh/copymangaplus
           rsync -a --exclude build/ upstream/src/zh/copymangaplus/ dev/src/zh/copymangaplus/
@@ -208,42 +94,35 @@ jobs:
           git -C dev diff --check
 
       - name: Prepare stable extension signing key
-        shell: bash
         env:
           MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
         run: |
-          set -euo pipefail
           python3 - <<'PY'
           import base64, json, os
           from pathlib import Path
-          bundle = json.loads(os.environ['MANGA_SIGNING_BUNDLE'])
-          required = ('signingKey', 'alias', 'storePassword', 'keyPassword')
-          missing = [key for key in required if not bundle.get(key)]
-          if missing:
-              raise SystemExit('Signing bundle missing: ' + ', '.join(missing))
-          Path('upstream/signingkey.jks').write_bytes(base64.b64decode(bundle['signingKey']))
+          b = json.loads(os.environ['MANGA_SIGNING_BUNDLE'])
+          for key in ('signingKey', 'alias', 'storePassword', 'keyPassword'):
+              if not b.get(key):
+                  raise SystemExit('missing signing field: ' + key)
+          Path('upstream/signingkey.jks').write_bytes(base64.b64decode(b['signingKey']))
           with Path(os.environ['GITHUB_ENV']).open('a', encoding='utf-8') as f:
               for env_name, key in (('ALIAS','alias'),('KEY_STORE_PASSWORD','storePassword'),('KEY_PASSWORD','keyPassword')):
-                  value = str(bundle[key])
+                  value = str(b[key])
                   print(f'::add-mask::{value}')
                   f.write(f'{env_name}<<EOF_SIGN\n{value}\nEOF_SIGN\n')
           PY
 
       - name: Build Debug Release and lint
         working-directory: upstream
-        shell: bash
-        run: |
-          set -euo pipefail
-          ./gradlew :src:zh:copymangaplus:assembleDebug :src:zh:copymangaplus:assembleRelease :src:zh:copymangaplus:lintRelease
+        run: ./gradlew :src:zh:copymangaplus:assembleDebug :src:zh:copymangaplus:assembleRelease :src:zh:copymangaplus:lintRelease
 
       - name: Verify signing and MX ABI
         id: verify
-        shell: bash
         run: |
           set -euo pipefail
           expected='1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620'
           actual="$(keytool -exportcert -alias "$ALIAS" -keystore upstream/signingkey.jks -storepass "$KEY_STORE_PASSWORD" | sha256sum | awk '{print $1}' | tr '[:upper:]' '[:lower:]')"
-          [[ "$actual" == "$expected" ]]
+          test "$actual" = "$expected"
           echo "fingerprint=$actual" >> "$GITHUB_OUTPUT"
           apk="$(find upstream/src/zh/copymangaplus -path '*/build/outputs/apk/release/*.apk' -type f | head -n1)"
           test -n "$apk"
@@ -258,7 +137,6 @@ jobs:
 
       - name: Commit validated v6 source and docs
         working-directory: dev
-        shell: bash
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
@@ -281,29 +159,17 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
-      - name: Generate isolated CopyManga Plus test store snapshot
-        shell: bash
+      - name: Generate isolated test store snapshot
         env:
           SIGNING_FINGERPRINT: ${{ steps.verify.outputs.fingerprint }}
         run: |
-          set -euo pipefail
           printf '%s\n' 'zh/copymangaplus' > targets.txt
-          python3 dev/scripts/publish_test_repo.py \
-            --targets targets.txt \
-            --upstream-root upstream \
-            --source-root dev \
-            --repo-dir staging/test \
-            --owner huoguotiankong \
-            --repository mx-repo \
-            --signing-key "$SIGNING_FINGERPRINT"
-          test -f staging/test/index.json
-          test -f staging/test/repo.json
+          python3 dev/scripts/publish_test_repo.py --targets targets.txt --upstream-root upstream --source-root dev --repo-dir staging/test --owner huoguotiankong --repository mx-repo --signing-key "$SIGNING_FINGERPRINT"
           test -f staging/test/apk/tachiyomi-zh.copymangaplus-v1.6.6.apk
           grep -q 'eu.kanade.tachiyomi.extension.zh.copymangaplus' staging/test/index.json
 
       - name: Commit staged test store
         working-directory: staging
-        shell: bash
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
