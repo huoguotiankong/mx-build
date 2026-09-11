@@ -32,10 +32,10 @@ jobs:
         with:
           repository: huoguotiankong/mx-dev
           ref: main
-          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
           path: dev
           fetch-depth: 0
-          persist-credentials: true
+          persist-credentials: false
 
       - name: Apply v7 Copy reader contract patch
         run: python3 buildrepo/scripts/patch_copymangaplus_v7_reader_contract.py dev
@@ -71,20 +71,6 @@ jobs:
       - name: Spotless build and lint
         working-directory: upstream
         run: ./gradlew :src:zh:copymangaplus:spotlessCheck :src:zh:copymangaplus:assembleDebug :src:zh:copymangaplus:lintRelease --stacktrace
-
-      - name: Commit verified v7 source
-        working-directory: dev
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/zh/copymangaplus docs/sources/copymangaplus.md
-          if git diff --cached --quiet; then
-            echo 'No changes to commit.'
-          else
-            git commit -m 'fix(copymangaplus): update Copy chapter and reader contract'
-            git pull --rebase origin main
-            git push origin HEAD:main
-          fi
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
