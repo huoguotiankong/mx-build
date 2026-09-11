@@ -19,13 +19,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
-      - name: Check required secrets
+      - name: Check signing secret
         env:
-          MX_APP_PUBLISH_TOKEN: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
           MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
-        run: |
-          test -n "$MX_APP_PUBLISH_TOKEN"
-          test -n "$MANGA_SIGNING_BUNDLE"
+        run: test -n "$MANGA_SIGNING_BUNDLE"
 
       - name: Checkout build helper
         uses: actions/checkout@v5
@@ -33,18 +30,17 @@ jobs:
           repository: huoguotiankong/mx-build
           ref: main
           path: helper
-          fetch-depth: 0
+          fetch-depth: 1
           persist-credentials: true
 
-      - name: Checkout MX development source
+      - name: Checkout MX development source read-only
         uses: actions/checkout@v5
         with:
           repository: huoguotiankong/mx-dev
           ref: main
-          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
           path: dev
-          fetch-depth: 0
-          persist-credentials: true
+          fetch-depth: 1
+          persist-credentials: false
 
       - name: Apply final v6 source and documentation patch
         run: |
@@ -52,6 +48,7 @@ jobs:
           grep -F 'versionCode = 6' dev/src/zh/copymangaplus/build.gradle.kts
           grep -F 'var firstEmpty: Pair<ApiRoute, JsonObject>? = null' dev/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt
           grep -F 'COPY_VERSION = "3.0.6"' dev/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt
+          grep -F 'COPY_SIGN_SECRET = "3af08590311032efe0660550a0563a53"' dev/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt
           grep -F 'ROUTE_SCHEMA = 5' dev/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt
           python3 dev/scripts/validate_sources.py
           git -C dev diff --check
@@ -85,7 +82,7 @@ jobs:
           ./gradlew :src:zh:copymangaplus:spotlessApply
           ./gradlew :src:zh:copymangaplus:spotlessCheck
 
-      - name: Restore formatted module to development checkout
+      - name: Restore formatted module to validation checkout
         run: |
           rm -rf dev/src/zh/copymangaplus
           mkdir -p dev/src/zh/copymangaplus
@@ -135,19 +132,9 @@ jobs:
           grep -Fq 'eu/kanade/tachiyomi/source/mx/AccountSource' /tmp/copymanga-strings.txt
           grep -Fq 'eu/kanade/tachiyomi/source/mx/MangaDetailSource' /tmp/copymanga-strings.txt
 
-      - name: Commit validated v6 source and docs
-        working-directory: dev
+      - name: Save validated source snapshot
         run: |
-          set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/zh/copymangaplus docs/sources/copymangaplus.md
-          git diff --cached --check
-          if ! git diff --cached --quiet; then
-            git commit -m 'fix(copymangaplus): finalize v6 search fallback'
-            git pull --rebase origin main
-            git push origin HEAD:main
-          fi
+          tar -czf copymangaplus-v6-source.tgz -C dev src/zh/copymangaplus docs/sources/copymangaplus.md
 
       - name: Checkout extension staging
         uses: actions/checkout@v5
@@ -180,6 +167,14 @@ jobs:
             git commit -m 'Stage CopyManga Plus v1.6.6 test store'
             git push origin HEAD:extension-staging
           fi
+
+      - name: Upload validated source snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: copymangaplus-v6-source
+          path: copymangaplus-v6-source.tgz
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
