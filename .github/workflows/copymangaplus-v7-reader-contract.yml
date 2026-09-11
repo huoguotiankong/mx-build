@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
     paths:
+      - ".github/workflows/copymangaplus-v7-reader-contract.yml"
       - ".github/copymangaplus-v7-reader-contract-trigger"
   workflow_dispatch:
 
