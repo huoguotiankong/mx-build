@@ -1,0 +1,114 @@
+name: Probe Tuzac site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-tuzac-site.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Probe Tuzac structure
+        shell: bash
+        run: |
+          set -euo pipefail
+          ua='Mozilla/5.0 (Linux; Android 16; Pixel 9 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36'
+          base='https://www.tuzac.com'
+          out=/tmp/tuzac-probe
+          mkdir -p "$out"
+          declare -A urls=(
+            [home]="$base/"
+            [page2]="$base/page/2"
+            [detail]="$base/file/potato-godzilla-marie-rose-xmas/04e3a3d45235c15f96d6bdda3728c053"
+            [tag]="$base/tags/%E6%80%A7%E6%84%9F%E7%BE%8E%E5%A5%B3"
+            [search]="$base/search?term=%E8%A0%A2%E6%B2%AB%E6%B2%AB"
+          )
+          for key in "${!urls[@]}"; do
+            url="${urls[$key]}"
+            echo "=== $key $url ==="
+            curl -L --compressed -A "$ua" -e "$base/" -m 20 -sS -D "$out/${key}.headers" -o "$out/${key}.html" -w 'code=%{http_code} final=%{url_effective} size=%{size_download} type=%{content_type}\n' "$url" || true
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, html, urllib.parse, subprocess
+          out=Path('/tmp/tuzac-probe')
+          ua='Mozilla/5.0 (Linux; Android 16; Pixel 9 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36'
+          base='https://www.tuzac.com'
+
+          def dec(raw):
+              head=raw[:6000].decode('ascii','ignore').lower()
+              m=re.search(r'charset\s*=\s*["\']?([a-z0-9._-]+)', head)
+              enc=m.group(1) if m else None
+              for cand in [enc,'utf-8','gb18030','big5']:
+                  if not cand: continue
+                  try:return raw.decode(cand),cand
+                  except:pass
+              return raw.decode('utf-8','replace'),'utf-8?'
+
+          for key in ['home','page2','detail','tag','search']:
+              p=out/f'{key}.html'
+              if not p.exists(): continue
+              raw=p.read_bytes(); text,enc=dec(raw)
+              print(f'\n### {key} bytes={len(raw)} enc={enc}')
+              for pat,label in [
+                  (r'<title[^>]*>(.*?)</title>','TITLE'),
+                  (r'<h1[^>]*>(.*?)</h1>','H1'),
+                  (r'<meta[^>]+name=["\']description["\'][^>]+content=["\']([^"\']+)','DESCRIPTION'),
+                  (r'<meta[^>]+name=["\']keywords["\'][^>]+content=["\']([^"\']+)','KEYWORDS'),
+              ]:
+                  m=re.search(pat,text,re.I|re.S)
+                  if m:
+                      val=re.sub(r'<[^>]+>',' ',m.group(1)); val=re.sub(r'\s+',' ',html.unescape(val)).strip()
+                      print(label,val[:1200])
+
+              for m in re.finditer(r'<form\b[^>]*>.*?</form>',text,re.I|re.S):
+                  block=re.sub(r'\s+',' ',m.group(0)).strip()
+                  print('FORM',block[:3000])
+
+              links=[]
+              for m in re.finditer(r'<a\b[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)</a>',text,re.I|re.S):
+                  href=html.unescape(m.group(1)).strip(); lab=re.sub(r'<[^>]+>',' ',m.group(2)); lab=re.sub(r'\s+',' ',html.unescape(lab)).strip()
+                  if href:
+                      item=(href,lab[:160])
+                      if item not in links: links.append(item)
+              print('LINK_COUNT',len(links))
+              for href,lab in links[:180]: print('LINK',repr(lab),href)
+
+              imgs=[]
+              for m in re.finditer(r'<img\b[^>]*>',text,re.I|re.S):
+                  tag=re.sub(r'\s+',' ',m.group(0)).strip()
+                  if tag not in imgs: imgs.append(tag)
+              print('IMG_COUNT',len(imgs))
+              for tag in imgs[:140]: print('IMG',tag[:1800])
+
+              if key=='detail':
+                  for line in text.splitlines():
+                      s=re.sub(r'\s+',' ',line).strip(); low=s.lower()
+                      if len(s) < 6000 and any(k in low for k in ('tag','author','upload','download','gallery','image','photo','viewer','file','page','count','like','view')):
+                          if s: print('DETAIL_LINE',s[:2600])
+
+          # Probe a representative detail image with different referers.
+          detail=(out/'detail.html').read_text('utf-8',errors='ignore') if (out/'detail.html').exists() else ''
+          m=re.search(r'<img\b[^>]*(?:data-src|data-original|src)=["\'](https?://[^"\']+)',detail,re.I)
+          if m:
+              img=html.unescape(m.group(1))
+              print('\nIMAGE_TARGET',img)
+              for mode,ref in [('none',''),('root',base+'/'),('detail',base+'/file/potato-godzilla-marie-rose-xmas/04e3a3d45235c15f96d6bdda3728c053')]:
+                  cmd=['curl','-L','--compressed','-A',ua,'-m','20','-sS','-o','/dev/null','-w',f'{mode} code=%{{http_code}} size=%{{size_download}} type=%{{content_type}} time=%{{time_total}}\\n']
+                  if ref: cmd += ['-e',ref]
+                  cmd += [img]
+                  subprocess.run(cmd,check=False)
+          PY
+      - name: Upload probe
+        uses: actions/upload-artifact@v4
+        with:
+          name: tuzac-site-probe
+          path: /tmp/tuzac-probe/
+          if-no-files-found: error
