@@ -1,0 +1,266 @@
+name: Apply CopyManga Plus v7 reading-chain repair
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/apply-copymangaplus-v7-reading-chain.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout private source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          path: dev
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Patch CopyManga Plus v7
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          module = Path('dev/src/zh/copymangaplus')
+          source = module / 'src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt'
+          build = module / 'build.gradle.kts'
+          docs = Path('dev/docs/sources/copymangaplus.md')
+
+          text = source.read_text('utf-8')
+
+          old = '''            val root = requestJson(
+                "/api/v3/comic/${enc(pathWord)}/group/${enc(groupWord)}/chapters?limit=$CHAPTER_PAGE&offset=$offset&platform=3",
+            )
+'''
+          new = '''            val root = requestChapterListJson(pathWord, groupWord, offset)
+'''
+          if text.count(old) != 1:
+              raise SystemExit(f'chapter-list call mismatch: {text.count(old)}')
+          text = text.replace(old, new, 1)
+
+          old = '''        val result = runCatching {
+            requestJson("/api/v3/comic/${enc(comic)}/chapter/${enc(chapterId)}?platform=3&_update=true")
+        }.getOrElse {
+            requestJson("/api/v3/comic/${enc(comic)}/chapter2/${enc(chapterId)}?platform=3&_update=true")
+        }.results()?.obj("chapter") ?: throw IOException("章节正文为空")
+'''
+          new = '''        val result = requestPageJson(comic, chapterId).results()?.obj("chapter")
+            ?: throw IOException("章节正文为空")
+'''
+          if text.count(old) != 1:
+              raise SystemExit(f'page call mismatch: {text.count(old)}')
+          text = text.replace(old, new, 1)
+
+          marker = '''    private fun requestDetailJson(pathWord: String): JsonObject {
+'''
+          helper = '''    private fun requestChapterListJson(
+        pathWord: String,
+        groupWord: String,
+        offset: Int,
+    ): JsonObject {
+        var firstEmpty: Pair<ApiRoute, JsonObject>? = null
+        var last: Throwable? = null
+        apiCandidates(includeLast = true).distinctBy { it.serialized }.forEach { route ->
+            val path = if (route.kind == RouteKind.COPY) {
+                "/api/v3/comic/${enc(pathWord)}/group/${enc(groupWord)}/chapters?limit=$CHAPTER_PAGE&offset=$offset&in_mainland=true&request_id="
+            } else {
+                "/api/v3/comic/${enc(pathWord)}/group/${enc(groupWord)}/chapters?limit=$CHAPTER_PAGE&offset=$offset&platform=3"
+            }
+            try {
+                val request = Request.Builder()
+                    .url("https://${route.host}$path")
+                    .headers(apiHeaders(route.kind, includeToken = true))
+                    .get()
+                    .build()
+                client.newCall(request).execute().use { response ->
+                    val root = parseResponse(response.code, response.body.string())
+                    val list = root.results()?.array("list")
+                        ?: throw IOException("当前节点没有返回章节列表")
+                    if (list.isNotEmpty()) {
+                        preferences.edit().putString(PREF_LAST_HOST, route.serialized).apply()
+                        return root
+                    }
+                    if (firstEmpty == null) firstEmpty = route to root
+                }
+            } catch (e: Throwable) {
+                last = e
+            }
+        }
+        firstEmpty?.let { (route, root) ->
+            preferences.edit().putString(PREF_LAST_HOST, route.serialized).apply()
+            return root
+        }
+        throw IOException(last?.message ?: "所有章节线路均不可用", last)
+    }
+
+    private fun requestPageJson(comic: String, chapterId: String): JsonObject {
+        var last: Throwable? = null
+        apiCandidates(includeLast = true).distinctBy { it.serialized }.forEach { route ->
+            val paths = if (route.kind == RouteKind.COPY) {
+                listOf(
+                    "/api/v3/comic/${enc(comic)}/chapter2/${enc(chapterId)}?in_mainland=true&request_id=",
+                    "/api/v3/comic/${enc(comic)}/chapter/${enc(chapterId)}?in_mainland=true&request_id=",
+                )
+            } else {
+                listOf(
+                    "/api/v3/comic/${enc(comic)}/chapter/${enc(chapterId)}?platform=3&_update=true",
+                    "/api/v3/comic/${enc(comic)}/chapter2/${enc(chapterId)}?platform=3&_update=true",
+                )
+            }
+            paths.forEach { path ->
+                try {
+                    val request = Request.Builder()
+                        .url("https://${route.host}$path")
+                        .headers(apiHeaders(route.kind, includeToken = true))
+                        .get()
+                        .build()
+                    client.newCall(request).execute().use { response ->
+                        val root = parseResponse(response.code, response.body.string())
+                        val chapter = root.results()?.obj("chapter")
+                            ?: throw IOException("当前节点没有返回章节正文")
+                        val contents = chapter.array("contents")
+                            ?: throw IOException("当前节点没有返回图片列表")
+                        if (contents.isEmpty()) throw IOException("当前节点返回空图片列表")
+                        preferences.edit().putString(PREF_LAST_HOST, route.serialized).apply()
+                        return root
+                    }
+                } catch (e: Throwable) {
+                    last = e
+                }
+            }
+        }
+        throw IOException(last?.message ?: "所有正文线路均不可用", last)
+    }
+
+'''
+          if text.count(marker) != 1:
+              raise SystemExit(f'detail marker mismatch: {text.count(marker)}')
+          text = text.replace(marker, helper + marker, 1)
+
+          old = '''                "拷贝漫画·api.copy2000.online",
+                "拷贝漫画·api.copy-manga.com",
+'''
+          new = '''                "拷贝漫画·api.copy2000.online",
+                "拷贝漫画·api.copy202601.com",
+                "拷贝漫画·api.copy-manga.com",
+'''
+          if text.count(old) != 1:
+              raise SystemExit('route entries mismatch')
+          text = text.replace(old, new, 1)
+
+          old = '''                "copy:api.copy2000.online",
+                "copy:api.copy-manga.com",
+'''
+          new = '''                "copy:api.copy2000.online",
+                "copy:api.copy202601.com",
+                "copy:api.copy-manga.com",
+'''
+          if text.count(old) != 1:
+              raise SystemExit('route values mismatch')
+          text = text.replace(old, new, 1)
+
+          old = '''        private val COPY_HOSTS = listOf(
+            "api.copy2000.online",
+            "api.copy-manga.com",
+'''
+          new = '''        private val COPY_HOSTS = listOf(
+            "api.copy2000.online",
+            "api.copy202601.com",
+            "api.copy-manga.com",
+'''
+          if text.count(old) != 1:
+              raise SystemExit('COPY_HOSTS mismatch')
+          text = text.replace(old, new, 1)
+
+          if text.count('private const val ROUTE_SCHEMA = 5') != 1:
+              raise SystemExit('route schema mismatch')
+          text = text.replace('private const val ROUTE_SCHEMA = 5', 'private const val ROUTE_SCHEMA = 6', 1)
+          source.write_text(text, 'utf-8')
+
+          b = build.read_text('utf-8')
+          if b.count('versionCode = 6') != 1:
+              raise SystemExit('expected versionCode = 6 exactly once')
+          build.write_text(b.replace('versionCode = 6', 'versionCode = 7', 1), 'utf-8')
+
+          d = docs.read_text('utf-8')
+          d = d.replace('- 源码 `versionCode = 6`', '- 源码 `versionCode = 7`', 1)
+          d = d.replace('- Android APK versionCode：`106006`', '- Android APK versionCode：`106007`', 1)
+          d = d.replace('- APK versionName：`1.6.6`', '- APK versionName：`1.6.7`', 1)
+          section = '''\n\n## v7 Copy 完整阅读链路修复（2026-09-12）\n\n在 v6 已恢复 Copy 首页和搜索后，公开 runner 的完整在线探针继续验证到详情、章节和正文，确认 v6 仍沿用了旧章节请求参数。当前协议已通过 7 个 Copy 固定节点在线验证。\n\nv7 定向调整：\n\n1. Copy 章节列表改为 `/api/v3/comic/<comic>/group/<group>/chapters?limit=<n>&offset=<n>&in_mainland=true&request_id=`；热辣线路继续保持原 `platform=3` 协议。\n2. Copy 正文改为优先 `/api/v3/comic/<comic>/chapter2/<uuid>?in_mainland=true&request_id=`，再以同参数回退 `chapter`；热辣仍保持原 `chapter -> chapter2 + platform=3&_update=true` 行为。\n3. 正文节点只有在 `results.chapter.contents` 非空时才记为最近成功线路，避免空正文节点污染线路缓存。\n4. 当前动态发现返回 `api.copy202601.com`，加入 Copy 固定兜底候选；动态发现器本身已能解析 `api: [[host], [host]]` 结构。线路 schema 升到 6，升级后清理旧 Copy 动态节点和最近成功节点。\n5. 正式源码版本提升为 `versionCode=7` / Android `106007` / `1.6.7`；不覆盖已经发布的 1.6.6。\n\n### v7 服务端在线验证\n\n使用与扩展一致的 `COPY/3.0.6` 签名头，对 7 个固定 Copy 节点逐一测试，全部跑通：漫画列表、主搜索、漫画详情、章节列表、`chapter2` 正文。测试漫画 `魔都精兵的奴隸` 在每个节点均返回 100 条章节样本及 61 张正文图片。该结果证明当前服务端协议链路可用，但 Android 宿主中的最终兼容性仍需安装 1.6.7 实机确认。\n'''
+          if '## v7 Copy 完整阅读链路修复（2026-09-12）' not in d:
+              d += section
+          docs.write_text(d, 'utf-8')
+          PY
+
+          grep -F 'versionCode = 7' dev/src/zh/copymangaplus/build.gradle.kts
+          grep -F 'requestChapterListJson(pathWord, groupWord, offset)' dev/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt
+          grep -F 'api.copy202601.com' dev/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt
+          grep -F 'ROUTE_SCHEMA = 6' dev/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt
+
+      - name: Validate source tree
+        working-directory: dev
+        run: |
+          python3 scripts/validate_sources.py
+          git diff --check
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Checkout current Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Overlay CopyManga Plus
+        run: |
+          rm -rf upstream/src/zh/copymangaplus
+          cp -a dev/src/zh/copymangaplus upstream/src/zh/copymangaplus
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Spotless build and lint
+        working-directory: upstream
+        run: ./gradlew :src:zh:copymangaplus:spotlessCheck :src:zh:copymangaplus:assembleDebug :src:zh:copymangaplus:lintRelease --stacktrace
+
+      - name: Commit validated v7 source
+        working-directory: dev
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/zh/copymangaplus docs/sources/copymangaplus.md
+          if git diff --cached --quiet; then
+            echo 'No v7 changes to commit.'
+            exit 0
+          fi
+          git commit -m 'fix(copymangaplus): repair v7 reading chain'
+          git pull --rebase origin main
+          git push origin HEAD:main
+
+      - name: Upload debug APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: copymangaplus-v7-reading-chain-debug
+          path: upstream/src/zh/copymangaplus/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 7
