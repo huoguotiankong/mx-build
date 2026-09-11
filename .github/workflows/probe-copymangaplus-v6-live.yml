@@ -13,9 +13,9 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
-      - name: Probe current Copy list and search APIs
+      - name: Probe current Copy end-to-end APIs
         shell: bash
         run: |
           set -euo pipefail
@@ -79,55 +79,119 @@ jobs:
 
           rows = []
           list_hosts = []
-          search_hits = []
+          search_hosts = []
+          detail_hosts = []
+          chapter_hosts = []
+          page_hosts = []
+
+          # Match the extension's current Copy dynamic bootstrap request contract.
+          try:
+              discovery = get('api.copy-manga.com', '/api/v3/system/network2?platform=3')
+              print('DISCOVERY_CODE=' + str(discovery.get('code')))
+              print('DISCOVERY_RESULTS_TYPE=' + type(discovery.get('results')).__name__)
+          except Exception as exc:
+              print('DISCOVERY_ERROR=' + f'{type(exc).__name__}: {exc}'[:220])
+
           for host in hosts:
+              row = {'host': host}
               try:
                   root = get(host, '/api/v3/comics?limit=5&offset=0&ordering=-popular&_update=true')
                   items = ((root.get('results') or {}).get('list') or [])
                   if not items:
-                      rows.append({'host': host, 'list': 'empty'})
-                      continue
+                      raise RuntimeError('empty comic list')
                   first = items[0].get('comic') or items[0]
                   title = str(first.get('name') or '').strip()
                   path_word = str(first.get('path_word') or '').strip()
+                  if not path_word:
+                      raise RuntimeError('sample comic has no path_word')
+                  row.update(list_count=len(items), sample_title=title, sample_path_word=path_word)
                   list_hosts.append(host)
-                  counts = []
-                  errors = []
-                  if title:
-                      q = urllib.parse.quote(title)
-                      paths = [
-                          f'/api/v3/search/comic?limit=30&offset=0&q={q}&q_type=',
-                          f'/api/kb/web/searchb/comics?limit=30&offset=0&q={q}&q_type=',
-                      ]
-                      for path in paths:
+
+                  q = urllib.parse.quote(title)
+                  search = get(host, f'/api/v3/search/comic?limit=30&offset=0&q={q}&q_type=')
+                  search_list = ((search.get('results') or {}).get('list') or [])
+                  row['search_count'] = len(search_list)
+                  if search_list:
+                      search_hosts.append(host)
+
+                  detail = get(
+                      host,
+                      f'/api/v3/comic2/{urllib.parse.quote(path_word)}?in_mainland=true&request_id=&platform=3',
+                  )
+                  results = detail.get('results') or {}
+                  comic = results.get('comic') or {}
+                  if not comic:
+                      raise RuntimeError('detail missing results.comic')
+                  row['detail_name'] = str(comic.get('name') or '')
+                  detail_hosts.append(host)
+
+                  groups = results.get('groups') or {}
+                  if groups:
+                      group_key = next(iter(groups))
+                      group_value = groups.get(group_key) or {}
+                      group_word = str(group_value.get('path_word') or group_key)
+                  else:
+                      group_word = 'default'
+                  row['group_word'] = group_word
+
+                  chapters = get(
+                      host,
+                      f'/api/v3/comic/{urllib.parse.quote(path_word)}/group/{urllib.parse.quote(group_word)}/chapters?limit=20&offset=0&platform=3',
+                  )
+                  chapter_list = ((chapters.get('results') or {}).get('list') or [])
+                  row['chapter_count'] = len(chapter_list)
+                  if not chapter_list:
+                      raise RuntimeError('empty chapter list')
+                  chapter_hosts.append(host)
+
+                  page_count = 0
+                  page_endpoint = None
+                  last_page_error = None
+                  for chapter in chapter_list[:5]:
+                      chapter_id = str(chapter.get('uuid') or '').strip()
+                      if not chapter_id:
+                          continue
+                      encoded_id = urllib.parse.quote(chapter_id)
+                      for endpoint in ('chapter', 'chapter2'):
                           try:
-                              search_root = get(host, path)
-                              results = search_root.get('results') or {}
-                              search_list = results.get('list')
-                              counts.append(None if search_list is None else len(search_list))
-                              errors.append(None)
+                              page_root = get(
+                                  host,
+                                  f'/api/v3/comic/{urllib.parse.quote(path_word)}/{endpoint}/{encoded_id}?platform=3&_update=true',
+                              )
+                              chapter_box = ((page_root.get('results') or {}).get('chapter') or {})
+                              contents = chapter_box.get('contents') or []
+                              if contents:
+                                  page_count = len(contents)
+                                  page_endpoint = endpoint
+                                  break
                           except Exception as exc:
-                              counts.append(None)
-                              errors.append(f'{type(exc).__name__}: {exc}'[:180])
-                  row = {
-                      'host': host,
-                      'list_count': len(items),
-                      'sample_title': title,
-                      'sample_path_word': path_word,
-                      'search_counts': counts,
-                      'search_errors': errors,
-                  }
-                  rows.append(row)
-                  if any(isinstance(count, int) and count > 0 for count in counts):
-                      search_hits.append(row)
+                              last_page_error = f'{type(exc).__name__}: {exc}'[:180]
+                      if page_count:
+                          break
+                  row['page_count'] = page_count
+                  row['page_endpoint'] = page_endpoint
+                  if not page_count:
+                      raise RuntimeError('no chapter returned page contents; ' + str(last_page_error))
+                  page_hosts.append(host)
               except Exception as exc:
-                  rows.append({'host': host, 'list_error': f'{type(exc).__name__}: {exc}'[:220]})
+                  row['error'] = f'{type(exc).__name__}: {exc}'[:240]
+              rows.append(row)
 
           print(json.dumps(rows, ensure_ascii=False, indent=2))
           print('LIST_WORKING_HOSTS=' + ','.join(list_hosts))
-          print('SEARCH_WORKING_HOSTS=' + ','.join(row['host'] for row in search_hits))
+          print('SEARCH_WORKING_HOSTS=' + ','.join(search_hosts))
+          print('DETAIL_WORKING_HOSTS=' + ','.join(detail_hosts))
+          print('CHAPTER_WORKING_HOSTS=' + ','.join(chapter_hosts))
+          print('PAGE_WORKING_HOSTS=' + ','.join(page_hosts))
+
           if not list_hosts:
-              raise SystemExit('No Copy host returned a non-empty comic list with the v3.0.6 signed contract')
-          if not search_hits:
-              raise SystemExit('No Copy host returned non-empty search results for its own sample title')
+              raise SystemExit('No Copy host returned a non-empty comic list')
+          if not search_hosts:
+              raise SystemExit('No Copy host returned non-empty search results')
+          if not detail_hosts:
+              raise SystemExit('No Copy host returned comic detail')
+          if not chapter_hosts:
+              raise SystemExit('No Copy host returned chapter list')
+          if not page_hosts:
+              raise SystemExit('No Copy host returned reader page contents')
           PY
