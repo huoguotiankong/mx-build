@@ -15,110 +15,110 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Probe XGYW structure
+      - name: Probe XGYW detail reader tags and search
         shell: bash
         run: |
           set -euo pipefail
           ua='Mozilla/5.0 (Linux; Android 16; Pixel 9 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36'
+          base='http://www.xgyouwu.com'
           out=/tmp/xgyw-probe
           mkdir -p "$out"
-          for base in 'http://www.xgyouwu.com' 'https://www.xgyouwu.com' 'http://xgyouwu.com' 'https://xgyouwu.com'; do
-            key="$(echo "$base" | tr -cd '[:alnum:]')"
-            echo "=== ROOT $base ==="
-            curl -L --compressed -A "$ua" -m 20 -sS -D "$out/${key}.headers" -o "$out/${key}.bin" -w 'code=%{http_code} final=%{url_effective} size=%{size_download} type=%{content_type}\n' "$base/" || true
+          declare -A urls=(
+            [home]="$base/"
+            [category]="$base/xing/ganyoum/24_1.html"
+            [tag]="$base/chis/meinvwushengguangtuji/1.html"
+            [detail]="$base/xing/ganyou/20360307/323786.html"
+            [detail_us2]="$base/xing/ganyou/20360307/323786_2.html"
+            [detail_slash2]="$base/xing/ganyou/20360307/2.html"
+          )
+          for key in "${!urls[@]}"; do
+            url="${urls[$key]}"
+            echo "=== $key $url ==="
+            curl -L --compressed -A "$ua" -e "$base/" -m 20 -sS -D "$out/${key}.headers" -o "$out/${key}.bin" -w 'code=%{http_code} final=%{url_effective} size=%{size_download} type=%{content_type}\n' "$url" || true
           done
           python3 - <<'PY'
           from pathlib import Path
-          import re, html, urllib.parse, subprocess, os
+          import re, html
           out=Path('/tmp/xgyw-probe')
-          ua='Mozilla/5.0 (Linux; Android 16; Pixel 9 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36'
-
           def decode(raw):
-              head=raw[:5000].decode('ascii','ignore').lower()
+              head=raw[:6000].decode('ascii','ignore').lower()
               m=re.search(r'charset\s*=\s*["\']?([a-z0-9._-]+)', head)
               enc=m.group(1) if m else None
-              for cand in [enc,'utf-8','gb18030','big5']:
+              for cand in [enc,'gb18030','utf-8','big5']:
                   if not cand: continue
                   try: return raw.decode(cand), cand
                   except Exception: pass
               return raw.decode('utf-8','replace'), 'utf-8?'
-
-          roots=[]
-          for p in sorted(out.glob('*.bin')):
-              raw=p.read_bytes()
-              text,enc=decode(raw)
-              (out/(p.stem+'.utf8.txt')).write_text(text,encoding='utf-8')
-              print('\n### ROOT',p.stem,'bytes',len(raw),'encoding',enc)
-              title=re.search(r'<title[^>]*>(.*?)</title>',text,re.I|re.S)
-              if title: print('TITLE:',re.sub(r'\s+',' ',html.unescape(title.group(1))).strip())
-              canon=re.search(r'<link[^>]+rel=["\']canonical["\'][^>]+href=["\']([^"\']+)',text,re.I)
-              if canon: print('CANONICAL',canon.group(1))
-              hrefs=[]
+          for key in ['home','category','tag','detail','detail_us2','detail_slash2']:
+              p=out/f'{key}.bin'
+              if not p.exists(): continue
+              raw=p.read_bytes(); text,enc=decode(raw)
+              (out/f'{key}.utf8.txt').write_text(text,encoding='utf-8')
+              print(f'\n### {key} bytes={len(raw)} enc={enc}')
+              for pat,label in [
+                  (r'<title[^>]*>(.*?)</title>','TITLE'),
+                  (r'<h1[^>]*>(.*?)</h1>','H1'),
+                  (r'<meta[^>]+name=["\']keywords["\'][^>]+content=["\']([^"\']+)','KEYWORDS'),
+                  (r'<meta[^>]+name=["\']description["\'][^>]+content=["\']([^"\']+)','DESCRIPTION'),
+              ]:
+                  m=re.search(pat,text,re.I|re.S)
+                  if m:
+                      val=re.sub(r'<[^>]+>',' ',m.group(1)); val=re.sub(r'\s+',' ',html.unescape(val)).strip()
+                      print(label,val[:1000])
+              # forms/search
+              for m in re.finditer(r'<form\b[^>]*>.*?</form>',text,re.I|re.S):
+                  block=re.sub(r'\s+',' ',m.group(0)).strip()
+                  if 'search' in block.lower() or '搜' in block:
+                      print('FORM',block[:1800])
+              # links relevant to category/tag/pagination/detail
+              links=[]
               for m in re.finditer(r'<a\b[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)</a>',text,re.I|re.S):
-                  href=html.unescape(m.group(1)).strip()
-                  label=re.sub(r'<[^>]+>',' ',m.group(2))
-                  label=re.sub(r'\s+',' ',html.unescape(label)).strip()
-                  if href and not href.lower().startswith(('javascript:','#','mailto:')):
-                      item=(href,label[:100])
-                      if item not in hrefs: hrefs.append(item)
-              for href,label in hrefs[:160]: print('A',repr(label),href)
+                  href=html.unescape(m.group(1)).strip(); lab=re.sub(r'<[^>]+>',' ',m.group(2)); lab=re.sub(r'\s+',' ',html.unescape(lab)).strip()
+                  if href and (('/chis/' in href) or ('/xing/ganyoum/' in href) or re.search(r'(^|/|_)\d+\.html$',href) or '下一页' in lab or '末页' in lab):
+                      item=(href,lab[:100])
+                      if item not in links: links.append(item)
+              for href,lab in links[:120]: print('LINK',repr(lab),href)
+              # images including lazy attrs
               imgs=[]
               for m in re.finditer(r'<img\b[^>]*>',text,re.I|re.S):
                   tag=re.sub(r'\s+',' ',m.group(0)).strip()
                   if tag not in imgs: imgs.append(tag)
-              for tag in imgs[:80]: print('IMG',tag[:1200])
-              if len(raw)>1000:
-                  roots.append((p,text,hrefs))
-
-          # Probe representative internal pages from the first useful root.
-          if roots:
-              p,text,hrefs=roots[0]
-              # derive final/root host from canonical or absolute internal links
-              abs_links=[]
-              for href,label in hrefs:
-                  if href.startswith(('http://','https://')) and 'xgyouwu.com' in href:
-                      abs_links.append((href,label))
-              # choose a base from first absolute link, else requested host
-              base='http://www.xgyouwu.com'
-              if abs_links:
-                  u=urllib.parse.urlsplit(abs_links[0][0]); base=f'{u.scheme}://{u.netloc}'
-              candidates=[]
-              for href,label in hrefs:
-                  url=urllib.parse.urljoin(base+'/',href)
-                  if urllib.parse.urlsplit(url).netloc.endswith('xgyouwu.com'):
-                      path=urllib.parse.urlsplit(url).path.lower()
-                      score=0
-                      if re.search(r'\d',path): score+=2
-                      if any(x in path for x in ('show','detail','article','photo','pic','meinv','girl','content','view','tupian')): score+=3
-                      if any(x in label for x in ('写真','美女','尤物','套图','模特')): score+=2
-                      candidates.append((score,url,label))
-              seen=set(); ordered=[]
-              for score,url,label in sorted(candidates,key=lambda x:-x[0]):
-                  if url not in seen:
-                      seen.add(url); ordered.append((score,url,label))
-              for i,(score,url,label) in enumerate(ordered[:8],1):
-                  dest=out/f'page{i}.bin'
-                  print(f'\n=== PAGE{i} score={score} {url} label={label!r} ===')
-                  subprocess.run(['curl','-L','--compressed','-A',ua,'-e',base+'/', '-m','20','-sS','-D',str(out/f'page{i}.headers'),'-o',str(dest),'-w','code=%{http_code} final=%{url_effective} size=%{size_download} type=%{content_type}\\n',url],check=False)
-                  if not dest.exists(): continue
-                  raw=dest.read_bytes(); t,enc=decode(raw); (out/f'page{i}.utf8.txt').write_text(t,encoding='utf-8')
-                  tt=re.search(r'<title[^>]*>(.*?)</title>',t,re.I|re.S)
-                  print('PAGE_ENCODING',enc)
-                  if tt: print('PAGE_TITLE',re.sub(r'\s+',' ',html.unescape(tt.group(1))).strip())
-                  for m in list(re.finditer(r'<a\b[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)</a>',t,re.I|re.S))[:120]:
-                      href2=html.unescape(m.group(1)).strip(); lab=re.sub(r'<[^>]+>',' ',m.group(2)); lab=re.sub(r'\s+',' ',html.unescape(lab)).strip()
-                      if href2: print('PA',repr(lab[:100]),href2)
-                  for m in list(re.finditer(r'<img\b[^>]*>',t,re.I|re.S))[:100]:
-                      print('PIMG',re.sub(r'\s+',' ',m.group(0)).strip()[:1200])
-                  # print script lines likely carrying image arrays/config
-                  for line in t.splitlines():
-                      low=line.lower()
-                      if any(k in low for k in ('tag','keyword','image','photo','pic','gallery','pages','lazy','srcset')) and len(line)<4000:
-                          print('SCRIPT',re.sub(r'\s+',' ',line).strip()[:2000])
+              print('IMG_COUNT',len(imgs))
+              for tag in imgs[:120]: print('IMG',tag[:1400])
+              # likely detail metadata blocks / scripts
+              for line in text.splitlines():
+                  s=re.sub(r'\s+',' ',line).strip(); low=s.lower()
+                  if len(s) < 5000 and any(k in low for k in ('标签','分类','相关','page','pagelist','tag','keyword','pic','image','photo','content')):
+                      if key.startswith('detail'):
+                          print('LINE',s[:2200])
           PY
+          # Probe representative image request headers/status.
+          img=$(python3 - <<'PY'
+          import re
+          from pathlib import Path
+          t=Path('/tmp/xgyw-probe/detail.utf8.txt').read_text(encoding='utf-8',errors='ignore')
+          m=re.search(r'<img\b[^>]*(?:lazy-src|data-src|src)=["\'](http://img\.xgyouwu\.com/[^"\']+)',t,re.I)
+          print(m.group(1) if m else '')
+          PY
+          )
+          if [ -n "$img" ]; then
+            echo "=== IMAGE $img ==="
+            for mode in none root detail; do
+              case "$mode" in
+                none) ref='' ;;
+                root) ref="$base/" ;;
+                detail) ref="$base/xing/ganyou/20360307/323786.html" ;;
+              esac
+              if [ -n "$ref" ]; then
+                curl -L --compressed -A "$ua" -e "$ref" -m 20 -sS -o /dev/null -w "$mode code=%{http_code} size=%{size_download} type=%{content_type} time=%{time_total}\n" "$img" || true
+              else
+                curl -L --compressed -A "$ua" -m 20 -sS -o /dev/null -w "$mode code=%{http_code} size=%{size_download} type=%{content_type} time=%{time_total}\n" "$img" || true
+              fi
+            done
+          fi
       - name: Upload probe
         uses: actions/upload-artifact@v4
         with:
           name: xgyouwu-site-probe
           path: /tmp/xgyw-probe/
-          if-no-files-found: warn
+          if-no-files-found: error
