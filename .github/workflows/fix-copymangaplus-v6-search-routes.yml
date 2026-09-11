@@ -1,4 +1,4 @@
-name: Validate CopyManga Plus v6
+name: Apply CopyManga Plus v7
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: validate-copymangaplus-v6
+  group: apply-copymangaplus-v7
   cancel-in-progress: false
 
 jobs:
@@ -19,11 +19,6 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
-      - name: Check signing secret
-        env:
-          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
-        run: test -n "$MANGA_SIGNING_BUNDLE"
-
       - name: Checkout build helper
         uses: actions/checkout@v5
         with:
@@ -31,19 +26,25 @@ jobs:
           ref: main
           path: helper
           fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout MX development source
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          path: dev
+          fetch-depth: 0
           persist-credentials: true
 
-      - name: Clone MX development source anonymously
-        run: git clone --depth 1 --branch main https://github.com/huoguotiankong/mx-dev.git dev
-
-      - name: Apply final v6 source and documentation patch
+      - name: Apply v7 source patch
         run: |
-          python3 helper/scripts/finalize_copymangaplus_v6.py dev
-          grep -F 'versionCode = 6' dev/src/zh/copymangaplus/build.gradle.kts
-          grep -F 'var firstEmpty: Pair<ApiRoute, JsonObject>? = null' dev/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt
-          grep -F 'COPY_VERSION = "3.0.6"' dev/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt
-          grep -F 'COPY_SIGN_SECRET = "3af08590311032efe0660550a0563a53"' dev/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt
-          grep -F 'ROUTE_SCHEMA = 5' dev/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt
+          python3 helper/scripts/finalize_copymangaplus_v7.py dev
+          grep -F 'versionCode = 7' dev/src/zh/copymangaplus/build.gradle.kts
+          grep -F 'requestChapterListJson(pathWord, groupWord, offset)' dev/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt
+          grep -F 'api.copy202601.com' dev/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt
+          grep -F 'ROUTE_SCHEMA = 6' dev/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt
           python3 dev/scripts/validate_sources.py
           git -C dev diff --check
 
@@ -70,13 +71,14 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Format and validate source
+      - name: Format build and lint
         working-directory: upstream
         run: |
           ./gradlew :src:zh:copymangaplus:spotlessApply
           ./gradlew :src:zh:copymangaplus:spotlessCheck
+          ./gradlew :src:zh:copymangaplus:assembleDebug :src:zh:copymangaplus:lintRelease --stacktrace
 
-      - name: Restore formatted module to validation checkout
+      - name: Restore formatted module
         run: |
           rm -rf dev/src/zh/copymangaplus
           mkdir -p dev/src/zh/copymangaplus
@@ -84,99 +86,25 @@ jobs:
           python3 dev/scripts/validate_sources.py
           git -C dev diff --check
 
-      - name: Prepare stable extension signing key
-        env:
-          MANGA_SIGNING_BUNDLE: ${{ secrets.MANGA_SIGNING_BUNDLE }}
-        run: |
-          python3 - <<'PY'
-          import base64, json, os
-          from pathlib import Path
-          b = json.loads(os.environ['MANGA_SIGNING_BUNDLE'])
-          for key in ('signingKey', 'alias', 'storePassword', 'keyPassword'):
-              if not b.get(key):
-                  raise SystemExit('missing signing field: ' + key)
-          Path('upstream/signingkey.jks').write_bytes(base64.b64decode(b['signingKey']))
-          with Path(os.environ['GITHUB_ENV']).open('a', encoding='utf-8') as f:
-              for env_name, key in (('ALIAS','alias'),('KEY_STORE_PASSWORD','storePassword'),('KEY_PASSWORD','keyPassword')):
-                  value = str(b[key])
-                  print(f'::add-mask::{value}')
-                  f.write(f'{env_name}<<EOF_SIGN\n{value}\nEOF_SIGN\n')
-          PY
-
-      - name: Build Debug Release and lint
-        working-directory: upstream
-        run: ./gradlew :src:zh:copymangaplus:assembleDebug :src:zh:copymangaplus:assembleRelease :src:zh:copymangaplus:lintRelease
-
-      - name: Verify signing and MX ABI
-        id: verify
-        run: |
-          set -euo pipefail
-          expected='1bbfbdc401ab81dc227bf771c43d5b616d00149f5755691a317a819f5a88f620'
-          actual="$(keytool -exportcert -alias "$ALIAS" -keystore upstream/signingkey.jks -storepass "$KEY_STORE_PASSWORD" | sha256sum | awk '{print $1}' | tr '[:upper:]' '[:lower:]')"
-          test "$actual" = "$expected"
-          echo "fingerprint=$actual" >> "$GITHUB_OUTPUT"
-          apk="$(find upstream/src/zh/copymangaplus -path '*/build/outputs/apk/release/*.apk' -type f | head -n1)"
-          test -n "$apk"
-          apksigner="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n1)"
-          "$apksigner" verify "$apk"
-          rm -rf /tmp/copymanga-dex && mkdir -p /tmp/copymanga-dex
-          unzip -qq "$apk" 'classes*.dex' -d /tmp/copymanga-dex
-          strings /tmp/copymanga-dex/classes*.dex > /tmp/copymanga-strings.txt
-          grep -Fq 'eu/kanade/tachiyomi/source/mx/CommentSource' /tmp/copymanga-strings.txt
-          grep -Fq 'eu/kanade/tachiyomi/source/mx/AccountSource' /tmp/copymanga-strings.txt
-          grep -Fq 'eu/kanade/tachiyomi/source/mx/MangaDetailSource' /tmp/copymanga-strings.txt
-
-      - name: Save validated source snapshot
-        run: tar -czf copymangaplus-v6-source.tgz -C dev src/zh/copymangaplus docs/sources/copymangaplus.md
-
-      - name: Checkout extension staging
-        uses: actions/checkout@v5
-        with:
-          repository: huoguotiankong/mx-build
-          ref: extension-staging
-          token: ${{ github.token }}
-          path: staging
-          fetch-depth: 0
-          persist-credentials: true
-
-      - name: Generate isolated test store snapshot
-        env:
-          SIGNING_FINGERPRINT: ${{ steps.verify.outputs.fingerprint }}
-        run: |
-          printf '%s\n' 'zh/copymangaplus' > targets.txt
-          python3 dev/scripts/publish_test_repo.py --targets targets.txt --upstream-root upstream --source-root dev --repo-dir staging/test --owner huoguotiankong --repository mx-repo --signing-key "$SIGNING_FINGERPRINT"
-          test -f staging/test/apk/tachiyomi-zh.copymangaplus-v1.6.6.apk
-          grep -q 'eu.kanade.tachiyomi.extension.zh.copymangaplus' staging/test/index.json
-
-      - name: Commit staged test store
-        working-directory: staging
+      - name: Commit validated v7 source
+        working-directory: dev
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add test
-          git diff --cached --check
-          if ! git diff --cached --quiet; then
-            git commit -m 'Stage CopyManga Plus v1.6.6 test store'
-            git push origin HEAD:extension-staging
+          git add src/zh/copymangaplus docs/sources/copymangaplus.md
+          if git diff --cached --quiet; then
+            echo 'No v7 changes to commit.'
+          else
+            git commit -m 'fix(copymangaplus): repair v7 reading chain'
+            git pull --rebase origin main
+            git push origin HEAD:main
           fi
 
-      - name: Upload validated source snapshot
+      - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: copymangaplus-v6-source
-          path: copymangaplus-v6-source.tgz
+          name: copymangaplus-v7-reading-chain-debug
+          path: upstream/src/zh/copymangaplus/**/build/outputs/apk/debug/*.apk
           if-no-files-found: error
-          retention-days: 14
-
-      - name: Upload signed APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: copymangaplus-v6-signed-apk
-          path: upstream/src/zh/copymangaplus/**/build/outputs/apk/release/*.apk
-          if-no-files-found: error
-          retention-days: 14
-
-      - name: Cleanup signing material
-        if: always()
-        run: rm -f upstream/signingkey.jks
+          retention-days: 7
