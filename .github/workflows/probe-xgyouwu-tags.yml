@@ -1,0 +1,88 @@
+name: Probe XGYW tags search icon
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-xgyouwu-tags.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Probe tags search and icon
+        shell: bash
+        run: |
+          set -euo pipefail
+          ua='Mozilla/5.0 (Linux; Android 16; Pixel 9 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36'
+          base='http://www.xgyouwu.com'
+          out=/tmp/xgyw-tags
+          mkdir -p "$out"
+          for path in \
+            '/xing/ganyou/20360307/323786.html' \
+            '/xing/ganyou/20360307/323792.html' \
+            '/xing/ganyou/20360307/323788.html' \
+            '/xing/ganyou/20360307/323783.html' \
+            '/xing/ganyou/20360307/323780.html'; do
+            key=$(basename "$path" .html)
+            curl -L --compressed -A "$ua" -e "$base/" -m 20 -sS "$base$path" -o "$out/$key.bin"
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, html, urllib.parse, subprocess
+          out=Path('/tmp/xgyw-tags')
+          ua='Mozilla/5.0 (Linux; Android 16; Pixel 9 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36'
+          base='http://www.xgyouwu.com'
+          def dec(b):
+              for enc in ('gb18030','utf-8'):
+                  try:return b.decode(enc)
+                  except:pass
+              return b.decode('gb18030','replace')
+          probes=[]
+          for p in sorted(out.glob('*.bin')):
+              t=dec(p.read_bytes()); (out/(p.stem+'.txt')).write_text(t,encoding='utf-8')
+              title=re.search(r'<h1[^>]*>(.*?)</h1>',t,re.I|re.S)
+              print('\nDETAIL',p.stem,re.sub(r'<[^>]+>',' ',title.group(1)).strip() if title else '')
+              m=re.search(r'<div\s+id=["\']tags["\'][^>]*>(.*?)</div>',t,re.I|re.S)
+              block=m.group(1) if m else ''
+              print('TAGS_HTML',re.sub(r'\s+',' ',block)[:3000])
+              for a in re.finditer(r'<a\b[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)</a>',block,re.I|re.S):
+                  href=html.unescape(a.group(1)); label=re.sub(r'<[^>]+>',' ',a.group(2)); label=re.sub(r'\s+',' ',html.unescape(label)).strip()
+                  print('TAG_LINK',repr(label),href)
+                  if href.startswith('/s.asp?keyword=') and label and label != '标签': probes.append((label,href))
+          seen=set()
+          for label,href in probes:
+              if href in seen: continue
+              seen.add(href)
+              urls=[
+                  ('exact', base+href),
+                  ('utf8_label', base+'/s.asp?keyword='+urllib.parse.quote(label)),
+                  ('gbk_label', base+'/s.asp?keyword='+urllib.parse.quote_from_bytes(label.encode('gb18030'))),
+              ]
+              for kind,url in urls:
+                  dest=out/f'search-{len(seen)}-{kind}.bin'
+                  cp=subprocess.run(['curl','-L','--compressed','-A',ua,'-e',base+'/', '-m','20','-sS','-o',str(dest),'-w','%{http_code} %{url_effective} %{size_download}',url],capture_output=True,text=True)
+                  print('SEARCH',repr(label),kind,cp.stdout.strip(),url)
+                  if dest.exists():
+                      st=dec(dest.read_bytes())
+                      print(' SEARCH_DETAILS',len(re.findall(r'/xing/ganyou/\d+/\d+\.html',st)), 'title=',re.sub(r'\s+',' ',(re.search(r'<title[^>]*>(.*?)</title>',st,re.I|re.S).group(1) if re.search(r'<title[^>]*>(.*?)</title>',st,re.I|re.S) else ''))[:300])
+              if len(seen)>=4: break
+          # icon/logo declarations from home
+          import urllib.request
+          home=dec(urllib.request.urlopen(base+'/',timeout=20).read())
+          for m in re.finditer(r'<(?:link|img)\b[^>]*(?:href|src)=["\']([^"\']+)["\'][^>]*>',home,re.I|re.S):
+              tag=m.group(0); url=m.group(1)
+              if any(k in tag.lower() for k in ('icon','logo')) or any(k in url.lower() for k in ('favicon','logo','icon')):
+                  print('ICON_CANDIDATE',re.sub(r'\s+',' ',tag)[:1200])
+          PY
+      - name: Upload probe
+        uses: actions/upload-artifact@v4
+        with:
+          name: xgyouwu-tags-probe
+          path: /tmp/xgyw-tags/
+          if-no-files-found: error
