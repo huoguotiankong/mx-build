@@ -1,0 +1,194 @@
+name: Apply CopyManga Plus v6 search fallback
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/apply-copymangaplus-v6-search-fallback.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout mx-dev with publish token
+        uses: actions/checkout@v5
+        with:
+          repository: huoguotiankong/mx-dev
+          ref: main
+          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          path: dev
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Patch search fallback and maintenance record
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          source = Path('dev/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt')
+          text = source.read_text('utf-8')
+          old = '''    private fun requestSearchJson(page: Int, query: String): JsonObject {
+              val offset = (page.coerceAtLeast(1) - 1) * PAGE_SIZE
+              val encodedQuery = enc(query)
+              var last: Throwable? = null
+              apiCandidates(includeLast = true).distinctBy { it.serialized }.forEach { route ->
+                  val paths = if (route.kind == RouteKind.COPY) {
+                      listOf(
+                          "/api/v3/search/comic?limit=$PAGE_SIZE&offset=$offset&q=$encodedQuery&q_type=",
+                          "$COPY_WEB_SEARCH_PATH?limit=$PAGE_SIZE&offset=$offset&q=$encodedQuery&q_type=",
+                      )
+                  } else {
+                      listOf(
+                          "/api/v3/search/comic?platform=3&q=$encodedQuery&limit=$PAGE_SIZE&offset=$offset&_update=true",
+                      )
+                  }
+                  paths.forEach { path ->
+                      try {
+                          val request = Request.Builder()
+                              .url("https://${route.host}$path")
+                              .headers(apiHeaders(route.kind, includeToken = true))
+                              .get()
+                              .build()
+                          client.newCall(request).execute().use { response ->
+                              val root = parseResponse(response.code, response.body.string())
+                              if (root.results()?.array("list") == null) {
+                                  throw IOException("当前节点没有返回搜索列表")
+                              }
+                              preferences.edit().putString(PREF_LAST_HOST, route.serialized).apply()
+                              return root
+                          }
+                      } catch (e: Throwable) {
+                          last = e
+                      }
+                  }
+              }
+              throw IOException(last?.message ?: "所有搜索线路均不可用", last)
+          }
+'''
+          new = '''    private fun requestSearchJson(page: Int, query: String): JsonObject {
+              val offset = (page.coerceAtLeast(1) - 1) * PAGE_SIZE
+              val encodedQuery = enc(query)
+              var firstEmpty: Pair<ApiRoute, JsonObject>? = null
+              var last: Throwable? = null
+              apiCandidates(includeLast = true).distinctBy { it.serialized }.forEach { route ->
+                  val paths = if (route.kind == RouteKind.COPY) {
+                      listOf(
+                          "/api/v3/search/comic?limit=$PAGE_SIZE&offset=$offset&q=$encodedQuery&q_type=",
+                          "$COPY_WEB_SEARCH_PATH?limit=$PAGE_SIZE&offset=$offset&q=$encodedQuery&q_type=",
+                      )
+                  } else {
+                      listOf(
+                          "/api/v3/search/comic?platform=3&q=$encodedQuery&limit=$PAGE_SIZE&offset=$offset&_update=true",
+                      )
+                  }
+                  paths.forEach { path ->
+                      try {
+                          val request = Request.Builder()
+                              .url("https://${route.host}$path")
+                              .headers(apiHeaders(route.kind, includeToken = true))
+                              .get()
+                              .build()
+                          client.newCall(request).execute().use { response ->
+                              val root = parseResponse(response.code, response.body.string())
+                              val list = root.results()?.array("list")
+                                  ?: throw IOException("当前节点没有返回搜索列表")
+                              if (list.isNotEmpty()) {
+                                  preferences.edit().putString(PREF_LAST_HOST, route.serialized).apply()
+                                  return root
+                              }
+                              if (firstEmpty == null) firstEmpty = route to root
+                          }
+                      } catch (e: Throwable) {
+                          last = e
+                      }
+                  }
+              }
+              firstEmpty?.let { (route, root) ->
+                  preferences.edit().putString(PREF_LAST_HOST, route.serialized).apply()
+                  return root
+              }
+              throw IOException(last?.message ?: "所有搜索线路均不可用", last)
+          }
+'''
+          if text.count(old) != 1:
+              raise SystemExit(f'expected current requestSearchJson once, got {text.count(old)}')
+          source.write_text(text.replace(old, new, 1), 'utf-8')
+
+          docs = Path('dev/docs/sources/copymangaplus.md')
+          d = docs.read_text('utf-8')
+          d = d.replace('- 源码 `versionCode = 5`', '- 源码 `versionCode = 6`', 1)
+          d = d.replace('- Android APK versionCode：`106005`', '- Android APK versionCode：`106006`', 1)
+          d = d.replace('- APK versionName：`1.6.5`', '- APK versionName：`1.6.6`', 1)
+          d = d.replace('`https://api.2026copy.com/api/v3/system/network2?platform=3`', '`https://api.copy-manga.com/api/v3/system/network2?platform=3`', 1)
+          marker = '## v6 搜索与 Copy 线路修复（2026-09-12）'
+          if marker not in d:
+              d += '''\n\n## v6 搜索与 Copy 线路修复（2026-09-12）\n\n用户实机反馈优先：v5 搜索不可用；Copy 漫画线路持续不可用，只有热辣漫画线路可用。\n\nv6 定向修复：\n\n1. Copy 请求协议统一到当前客户端仍在使用的 `COPY/3.0.6` 完整移动请求头，恢复稳定的 `deviceinfo / device / pseudoid / dt / umstring / x-auth-*`，默认使用 `region=0`，未登录时仍发送 `Authorization: Token`。这与 v4 的 `COPY/3.0.0 + version=3.0.9 + region=1` 混合契约不同。\n2. Copy 动态发现入口改为 `api.copy-manga.com/api/v3/system/network2?platform=3`，固定首选仍保留 `api.copy2000.online`。`ROUTE_SCHEMA` 升到 5，升级后清除旧动态节点和最近成功节点缓存。\n3. 搜索改为兼容链：Copy 先请求 `/api/v3/search/comic` 并补齐 `q_type=`；接口报错、缺少列表或返回空列表时继续尝试当前网页搜索 `/api/kb/web/searchb/comics`，再继续其它 Copy/热辣候选。只有所有候选都没有命中时才返回第一个合法空结果。\n4. 列表、章节和详情增加返回结构校验，避免 HTTP/API code 200 但缺少真实业务数据的节点被错误记为成功线路。\n5. 热辣线路协议保持不变，避免破坏用户已实机确认可用的线路。\n6. 本次正式版本为 `versionCode=6` / Android `106006` / `1.6.6`。\n\nCI、签名和测试商店只用于验证源码、构建和分发链路；Copy 线路与搜索是否真正恢复仍以 Android 实机测试为准。\n'''
+          docs.write_text(d, 'utf-8')
+          PY
+          grep -F 'versionCode = 6' dev/src/zh/copymangaplus/build.gradle.kts
+          grep -F 'if (list.isNotEmpty())' dev/src/zh/copymangaplus/src/eu/kanade/tachiyomi/extension/zh/copymangaplus/CopyMangaPlus.kt
+          grep -F '## v6 搜索与 Copy 线路修复（2026-09-12）' dev/docs/sources/copymangaplus.md
+
+      - name: Validate source layout
+        working-directory: dev
+        run: |
+          python3 scripts/validate_sources.py
+          git diff --check
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Checkout current Keiyoushi framework
+        uses: actions/checkout@v5
+        with:
+          repository: keiyoushi/extensions-source
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Overlay CopyManga Plus module
+        run: |
+          rm -rf upstream/src/zh/copymangaplus
+          cp -a dev/src/zh/copymangaplus upstream/src/zh/copymangaplus
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Spotless build and lint
+        working-directory: upstream
+        run: ./gradlew :src:zh:copymangaplus:spotlessCheck :src:zh:copymangaplus:assembleDebug :src:zh:copymangaplus:lintRelease --stacktrace
+
+      - name: Commit and push final v6 source
+        working-directory: dev
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/zh/copymangaplus docs/sources/copymangaplus.md
+          if git diff --cached --quiet; then
+            echo 'No CopyManga Plus changes to commit.'
+            exit 0
+          fi
+          git commit -m 'fix(copymangaplus): finalize v6 search fallback'
+          git pull --rebase origin main
+          git push origin HEAD:main
+
+      - name: Upload debug APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: copymangaplus-v6-search-fallback-debug
+          path: upstream/src/zh/copymangaplus/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 7
