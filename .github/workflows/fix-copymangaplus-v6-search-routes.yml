@@ -33,7 +33,7 @@ jobs:
         with:
           repository: huoguotiankong/mx-dev
           ref: main
-          token: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
           path: dev
           fetch-depth: 0
           persist-credentials: true
