@@ -1,3 +1,3 @@
-mx-dev commit: 032caaaf6d6a9a876210bc702e475645236e6cc6
+mx-dev commit: be16c4b9e9d5ec9c1c64208f647386ae41a23102
 requested: 2026-09-12
-reason: validate v1.6.6 Copy 3.0.6 signed headers, corrected HMAC key, q_type search fallback, route payload validation, and Hot route regression safety
+reason: validate final v1.6.6 Copy signed headers, corrected signature parameters, q_type search, empty-result fallback, payload validation, and Hot route regression safety
