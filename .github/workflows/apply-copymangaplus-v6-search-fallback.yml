@@ -192,3 +192,5 @@ jobs:
           path: upstream/src/zh/copymangaplus/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 7
+
+# rerun 2026-09-12 after correcting Copy API HMAC key
