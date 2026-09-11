@@ -40,6 +40,7 @@ if "private fun requestChapterListJson(" not in s:
         limit: Int,
         offset: Int,
     ): JsonObject {
+        var firstEmpty: Pair<ApiRoute, JsonObject>? = null
         var last: Throwable? = null
         apiCandidates(includeLast = true).distinctBy { it.serialized }.forEach { route ->
             val query = if (route.kind == RouteKind.COPY) {
@@ -56,15 +57,21 @@ if "private fun requestChapterListJson(" not in s:
                     .build()
                 client.newCall(request).execute().use { response ->
                     val root = parseResponse(response.code, response.body.string())
-                    if (root.results()?.array("list") == null) {
-                        throw IOException("当前节点没有返回章节列表")
+                    val list = root.results()?.array("list")
+                        ?: throw IOException("当前节点没有返回章节列表")
+                    if (list.isNotEmpty()) {
+                        preferences.edit().putString(PREF_LAST_HOST, route.serialized).apply()
+                        return root
                     }
-                    preferences.edit().putString(PREF_LAST_HOST, route.serialized).apply()
-                    return root
+                    if (firstEmpty == null) firstEmpty = route to root
                 }
             } catch (e: Throwable) {
                 last = e
             }
+        }
+        firstEmpty?.let { (route, root) ->
+            preferences.edit().putString(PREF_LAST_HOST, route.serialized).apply()
+            return root
         }
         throw IOException(last?.message ?: "所有章节线路均不可用", last)
     }
@@ -112,6 +119,29 @@ if "private fun requestChapterListJson(" not in s:
         raise SystemExit("requestDetailJson helper anchor missing")
     s = s.replace(helper_anchor, helpers + helper_anchor)
 
+route_entry_old = '                "拷贝漫画·api.copy2000.online",\n                "拷贝漫画·api.copy-manga.com",\n'
+route_entry_new = '                "拷贝漫画·api.copy2000.online",\n                "拷贝漫画·api.copy202601.com",\n                "拷贝漫画·api.copy-manga.com",\n'
+if "拷贝漫画·api.copy202601.com" not in s:
+    if route_entry_old not in s:
+        raise SystemExit("route entry anchor missing")
+    s = s.replace(route_entry_old, route_entry_new, 1)
+
+route_value_old = '                "copy:api.copy2000.online",\n                "copy:api.copy-manga.com",\n'
+route_value_new = '                "copy:api.copy2000.online",\n                "copy:api.copy202601.com",\n                "copy:api.copy-manga.com",\n'
+if '"copy:api.copy202601.com"' not in s:
+    if route_value_old not in s:
+        raise SystemExit("route value anchor missing")
+    s = s.replace(route_value_old, route_value_new, 1)
+
+host_old = '        private val COPY_HOSTS = listOf(\n            "api.copy2000.online",\n            "api.copy-manga.com",\n'
+host_new = '        private val COPY_HOSTS = listOf(\n            "api.copy2000.online",\n            "api.copy202601.com",\n            "api.copy-manga.com",\n'
+copy_hosts_start = s.index("        private val COPY_HOSTS = listOf(")
+copy_hosts_end = s.index("        private val HOT_HOSTS = listOf(")
+if '"api.copy202601.com"' not in s[copy_hosts_start:copy_hosts_end]:
+    if host_old not in s:
+        raise SystemExit("COPY_HOSTS anchor missing")
+    s = s.replace(host_old, host_new, 1)
+
 if 'private const val CHAPTER_PAGE = 500' in s:
     s = s.replace('private const val CHAPTER_PAGE = 500', 'private const val CHAPTER_PAGE = 100')
 elif 'private const val CHAPTER_PAGE = 100' not in s:
@@ -137,20 +167,20 @@ d = d.replace('- Android APK versionCode：`106006`', '- Android APK versionCode
 d = d.replace('- APK versionName：`1.6.6`', '- APK versionName：`1.6.7`')
 section = '''
 
-## v7 Copy 章节 / 正文请求契约（2026-09-12）
+## v7 Copy 完整阅读链路修复（2026-09-12）
 
-v6 已完成列表、搜索、详情协议修复，并已发布 `1.6.6 / 106006` 测试包。后续在线全链路探针确认：七个 Copy 固定节点的列表、搜索和详情均可返回真实数据，但 v6 章节列表与正文仍沿用旧 `platform=3` 查询参数，导致 Copy 线路进入作品后无法稳定完成阅读链路。
+v6 已完成列表、搜索、详情协议修复，并已发布 `1.6.6 / 106006` 测试包。后续在线全链路探针确认：v6 章节列表与正文仍沿用旧 `platform=3` 查询参数，导致 Copy 线路无法稳定完成阅读链路。
 
 当前在线协议验证通过的 Copy 阅读链：
 
-- 章节列表：`/api/v3/comic/<path_word>/group/<group>/chapters?limit=<n>&offset=<n>&in_mainland=true&request_id=`
+- 章节列表：`/api/v3/comic/<path_word>/group/<group>/chapters?limit=100&offset=<n>&in_mainland=true&request_id=`
 - 正文：`/api/v3/comic/<path_word>/chapter2/<uuid>?in_mainland=true&request_id=`
 - `COPY/3.0.6` 完整签名请求头保持不变。
 
-在线探针使用《魔都精兵的奴隶》样本时，七个 Copy 固定节点均返回 100 条章节，`chapter2` 返回 61 页正文图片；列表、搜索、详情、章节、正文五段链路全部通过。该结果是网络协议验证，不等同于 Android 实机验证。
+在线探针使用《魔都精兵的奴隶》样本时，七个既有固定 Copy 节点均通过列表、搜索、详情、章节和正文五段链路；章节接口单页返回 100 条，正文返回 61 页图片。动态发现同时返回当前 API 节点 `api.copy202601.com`，v7 将它加入固定兜底候选。该结果是网络协议验证，不等同于 Android 实机验证。
 
-v7 将 Copy 章节和正文改为上述当前协议，章节分页按当前客户端的 100 条分页读取；同时保留热辣线路原有 `platform=3` 请求契约，避免修复 Copy 时造成已实机正常的热辣回归。正文节点必须实际返回非空 `contents` 才会被记为成功节点。路由 schema 从 5 升到 6，以清除 v6 旧 Copy 动态节点和最近成功节点缓存。
+v7 将 Copy 章节和正文改为上述当前协议，章节分页按当前服务端单页 100 条读取；空章节结果会继续尝试其它候选节点。热辣线路继续保留原 `platform=3` 请求契约，避免 Copy 修复造成已实机正常的热辣回归。正文节点必须实际返回非空 `contents` 才会被记为成功节点。路由 schema 从 5 升到 6，以清除 v6 旧动态节点和最近成功节点缓存。
 '''
-if '## v7 Copy 章节 / 正文请求契约' not in d:
+if '## v7 Copy 完整阅读链路修复' not in d:
     d += section
 doc.write_text(d, "utf-8")
