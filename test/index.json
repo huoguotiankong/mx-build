@@ -622,6 +622,28 @@
         ]
       },
       {
+        "name": "Tuzac",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.tuzac",
+        "resources": {
+          "apkUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/apk/tachiyomi-zh.tuzac-v1.6.1.apk",
+          "iconUrl": "https://github.com/huoguotiankong/mx-repo/raw/repo/test/icon/eu.kanade.tachiyomi.extension.zh.tuzac-v106001.png"
+        },
+        "extensionLib": "1.6",
+        "versionCode": 106001,
+        "versionName": "1.6.1",
+        "contentWarning": "NSFW",
+        "sources": [
+          {
+            "id": 7100331938326239331,
+            "name": "图宅",
+            "language": "zh",
+            "homeUrl": "https://www.tuzac.com",
+            "mirrorUrls": [],
+            "message": null
+          }
+        ]
+      },
+      {
         "name": "Vomic Plus",
         "packageName": "eu.kanade.tachiyomi.extension.zh.vomicplus",
         "resources": {
