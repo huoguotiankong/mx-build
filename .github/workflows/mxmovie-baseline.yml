@@ -98,7 +98,9 @@ jobs:
           test -x "$sdk_manager"
           yes | "$sdk_manager" --licenses >/dev/null 2>&1 || true
           "$sdk_manager" "platforms;android-$API" "ndk;$NDK" > "$RUNNER_TEMP/mxmovie-sdk.log" 2>&1 || {
-            echo '::error::Android SDK install failed; inspect requested platform and NDK availability'
+            echo "::error::Android SDK install failed for platform android-$API / NDK $NDK"
+            echo '--- sdkmanager diagnostic (last 200 lines) ---'
+            tail -n 200 "$RUNNER_TEMP/mxmovie-sdk.log" || true
             exit 1
           }
 
