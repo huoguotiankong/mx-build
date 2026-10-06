@@ -97,12 +97,22 @@ jobs:
           sdk_manager="$sdk_root/cmdline-tools/latest/bin/sdkmanager"
           test -x "$sdk_manager"
           yes | "$sdk_manager" --licenses >/dev/null 2>&1 || true
-          "$sdk_manager" "platforms;android-$API" "ndk;$NDK" > "$RUNNER_TEMP/mxmovie-sdk.log" 2>&1 || {
-            echo "::error::Android SDK install failed for platform android-$API / NDK $NDK"
-            echo '--- sdkmanager diagnostic (last 200 lines) ---'
-            tail -n 200 "$RUNNER_TEMP/mxmovie-sdk.log" || true
+          sdk_log="$RUNNER_TEMP/mxmovie-sdk.log"
+          : > "$sdk_log"
+          if ! "$sdk_manager" "ndk;$NDK" >> "$sdk_log" 2>&1; then
+            echo "::error::Android NDK install failed for $NDK"
+            tail -n 200 "$sdk_log" || true
             exit 1
-          }
+          fi
+          if ! "$sdk_manager" "platforms;android-$API" >> "$sdk_log" 2>&1; then
+            echo "::warning::Stable SDK channel does not provide android-$API; retrying with canary channel."
+            if ! "$sdk_manager" --channel=3 "platforms;android-$API" >> "$sdk_log" 2>&1; then
+              echo "::error::Android SDK install failed for platform android-$API on stable and canary channels"
+              echo '--- sdkmanager diagnostic (last 200 lines) ---'
+              tail -n 200 "$sdk_log" || true
+              exit 1
+            fi
+          fi
 
       - name: Assemble debug APK and run unit tests
         id: build
