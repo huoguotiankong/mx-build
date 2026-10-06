@@ -33,11 +33,22 @@ jobs:
         shell: bash
         env:
           PRIVATE_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          PUBLISH_TOKEN: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
         run: |
           set -euo pipefail
-          test -n "$PRIVATE_TOKEN" || { echo '::error::Missing MX_PRIVATE_READ_TOKEN'; exit 1; }
           revision="$(cat control/.github/mxmovie-build-request)"
           [[ "$revision" =~ ^[a-f0-9]{40}$ ]] || { echo '::error::Source revision must be a full commit SHA'; exit 1; }
+          api="https://api.github.com/repos/huoguotiankong/MXMovie/contents/app/build.gradle.kts?ref=$revision"
+          credential=''
+          if [[ -n "$PRIVATE_TOKEN" ]] && curl --fail --silent --output /dev/null -H "Authorization: Bearer $PRIVATE_TOKEN" "$api"; then
+            credential=read
+          elif [[ -n "$PUBLISH_TOKEN" ]] && curl --fail --silent --output /dev/null -H "Authorization: Bearer $PUBLISH_TOKEN" "$api"; then
+            credential=publish
+          else
+            echo '::error::Existing credentials cannot read MXMovie. Grant Contents read access for MXMovie to MX_PRIVATE_READ_TOKEN.'
+            exit 1
+          fi
+          echo "credential=$credential" >> "$GITHUB_OUTPUT"
           echo "revision=$revision" >> "$GITHUB_OUTPUT"
 
       - name: Checkout private source
@@ -45,7 +56,7 @@ jobs:
         with:
           repository: huoguotiankong/MXMovie
           ref: ${{ steps.source.outputs.revision }}
-          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          token: ${{ steps.source.outputs.credential == 'publish' && secrets.MX_APP_PUBLISH_TOKEN || secrets.MX_PRIVATE_READ_TOKEN }}
           path: source
           persist-credentials: false
           fetch-depth: 1
