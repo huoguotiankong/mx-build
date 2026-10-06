@@ -33,7 +33,7 @@ jobs:
         env:
           SOURCE_TOKEN: ${{ secrets.MXMOVIE_SOURCE_TOKEN }}
           PRIVATE_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
-          PUBLISH_TOKEN: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          PUBLISH_TOKEN: ${{ secrets.MXMOVIE_PUBLISH_TOKEN }}
         run: |
           set -euo pipefail
           revision="$(cat control/.github/mxmovie-build-request)"
