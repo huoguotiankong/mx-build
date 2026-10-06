@@ -6,7 +6,6 @@ on:
     branches: [main]
     paths:
       - .github/mxmovie-build-request
-      - .github/workflows/mxmovie-baseline.yml
   workflow_dispatch:
 
 permissions:
@@ -32,6 +31,7 @@ jobs:
         id: source
         shell: bash
         env:
+          SOURCE_TOKEN: ${{ secrets.MXMOVIE_SOURCE_TOKEN }}
           PRIVATE_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
           PUBLISH_TOKEN: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
         run: |
@@ -40,12 +40,14 @@ jobs:
           [[ "$revision" =~ ^[a-f0-9]{40}$ ]] || { echo '::error::Source revision must be a full commit SHA'; exit 1; }
           api="https://api.github.com/repos/huoguotiankong/MXMovie/contents/app/build.gradle.kts?ref=$revision"
           credential=''
-          if [[ -n "$PRIVATE_TOKEN" ]] && curl --fail --silent --output /dev/null -H "Authorization: Bearer $PRIVATE_TOKEN" "$api"; then
+          if [[ -n "$SOURCE_TOKEN" ]] && curl --fail --silent --output /dev/null -H "Authorization: Bearer $SOURCE_TOKEN" "$api"; then
+            credential=source
+          elif [[ -n "$PRIVATE_TOKEN" ]] && curl --fail --silent --output /dev/null -H "Authorization: Bearer $PRIVATE_TOKEN" "$api"; then
             credential=read
           elif [[ -n "$PUBLISH_TOKEN" ]] && curl --fail --silent --output /dev/null -H "Authorization: Bearer $PUBLISH_TOKEN" "$api"; then
             credential=publish
           else
-            echo '::error::Existing credentials cannot read MXMovie. Grant Contents read access for MXMovie to MX_PRIVATE_READ_TOKEN.'
+            echo '::error::Credentials cannot read MXMovie. Add MXMOVIE_SOURCE_TOKEN with Contents read permission for MXMovie.'
             exit 1
           fi
           echo "credential=$credential" >> "$GITHUB_OUTPUT"
@@ -56,7 +58,7 @@ jobs:
         with:
           repository: huoguotiankong/MXMovie
           ref: ${{ steps.source.outputs.revision }}
-          token: ${{ steps.source.outputs.credential == 'publish' && secrets.MX_APP_PUBLISH_TOKEN || secrets.MX_PRIVATE_READ_TOKEN }}
+          token: ${{ steps.source.outputs.credential == 'source' && secrets.MXMOVIE_SOURCE_TOKEN || steps.source.outputs.credential == 'publish' && secrets.MX_APP_PUBLISH_TOKEN || secrets.MX_PRIVATE_READ_TOKEN }}
           path: source
           persist-credentials: false
           fetch-depth: 1
