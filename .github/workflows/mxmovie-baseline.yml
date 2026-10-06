@@ -183,7 +183,7 @@ jobs:
         env:
           SOURCE_TOKEN: ${{ secrets.MXMOVIE_SOURCE_TOKEN }}
           PRIVATE_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
-          PUBLISH_TOKEN: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+          PUBLISH_TOKEN: ${{ secrets.MXMOVIE_PUBLISH_TOKEN }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -204,7 +204,7 @@ jobs:
               with urllib.request.urlopen(req, timeout=120) as response:
                   return json.load(response)
           published = False
-          for name in ('PUBLISH_TOKEN', 'SOURCE_TOKEN', 'PRIVATE_TOKEN'):
+          for name in ('PUBLISH_TOKEN',):
               token = os.environ.get(name, '')
               if not token:
                   continue
@@ -236,7 +236,7 @@ jobs:
                   print('Private publishing attempt failed: ' + type(error).__name__)
           if not published:
               (folder / 'publish-status.txt').write_text('BLOCKED: no successful private release upload\n')
-              print('::warning::Build verified; private APK publishing blocked. A credential needs MXMovie Contents write. No plaintext public artifact uploaded.')
+              print('::warning::Build verified; private APK publishing blocked. Add MXMOVIE_PUBLISH_TOKEN with MXMovie Contents write. No plaintext public artifact uploaded.')
           PY
 
       - name: Encrypt results for private delivery
