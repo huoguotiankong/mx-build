@@ -1,0 +1,187 @@
+name: MXMovie Baseline
+run-name: MXMovie baseline · ${{ github.run_number }}
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/mxmovie-build-request
+      - .github/workflows/mxmovie-baseline.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mxmovie-baseline
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: github.repository == 'huoguotiankong/mx-build'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout build control
+        uses: actions/checkout@v7
+        with:
+          path: control
+          persist-credentials: false
+
+      - name: Resolve immutable source revision
+        id: source
+        shell: bash
+        env:
+          PRIVATE_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$PRIVATE_TOKEN" || { echo '::error::Missing MX_PRIVATE_READ_TOKEN'; exit 1; }
+          revision="$(cat control/.github/mxmovie-build-request)"
+          [[ "$revision" =~ ^[a-f0-9]{40}$ ]] || { echo '::error::Source revision must be a full commit SHA'; exit 1; }
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout private source
+        uses: actions/checkout@v7
+        with:
+          repository: huoguotiankong/MXMovie
+          ref: ${{ steps.source.outputs.revision }}
+          token: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          path: source
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.10'
+
+      - name: Set up Gradle without public build cache
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-disabled: true
+
+      - name: Install Android platform and NDK from source catalog
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          read -r API NDK < <(python3 - <<'PY'
+          import re
+          from pathlib import Path
+          text = Path('gradle/libs.versions.toml').read_text()
+          values = [re.search(r'^' + key + r'\s*=\s*"([0-9.]+)"', text, re.M).group(1) for key in ('compileSdk', 'ndk')]
+          print(*values)
+          PY
+          )
+          sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          test -n "$sdk_root"
+          sdk_manager="$sdk_root/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$sdk_manager"
+          yes | "$sdk_manager" --licenses >/dev/null 2>&1 || true
+          "$sdk_manager" "platforms;android-$API" "ndk;$NDK" > "$RUNNER_TEMP/mxmovie-sdk.log" 2>&1 || {
+            echo '::error::Android SDK install failed; inspect requested platform and NDK availability'
+            exit 1
+          }
+
+      - name: Assemble debug APK and run unit tests
+        id: build
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/mxmovie-result"
+          chmod +x gradlew
+          set +e
+          ./gradlew :app:assembleDebug :app:testDebugUnitTest --no-daemon --console=plain > "$RUNNER_TEMP/mxmovie-result/build.log" 2>&1
+          result=$?
+          set -e
+          echo "result=$result" >> "$GITHUB_OUTPUT"
+          echo "$result" > "$RUNNER_TEMP/mxmovie-result/build-exit-code.txt"
+          git rev-parse HEAD > "$RUNNER_TEMP/mxmovie-result/source-commit.txt"
+          if [[ "$result" == 0 ]]; then
+            echo 'Assembly and unit tests completed; verifying APK before encrypted handoff.'
+          else
+            echo 'Assembly or unit tests failed; detailed logs will be encrypted for review.'
+          fi
+
+      - name: Verify APK identity and collect private results
+        if: steps.build.outputs.result == '0'
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          result_dir="$RUNNER_TEMP/mxmovie-result"
+          apk="app/build/outputs/apk/debug/MXMovie_0.1.0_debug.apk"
+          test -f "$apk"
+          sdk_root="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          aapt_bin="$(find "$sdk_root/build-tools" -type f -name aapt | sort -V | tail -n1)"
+          apksigner_bin="$(find "$sdk_root/build-tools" -type f -name apksigner | sort -V | tail -n1)"
+          "$aapt_bin" dump badging "$apk" > "$result_dir/apk-identity.txt"
+          grep -q "package: name='com.mxvideo.app' versionCode='1' versionName='0.1.0'" "$result_dir/apk-identity.txt"
+          grep -q "application-label:'MX影视'" "$result_dir/apk-identity.txt"
+          "$apksigner_bin" verify --print-certs "$apk" > "$result_dir/apk-signature.txt" 2>&1
+          expected="$(keytool -exportcert -keystore .key/mx-debug.jks -alias androiddebugkey -storepass android | sha256sum | cut -d ' ' -f1)"
+          grep -qi "$expected" "$result_dir/apk-signature.txt"
+          cp "$apk" "$result_dir/"
+          test -d app/build/test-results/testDebugUnitTest
+          cp -r app/build/test-results/testDebugUnitTest "$result_dir/unit-tests"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          folder = Path(os.environ['RUNNER_TEMP']) / 'mxmovie-result'
+          files = list((folder / 'unit-tests').glob('TEST-*.xml'))
+          assert files, 'No unit test XML results'
+          totals = {key: 0 for key in ('tests', 'failures', 'errors', 'skipped')}
+          for path in files:
+              root = ET.parse(path).getroot()
+              for key in totals:
+                  totals[key] += int(root.get(key, '0'))
+          assert totals['tests'] > 0 and totals['failures'] == totals['errors'] == 0, totals
+          (folder / 'test-summary.txt').write_text(str(totals) + '\n')
+          PY
+
+      - name: Encrypt results for private delivery
+        if: always() && steps.build.outputs.result != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p encrypted
+          tar -czf "$RUNNER_TEMP/mxmovie-results.tar.gz" -C "$RUNNER_TEMP/mxmovie-result" .
+          openssl rand -hex 32 > "$RUNNER_TEMP/mxmovie-transfer-pass"
+          openssl enc -aes-256-cbc -salt -pbkdf2 -iter 200000 \
+            -in "$RUNNER_TEMP/mxmovie-results.tar.gz" -out encrypted/results.tar.gz.enc \
+            -pass file:"$RUNNER_TEMP/mxmovie-transfer-pass"
+          openssl pkeyutl -encrypt -pubin -inkey control/.github/mxmovie-handoff-public.pem \
+            -in "$RUNNER_TEMP/mxmovie-transfer-pass" -out encrypted/key.enc \
+            -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256
+          sha256sum encrypted/results.tar.gz.enc > encrypted/SHA256SUMS
+          rm -f "$RUNNER_TEMP/mxmovie-transfer-pass" "$RUNNER_TEMP/mxmovie-results.tar.gz"
+
+      - name: Upload encrypted results only
+        if: always() && steps.build.outputs.result != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: mxmovie-encrypted-results-${{ github.run_number }}
+          path: encrypted/*
+          if-no-files-found: error
+          retention-days: 2
+
+      - name: Report build failure
+        if: steps.build.outputs.result != '' && steps.build.outputs.result != '0'
+        run: |
+          echo '::error::Assembly or unit tests failed. Detailed logs are in the encrypted artifact.'
+          exit 1
+
+      - name: Clean private checkout and results
+        if: always()
+        shell: bash
+        run: |
+          rm -rf source "$RUNNER_TEMP/mxmovie-result"
+          rm -f "$RUNNER_TEMP/mxmovie-transfer-pass" "$RUNNER_TEMP/mxmovie-results.tar.gz"
