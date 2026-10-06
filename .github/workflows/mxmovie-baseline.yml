@@ -139,13 +139,20 @@ jobs:
         run: |
           set -euo pipefail
           result_dir="$RUNNER_TEMP/mxmovie-result"
-          apk="app/build/outputs/apk/debug/MXMovie_0.1.0_debug.apk"
+          read -r version_code version_name < <(python3 - <<'PY'
+          import re
+          from pathlib import Path
+          text = Path('gradle/libs.versions.toml').read_text()
+          print(*(re.search(r'^' + key + r'\s*=\s*"([^"]+)"', text, re.M).group(1) for key in ('appVersionCode', 'appVersionName')))
+          PY
+          )
+          apk="app/build/outputs/apk/debug/MXMovie_${version_name}_debug.apk"
           test -f "$apk"
           sdk_root="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
           aapt_bin="$(find "$sdk_root/build-tools" -type f -name aapt | sort -V | tail -n1)"
           apksigner_bin="$(find "$sdk_root/build-tools" -type f -name apksigner | sort -V | tail -n1)"
           "$aapt_bin" dump badging "$apk" > "$result_dir/apk-identity.txt"
-          grep -q "package: name='com.mxvideo.app' versionCode='1' versionName='0.1.0'" "$result_dir/apk-identity.txt"
+          grep -Fq "package: name='com.mxvideo.app' versionCode='$version_code' versionName='$version_name'" "$result_dir/apk-identity.txt"
           grep -q "application-label:'MX影视'" "$result_dir/apk-identity.txt"
           "$apksigner_bin" verify --print-certs "$apk" > "$result_dir/apk-signature.txt" 2>&1
           expected="$(keytool -exportcert -keystore .key/mx-debug.jks -alias androiddebugkey -storepass android | sha256sum | cut -d ' ' -f1)"
@@ -167,6 +174,69 @@ jobs:
                   totals[key] += int(root.get(key, '0'))
           assert totals['tests'] > 0 and totals['failures'] == totals['errors'] == 0, totals
           (folder / 'test-summary.txt').write_text(str(totals) + '\n')
+          PY
+
+      - name: Publish verified APK to private MXMovie Release
+        if: steps.build.outputs.result == '0'
+        working-directory: source
+        shell: bash
+        env:
+          SOURCE_TOKEN: ${{ secrets.MXMOVIE_SOURCE_TOKEN }}
+          PRIVATE_TOKEN: ${{ secrets.MX_PRIVATE_READ_TOKEN }}
+          PUBLISH_TOKEN: ${{ secrets.MX_APP_PUBLISH_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os, re, urllib.request, urllib.error
+          from pathlib import Path
+          base = 'https://api.github.com/repos/huoguotiankong/MXMovie'
+          folder = Path(os.environ['RUNNER_TEMP']) / 'mxmovie-result'
+          revision = (folder / 'source-commit.txt').read_text().strip()
+          catalog = Path('gradle/libs.versions.toml').read_text()
+          version = re.search(r'^appVersionName\s*=\s*"([^"]+)"', catalog, re.M).group(1)
+          apk = next(folder.glob('MXMovie_*_debug.apk'))
+          digest = hashlib.sha256(apk.read_bytes()).hexdigest()
+          (folder / 'apk-sha256.txt').write_text(digest + '\n')
+          tag = 'v' + version + '-debug-' + revision[:8]
+          def request(url, token, method='GET', data=None, content_type='application/json'):
+              headers = {'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.github+json', 'Content-Type': content_type}
+              req = urllib.request.Request(url, headers=headers, method=method, data=data)
+              with urllib.request.urlopen(req, timeout=120) as response:
+                  return json.load(response)
+          published = False
+          for name in ('PUBLISH_TOKEN', 'SOURCE_TOKEN', 'PRIVATE_TOKEN'):
+              token = os.environ.get(name, '')
+              if not token:
+                  continue
+              try:
+                  repo = request(base, token)
+                  if repo.get('private') is not True:
+                      raise RuntimeError('Destination must be private')
+                  try:
+                      release = request(base + '/releases/tags/' + tag, token)
+                  except urllib.error.HTTPError as error:
+                      if error.code != 404:
+                          raise
+                      body = {'tag_name': tag, 'target_commitish': revision, 'name': 'MX影视 ' + version + ' Debug',
+                              'prerelease': True, 'body': '搜索观测测试版；待实机回归。\n\n源码：' + revision +
+                              '\n单测：' + (folder / 'test-summary.txt').read_text().strip() + '\nAPK SHA-256：' + digest}
+                      release = request(base + '/releases', token, 'POST', json.dumps(body).encode())
+                  existing = next((asset for asset in release.get('assets', []) if asset['name'] == apk.name), None)
+                  if existing:
+                      raise RuntimeError('Asset already exists; refuse to replace or assume verified')
+                  upload = release['upload_url'].split('{')[0] + '?name=' + apk.name
+                  asset = request(upload, token, 'POST', apk.read_bytes(), 'application/vnd.android.package-archive')
+                  (folder / 'private-download-url.txt').write_text(asset['browser_download_url'] + '\n')
+                  print('Verified APK published to private MXMovie Release.')
+                  published = True
+                  break
+              except urllib.error.HTTPError as error:
+                  print('Private publishing credential attempt returned HTTP ' + str(error.code))
+              except Exception as error:
+                  print('Private publishing attempt failed: ' + type(error).__name__)
+          if not published:
+              (folder / 'publish-status.txt').write_text('BLOCKED: no successful private release upload\n')
+              print('::warning::Build verified; private APK publishing blocked. A credential needs MXMovie Contents write. No plaintext public artifact uploaded.')
           PY
 
       - name: Encrypt results for private delivery
