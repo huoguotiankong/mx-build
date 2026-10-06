@@ -58,7 +58,7 @@ jobs:
         with:
           repository: huoguotiankong/MXMovie
           ref: ${{ steps.source.outputs.revision }}
-          token: ${{ steps.source.outputs.credential == 'source' && secrets.MXMOVIE_SOURCE_TOKEN || steps.source.outputs.credential == 'publish' && secrets.MX_APP_PUBLISH_TOKEN || secrets.MX_PRIVATE_READ_TOKEN }}
+          token: ${{ steps.source.outputs.credential == 'source' && secrets.MXMOVIE_SOURCE_TOKEN || steps.source.outputs.credential == 'publish' && secrets.MXMOVIE_PUBLISH_TOKEN || secrets.MX_PRIVATE_READ_TOKEN }}
           path: source
           persist-credentials: false
           fetch-depth: 1
