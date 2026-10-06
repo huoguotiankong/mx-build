@@ -97,22 +97,19 @@ jobs:
           sdk_manager="$sdk_root/cmdline-tools/latest/bin/sdkmanager"
           test -x "$sdk_manager"
           yes | "$sdk_manager" --licenses >/dev/null 2>&1 || true
-          sdk_log="$RUNNER_TEMP/mxmovie-sdk.log"
-          : > "$sdk_log"
-          if ! "$sdk_manager" "ndk;$NDK" >> "$sdk_log" 2>&1; then
-            echo "::error::Android NDK install failed for $NDK"
-            tail -n 200 "$sdk_log" || true
-            exit 1
-          fi
-          if ! "$sdk_manager" "platforms;android-$API" >> "$sdk_log" 2>&1; then
-            echo "::warning::Stable SDK channel does not provide android-$API; retrying with canary channel."
-            if ! "$sdk_manager" --channel=3 "platforms;android-$API" >> "$sdk_log" 2>&1; then
-              echo "::error::Android SDK install failed for platform android-$API on stable and canary channels"
-              echo '--- sdkmanager diagnostic (last 200 lines) ---'
-              tail -n 200 "$sdk_log" || true
-              exit 1
-            fi
-          fi
+          ALL="$("$sdk_manager" --list 2>/dev/null)" || true
+          PLATFORM="$(echo "$ALL" | grep -oE "platforms;android-$API(\\.[0-9]+)?" | sort -V | tail -n1 || true)"
+          NDK_PACKAGE="$(echo "$ALL" | grep -oE "ndk;$NDK" | sort -V | tail -n1 || true)"
+          BUILD_TOOLS="$(echo "$ALL" | grep -oE 'build-tools;3[0-9]+\\.[0-9]+\\.[0-9]+' | sort -V | tail -n1 || true)"
+          echo "Resolved SDK packages: PLATFORM=$PLATFORM NDK=$NDK_PACKAGE BUILD_TOOLS=$BUILD_TOOLS"
+          test -n "$PLATFORM" || { echo "::error::No SDK platform matching android-$API is available"; exit 1; }
+          test -n "$NDK_PACKAGE" || { echo "::error::No NDK package matching $NDK is available"; exit 1; }
+          yes 2>/dev/null | "$sdk_manager" --licenses >/dev/null 2>&1 || true
+          ARGS=("$PLATFORM" "$NDK_PACKAGE")
+          [[ -z "$BUILD_TOOLS" ]] || ARGS+=("$BUILD_TOOLS")
+          "$sdk_manager" "${ARGS[@]}"
+          test -d "$sdk_root/platforms/${PLATFORM#platforms;}" || { echo "::error::$PLATFORM was not installed"; exit 1; }
+          test -d "$sdk_root/ndk/${NDK_PACKAGE#ndk;}" || { echo "::error::$NDK_PACKAGE was not installed"; exit 1; }
 
       - name: Assemble debug APK and run unit tests
         id: build
