@@ -1,1 +1,4 @@
-72325ac650a289b4231d34e5f8dd68cd098b8712
+source_ref=feature/cloud-xunlei-auth-result
+source_sha=51f41056b6cd26e50559b1deb52e3e8612110f87
+requested_at=2026-10-07T15:42:00+08:00
+reason=0.1.19-xunlei-post-review-auth-diagnosis
