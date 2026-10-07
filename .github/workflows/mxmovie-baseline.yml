@@ -170,7 +170,11 @@ jobs:
 
           native_dir = Path(os.environ['NATIVE_DIR']) / 'lib' / 'arm64-v8a'
           result_dir = Path(os.environ['RESULT_DIR'])
-          required = ('libijkffmpeg.so', 'libijksdl.so', 'libijkplayer.so', 'libmpv.so', 'libplayer.so')
+          required = (
+              'libijkffmpeg.so', 'libijksdl.so', 'libijkplayer.so',
+              'libmpv.so', 'libplayer.so',
+              'libp2p.so', 'libxl_stat.so', 'libxl_thunder_sdk.so',
+          )
           report = []
           for name in required:
               path = native_dir / name
