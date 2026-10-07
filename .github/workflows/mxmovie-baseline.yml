@@ -151,12 +151,43 @@ jobs:
           sdk_root="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
           aapt_bin="$(find "$sdk_root/build-tools" -type f -name aapt | sort -V | tail -n1)"
           apksigner_bin="$(find "$sdk_root/build-tools" -type f -name apksigner | sort -V | tail -n1)"
+          zipalign_bin="$(find "$sdk_root/build-tools" -type f -name zipalign | sort -V | tail -n1)"
           "$aapt_bin" dump badging "$apk" > "$result_dir/apk-identity.txt"
           grep -Fq "package: name='com.mxvideo.app' versionCode='$version_code' versionName='$version_name'" "$result_dir/apk-identity.txt"
           grep -q "application-label:'MX影视'" "$result_dir/apk-identity.txt"
           "$apksigner_bin" verify --print-certs "$apk" > "$result_dir/apk-signature.txt" 2>&1
           expected="$(keytool -exportcert -keystore .key/mx-debug.jks -alias androiddebugkey -storepass android | sha256sum | cut -d ' ' -f1)"
           grep -qi "$expected" "$result_dir/apk-signature.txt"
+          "$zipalign_bin" -c -P 16 -v 4 "$apk" > "$result_dir/zipalign-16kb.txt"
+          native_dir="$RUNNER_TEMP/mxmovie-native"
+          rm -rf "$native_dir"
+          mkdir -p "$native_dir"
+          unzip -q "$apk" 'lib/arm64-v8a/*.so' -d "$native_dir"
+          NATIVE_DIR="$native_dir" RESULT_DIR="$result_dir" python3 - <<'PY'
+          import os
+          import subprocess
+          from pathlib import Path
+
+          native_dir = Path(os.environ['NATIVE_DIR']) / 'lib' / 'arm64-v8a'
+          result_dir = Path(os.environ['RESULT_DIR'])
+          required = ('libijkffmpeg.so', 'libijksdl.so', 'libplayer.so')
+          report = []
+          for name in required:
+              path = native_dir / name
+              assert path.is_file(), f'Missing IJK native library: {name}'
+              output = subprocess.check_output(['readelf', '-lW', str(path)], text=True)
+              aligns = [
+                  int(line.split()[-1], 0)
+                  for line in output.splitlines()
+                  if line.lstrip().startswith('LOAD ')
+              ]
+              assert aligns, f'No LOAD segments found: {name}'
+              minimum = min(aligns)
+              assert minimum >= 0x4000, f'{name} LOAD alignment {minimum:#x} is below 16KB'
+              report.append(f'{name}: min LOAD alignment={minimum:#x}')
+          (result_dir / 'native-16kb.txt').write_text('\n'.join(report) + '\n')
+          PY
+          rm -rf "$native_dir"
           cp "$apk" "$result_dir/"
           test -d app/build/test-results/testDebugUnitTest
           cp -r app/build/test-results/testDebugUnitTest "$result_dir/unit-tests"
@@ -218,7 +249,7 @@ jobs:
                       if error.code != 404:
                           raise
                       body = {'tag_name': tag, 'target_commitish': revision, 'name': 'MX影视 ' + version + ' Debug',
-                              'prerelease': True, 'body': '搜索观测测试版；待实机回归。\n\n源码：' + revision +
+                              'prerelease': True, 'body': 'MX影视测试版；待实机回归。\n\n源码：' + revision +
                               '\n单测：' + (folder / 'test-summary.txt').read_text().strip() + '\nAPK SHA-256：' + digest}
                       release = request(base + '/releases', token, 'POST', json.dumps(body).encode())
                   existing = next((asset for asset in release.get('assets', []) if asset['name'] == apk.name), None)
