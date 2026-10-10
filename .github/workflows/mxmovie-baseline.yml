@@ -288,12 +288,6 @@ jobs:
           openssl pkeyutl -encrypt -pubin -inkey control/.github/mxmovie-handoff-public.pem \
             -in "$RUNNER_TEMP/mxmovie-transfer-pass" -out encrypted/key.enc \
             -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256
-          # Optional ephemeral diagnostic recipient: wraps the same random password without publishing plaintext.
-          if [[ -f control/.github/mxmovie-diagnostic-public.pem ]]; then
-            openssl pkeyutl -encrypt -pubin -inkey control/.github/mxmovie-diagnostic-public.pem \
-              -in "$RUNNER_TEMP/mxmovie-transfer-pass" -out encrypted/key.diagnostic.enc \
-              -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256
-          fi
           sha256sum encrypted/results.tar.gz.enc > encrypted/SHA256SUMS
           rm -f "$RUNNER_TEMP/mxmovie-transfer-pass" "$RUNNER_TEMP/mxmovie-results.tar.gz"
 
