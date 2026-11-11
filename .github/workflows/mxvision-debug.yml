@@ -1,0 +1,88 @@
+name: MXVision private-source debug build (manual)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mxvision-debug-delivery
+  cancel-in-progress: false
+
+jobs:
+  debug-apk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - name: Require private-source and private-delivery credentials
+        shell: bash
+        env:
+          SOURCE_TOKEN: ${{ secrets.MXVISION_SOURCE_READ_TOKEN }}
+          DELIVERY_TOKEN: ${{ secrets.MXVISION_DELIVERY_WRITE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$SOURCE_TOKEN" || { echo "::error::Configure MXVISION_SOURCE_READ_TOKEN"; exit 1; }
+          test -n "$DELIVERY_TOKEN" || { echo "::error::Configure MXVISION_DELIVERY_WRITE_TOKEN"; exit 1; }
+
+      - name: Checkout MXVision product branch (private)
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: huoguotiankong/MXVision
+          ref: feat/android-product-shell
+          token: ${{ secrets.MXVISION_SOURCE_READ_TOKEN }}
+          path: source
+          persist-credentials: false
+
+      - name: Record exact source revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          echo "MXVISION_SOURCE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Set up Java 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5
+
+      - name: Verify and install Gradle
+        working-directory: source/android
+        run: bash install-verified-gradle.sh
+
+      - name: Compile Android debug APK and run unit tests
+        working-directory: source/android
+        run: gradle --no-daemon --console=plain :app:testDebugUnitTest :app:assembleDebug
+
+      - name: Prepare checksum and debug build information
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p delivery
+          cp source/android/app/build/outputs/apk/debug/app-debug.apk delivery/MXVision-debug.apk
+          (cd delivery && sha256sum MXVision-debug.apk > SHA256SUMS.txt)
+          printf 'Source: huoguotiankong/MXVision\nCommit: %s\nBranch: feat/android-product-shell\nType: experimental debug APK (not a production release)\n' "$MXVISION_SOURCE_SHA" > delivery/BUILD-INFO.txt
+
+      # No source or APK is uploaded to public Actions artifacts.
+      # Delivery goes only to a PRIVATE prerelease in MXVision.
+      - name: Deliver debug APK to private MXVision prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.MXVISION_DELIVERY_WRITE_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="debug-experiment-${MXVISION_SOURCE_SHA:0:12}"
+          if gh release view "$tag" --repo huoguotiankong/MXVision >/dev/null 2>&1; then
+            echo "::error::Private debug tag already exists; refusing to overwrite artifacts"
+            exit 1
+          fi
+          gh release create "$tag" delivery/MXVision-debug.apk delivery/SHA256SUMS.txt delivery/BUILD-INFO.txt \
+            --repo huoguotiankong/MXVision \
+            --target "$MXVISION_SOURCE_SHA" \
+            --title "MXVision debug experiment ${MXVISION_SOURCE_SHA:0:12}" \
+            --notes "Non-production debug build from the named private commit. Not verified on a physical device or as a Hiker-compatible client." \
+            --prerelease --latest=false
