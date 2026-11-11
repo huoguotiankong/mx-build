@@ -1,6 +1,10 @@
 name: MXVision private-source debug build (manual)
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/mxvision-build-trigger'
   workflow_dispatch:
     inputs:
       source_ref:
@@ -38,7 +42,7 @@ jobs:
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           repository: huoguotiankong/MXVision
-          ref: ${{ inputs.source_ref }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.source_ref || 'feat/mxvision-ui-pass1' }}
           token: ${{ secrets.MXVISION_SOURCE_READ_TOKEN }}
           path: source
           persist-credentials: false
@@ -74,7 +78,7 @@ jobs:
           mkdir -p delivery
           cp source/android/app/build/outputs/apk/debug/app-debug.apk delivery/MXVision-debug.apk
           (cd delivery && sha256sum MXVision-debug.apk > SHA256SUMS.txt)
-          printf 'Source: huoguotiankong/MXVision\nCommit: %s\nBranch: ${{ inputs.source_ref }}\nType: experimental debug APK (not a production release)\n' "$MXVISION_SOURCE_SHA" > delivery/BUILD-INFO.txt
+          printf 'Source: huoguotiankong/MXVision\nCommit: %s\nBranch: ${{ github.event_name == 'workflow_dispatch' && inputs.source_ref || 'feat/mxvision-ui-pass1' }}\nType: experimental debug APK (not a production release)\n' "$MXVISION_SOURCE_SHA" > delivery/BUILD-INFO.txt
 
       # No source or APK is uploaded to public Actions artifacts.
       # Delivery goes only to a PRIVATE prerelease in MXVision.
