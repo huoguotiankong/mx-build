@@ -99,11 +99,11 @@ jobs:
           set -euo pipefail
           cd "$RUNNER_TEMP/mx-source/app"
           {
-            node scripts/test-mx-word-timing.cjs
-            node scripts/test-mx-beat-tracker.cjs
-            node scripts/test-mx-glyph.cjs
-            mkdir -p "$RUNNER_TEMP/mx-tests"
-            javac -d "$RUNNER_TEMP/mx-tests" android/app/src/main/java/com/lxnetease/music/mobile/MxSpectrumMath.java scripts/MxSpectrumMathTest.java
+            node scripts/test-mx-word-timing.cjs &&
+            node scripts/test-mx-beat-tracker.cjs &&
+            node scripts/test-mx-glyph.cjs &&
+            mkdir -p "$RUNNER_TEMP/mx-tests" &&
+            javac -d "$RUNNER_TEMP/mx-tests" android/app/src/main/java/com/lxnetease/music/mobile/MxSpectrumMath.java scripts/MxSpectrumMathTest.java &&
             java -cp "$RUNNER_TEMP/mx-tests" com.lxnetease.music.mobile.MxSpectrumMathTest
           } >"$RUNNER_TEMP/mx-tests.log" 2>&1 || { echo 'MX regression tests failed (private diagnostic log not printed)'; exit 1; }
           echo 'MX regression tests passed.'
