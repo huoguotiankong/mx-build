@@ -1,3 +1,2 @@
-MXMusic v0.4.4 preview
-source: ed8f95326e09e9b25c46f8446d0436b73ca48414
-fix: declare glyph regression test function
+MXMusic v0.4.5 preview
+source: f626c7ff2f04adaef8c067a6535017caccd4b900
