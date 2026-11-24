@@ -1,2 +1,2 @@
-MXMusic v0.2.2 preview
-source: f2608737bfe9834e3740902346cc886387f28d42
+MXMusic v0.3.0 preview
+source: 747f206aef6371686cd93f0472816d0cbfa76850
