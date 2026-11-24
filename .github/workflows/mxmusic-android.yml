@@ -65,12 +65,48 @@ jobs:
         with:
           distribution: microsoft
           java-version: '17'
+      - name: Validate Chinese release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/mx-source/app"
+          python3 - <<'PY'
+          import json, re
+          from pathlib import Path
+          version = json.loads(Path("package.json").read_text(encoding="utf-8"))["version"]
+          if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
+              raise SystemExit("Invalid version")
+          p = Path("release-notes") / f"v{version}.md"
+          try:
+              notes = p.read_text(encoding="utf-8")
+          except (OSError, UnicodeError):
+              raise SystemExit("Missing or invalid UTF-8 version-specific Chinese release notes")
+          if f"MX音乐 v{version}" not in notes or not all(f"## {h}" in notes for h in ("新增功能", "优化改进", "修复与稳定性")):
+              raise SystemExit("Chinese release notes must match version and required headings")
+          if len(re.findall(r"[\u4e00-\u9fff]", notes)) < 30 or len(notes) > 30000:
+              raise SystemExit("Chinese release notes are too short or too long")
+          print("Version-specific Chinese release notes validated.")
+          PY
       - name: Install locked npm dependencies
         shell: bash
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP/mx-source/app"
           if ! npm ci >"$RUNNER_TEMP/npm.log" 2>&1; then echo 'Dependency installation failed'; exit 1; fi
+      - name: Run MX regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/mx-source/app"
+          {
+            node scripts/test-mx-word-timing.cjs
+            node scripts/test-mx-beat-tracker.cjs
+            node scripts/test-mx-glyph.cjs
+            mkdir -p "$RUNNER_TEMP/mx-tests"
+            javac -d "$RUNNER_TEMP/mx-tests" android/app/src/main/java/com/lxnetease/music/mobile/MxSpectrumMath.java scripts/MxSpectrumMathTest.java
+            java -cp "$RUNNER_TEMP/mx-tests" com.lxnetease.music.mobile.MxSpectrumMathTest
+          } >"$RUNNER_TEMP/mx-tests.log" 2>&1 || { echo 'MX regression tests failed (private diagnostic log not printed)'; exit 1; }
+          echo 'MX regression tests passed.'
       - name: Verify and install Android SDK
         shell: bash
         run: |
@@ -207,8 +243,21 @@ jobs:
           cd "$RUNNER_TEMP/mx-source/app"
           VERSION="$(node -p 'require("./package.json").version')"
           TAG="v${VERSION}-${BUILD_MODE}.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
+          NOTES="$RUNNER_TEMP/mx-release-notes.md"
+          cp "release-notes/v${VERSION}.md" "$NOTES"
+          {
+            printf '\n---\n\n## 下载与构建信息\n\n'
+            printf -- '- 版本：v%s（ARM64）\n- 源码提交：`%s`\n- 构建编号：%s.%s\n' "$VERSION" "$SOURCE_SHA" "$GITHUB_RUN_NUMBER" "$GITHUB_RUN_ATTEMPT"
+            printf -- '- 已通过自动回归测试、APK 签名与包名校验；真机使用效果仍需验证。\n'
+            if [ "$BUILD_MODE" = preview ]; then
+              printf -- '- 测试版：使用独立包名及公开测试签名，仅供测试，请勿保存敏感数据。\n'
+            else
+              printf -- '- 独立发布签名版。\n'
+            fi
+            printf -- '- 下载下方 Assets 中的 APK 安装；SHA256SUMS.txt 用于校验文件完整性。\n'
+          } >> "$NOTES"
           cd "$RUNNER_TEMP/mx-dist"
-          if ! gh release create "$TAG" ./* --repo huoguotiankong/MXMusic --target "$SOURCE_SHA" --prerelease --latest=false --title "MX Music $TAG" --notes "Build mode: $BUILD_MODE. Preview uses an isolated package and a public test signing key; do not store sensitive data. Verify on device before daily use." >"$RUNNER_TEMP/delivery.log" 2>&1; then
+          if ! gh release create "$TAG" ./* --repo huoguotiankong/MXMusic --target "$SOURCE_SHA" --prerelease --latest=false --title "MX音乐 $TAG" --notes-file "$NOTES" >"$RUNNER_TEMP/delivery.log" 2>&1; then
             echo 'Private release delivery failed'; exit 1
           fi
           echo 'Private release delivery succeeded.'
@@ -216,5 +265,5 @@ jobs:
         if: always()
         shell: bash
         run: |
-          rm -rf "$RUNNER_TEMP/mx-source" "$RUNNER_TEMP/mx-dist"
-          rm -f "$RUNNER_TEMP"/{source,checkout,npm,sdk,gradle,verify,badging,delivery}.log "$RUNNER_TEMP/mxmusic.jks"
+          rm -rf "$RUNNER_TEMP/mx-source" "$RUNNER_TEMP/mx-dist" "$RUNNER_TEMP/mx-tests"
+          rm -f "$RUNNER_TEMP"/{source,checkout,npm,sdk,gradle,verify,badging,delivery,mx-tests}.log "$RUNNER_TEMP/mxmusic.jks" "$RUNNER_TEMP/mx-release-notes.md"
