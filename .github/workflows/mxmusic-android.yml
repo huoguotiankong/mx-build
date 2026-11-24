@@ -172,6 +172,7 @@ jobs:
                       p.write_text(new, encoding="utf-8")
           PY
       - name: Build Android APK
+        id: android_build
         env:
           DISABLE_SVG: 1
           BUILD_MODE: ${{ inputs.build_mode || 'preview' }}
@@ -201,6 +202,52 @@ jobs:
           chmod +x gradlew
           if ! ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a -PMYAPP_UPLOAD_STORE_FILE="$KEYFILE" -PMYAPP_UPLOAD_STORE_PASSWORD="$STORE_PASS" -PMYAPP_UPLOAD_KEY_ALIAS="$KEY_ALIAS" -PMYAPP_UPLOAD_KEY_PASSWORD="$KEY_PASS" --no-daemon >"$RUNNER_TEMP/gradle.log" 2>&1; then
             echo 'Android build failed (private diagnostic log not printed)'; exit 1
+          fi
+      - name: Save preview build error summary privately
+        if: failure() && steps.android_build.outcome == 'failure' && (github.event_name == 'push' || inputs.build_mode == 'preview')
+        env:
+          GH_TOKEN: ${{ secrets.MXMUSIC_PUBLISH_TOKEN }}
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          # Never upload raw logs or signed-build diagnostics. Fail closed if visibility changes.
+          test -f "$RUNNER_TEMP/gradle.log" || exit 0
+          if [ "$(gh api repos/huoguotiankong/MXMusic --jq '.private' 2>/dev/null)" != true ]; then
+            echo 'Private diagnostic destination could not be verified.'
+            exit 0
+          fi
+          python3 - <<'PY'
+          import base64, json, os, re
+          from pathlib import Path
+          tmp = Path(os.environ["RUNNER_TEMP"])
+          raw = (tmp / "gradle.log").read_text(encoding="utf-8", errors="replace")
+          raw = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", raw)
+          lines = raw.splitlines()
+          # Extract only error/task headers, never source excerpts, stack traces, command lines or full logs.
+          patterns = re.compile(r"(^\s*> Task .* FAILED\s*$|^\s*\* What went wrong:\s*$|^\s*(?:>\s*)?Execution failed for task |(?:SyntaxError|TransformError|Unable to resolve module|Module not found|Cannot find module|error TS\d+|error: cannot find symbol|error: package .* does not exist|error: incompatible types|error: method .* cannot be applied|Could not resolve|Could not download|Could not GET|Could not find|No space left on device|OutOfMemoryError|Java heap space|Gradle build daemon disappeared|Connection timed out|Read timed out|Connection reset|BUILD FAILED))", re.I)
+          chosen = []
+          for line in lines:
+              if not patterns.search(line):
+                  continue
+              # Avoid URLs, secret-bearing text, or suspicious credential fields, even in private reports.
+              if re.search(r"(?i)(https?://|authorization|bearer|password|passwd|secret|token|keyfile|keystore|private.key|credential|gh[pousr]_|github_pat_|[A-Za-z0-9+/=]{64,})", line):
+                  continue
+              line = line.replace(str(tmp / "mx-source"), "[source]")
+              if line not in chosen:
+                  chosen.append(line[:600])
+              if len(chosen) >= 60:
+                  break
+          summary = "\n".join(chosen) or "No safe compiler diagnostic line matched."
+          report = "MXMusic preview build diagnostics\nSource: " + os.environ["SOURCE_SHA"] + "\nRun: " + os.environ["GITHUB_RUN_ID"] + "." + os.environ["GITHUB_RUN_ATTEMPT"] + "\n\n" + summary + "\n"
+          payload = {"message": "ci: private preview build diagnostic", "branch": "ci-diagnostics", "content": base64.b64encode(report.encode("utf-8")).decode("ascii")}
+          (tmp / "mx-diagnostic.json").write_text(json.dumps(payload), encoding="utf-8")
+          PY
+          if gh api --method PUT "repos/huoguotiankong/MXMusic/contents/ci-diagnostics/run-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.txt" --input "$RUNNER_TEMP/mx-diagnostic.json" >"$RUNNER_TEMP/mx-diagnostic.log" 2>&1; then
+            echo 'Private preview diagnostic saved.'
+          else
+            echo 'Private diagnostic delivery failed; no raw log exposed.'
           fi
       - name: Verify package identity, signature and hash
         env:
@@ -243,7 +290,7 @@ jobs:
           cd "$RUNNER_TEMP/mx-source/app"
           VERSION="$(node -p 'require("./package.json").version')"
           TAG="v${VERSION}-${BUILD_MODE}.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
-          NOTES="$RUNNER_TEMP/mx-release-notes.md"
+          NOTES="$RUNNER_TEMP/mx-release-notes.md" "$RUNNER_TEMP/mx-diagnostic.json" "$RUNNER_TEMP/mx-diagnostic.log"
           cp "release-notes/v${VERSION}.md" "$NOTES"
           {
             printf '\n---\n\n## 下载与构建信息\n\n'
