@@ -1,5 +1,10 @@
 name: MXMusic Android
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/mxmusic-android.yml'
+      - 'triggers/mxmusic.txt'
   workflow_dispatch:
     inputs:
       source_ref:
@@ -23,11 +28,20 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
+      - name: Check required token configuration
+        env:
+          SOURCE_TOKEN: ${{ secrets.MXMUSIC_SOURCE_TOKEN }}
+          DELIVERY_TOKEN: ${{ secrets.MXMUSIC_PUBLISH_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SOURCE_TOKEN" || { echo 'MXMUSIC_SOURCE_TOKEN is missing'; exit 1; }
+          test -n "$DELIVERY_TOKEN" || { echo 'MXMUSIC_PUBLISH_TOKEN is missing'; exit 1; }
       - name: Read private source
         id: source
         env:
           SOURCE_TOKEN: ${{ secrets.MXMUSIC_SOURCE_TOKEN }}
-          SOURCE_REF: ${{ inputs.source_ref }}
+          SOURCE_REF: ${{ inputs.source_ref || 'main' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -59,7 +73,7 @@ jobs:
           if ! npm ci >"$RUNNER_TEMP/npm.log" 2>&1; then echo 'Dependency installation failed'; exit 1; fi
           if ! sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'ndk;26.1.10909125' >"$RUNNER_TEMP/sdk.log" 2>&1; then echo 'SDK installation failed'; exit 1; fi
       - name: Isolate preview identity
-        if: inputs.build_mode == 'preview'
+        if: github.event_name == 'push' || inputs.build_mode == 'preview'
         shell: bash
         run: |
           set -euo pipefail
@@ -86,7 +100,7 @@ jobs:
       - name: Build Android APK
         env:
           DISABLE_SVG: 1
-          BUILD_MODE: ${{ inputs.build_mode }}
+          BUILD_MODE: ${{ inputs.build_mode || 'preview' }}
           KEYSTORE_B64: ${{ secrets.MXMUSIC_KEYSTORE_BASE64 }}
           STORE_PASS: ${{ secrets.MXMUSIC_STORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.MXMUSIC_KEY_ALIAS }}
@@ -116,7 +130,7 @@ jobs:
           fi
       - name: Verify package identity, signature and hash
         env:
-          BUILD_MODE: ${{ inputs.build_mode }}
+          BUILD_MODE: ${{ inputs.build_mode || 'preview' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -147,7 +161,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.MXMUSIC_PUBLISH_TOKEN }}
           SOURCE_SHA: ${{ steps.source.outputs.sha }}
-          BUILD_MODE: ${{ inputs.build_mode }}
+          BUILD_MODE: ${{ inputs.build_mode || 'preview' }}
         shell: bash
         run: |
           set -euo pipefail
