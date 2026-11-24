@@ -290,7 +290,7 @@ jobs:
           cd "$RUNNER_TEMP/mx-source/app"
           VERSION="$(node -p 'require("./package.json").version')"
           TAG="v${VERSION}-${BUILD_MODE}.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
-          NOTES="$RUNNER_TEMP/mx-release-notes.md" "$RUNNER_TEMP/mx-diagnostic.json" "$RUNNER_TEMP/mx-diagnostic.log"
+          NOTES="$RUNNER_TEMP/mx-release-notes.md"
           cp "release-notes/v${VERSION}.md" "$NOTES"
           {
             printf '\n---\n\n## 下载与构建信息\n\n'
@@ -313,4 +313,4 @@ jobs:
         shell: bash
         run: |
           rm -rf "$RUNNER_TEMP/mx-source" "$RUNNER_TEMP/mx-dist" "$RUNNER_TEMP/mx-tests"
-          rm -f "$RUNNER_TEMP"/{source,checkout,npm,sdk,gradle,verify,badging,delivery,mx-tests}.log "$RUNNER_TEMP/mxmusic.jks" "$RUNNER_TEMP/mx-release-notes.md"
+          rm -f "$RUNNER_TEMP"/{source,checkout,npm,sdk,gradle,verify,badging,delivery,mx-tests}.log "$RUNNER_TEMP/mxmusic.jks" "$RUNNER_TEMP/mx-release-notes.md" "$RUNNER_TEMP/mx-diagnostic.json" "$RUNNER_TEMP/mx-diagnostic.log"
