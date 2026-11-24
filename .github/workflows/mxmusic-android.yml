@@ -7,6 +7,11 @@ on:
         required: true
         default: main
         type: string
+      build_mode:
+        description: Preview (two tokens) or persistent release signing
+        type: choice
+        options: [preview, signed]
+        default: preview
 permissions:
   contents: read
 concurrency:
@@ -53,9 +58,35 @@ jobs:
           cd "$RUNNER_TEMP/mx-source/app"
           if ! npm ci >"$RUNNER_TEMP/npm.log" 2>&1; then echo 'Dependency installation failed'; exit 1; fi
           if ! sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'ndk;26.1.10909125' >"$RUNNER_TEMP/sdk.log" 2>&1; then echo 'SDK installation failed'; exit 1; fi
-      - name: Build with persistent MXMusic signing key
+      - name: Isolate preview identity
+        if: inputs.build_mode == 'preview'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/mx-source/app"
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("android/app/build.gradle")
+          s = p.read_text()
+          assert 'applicationId "com.mx.music"' in s
+          p.write_text(s.replace('applicationId "com.mx.music"', 'applicationId "com.mx.music.preview"'))
+          for base in (Path("android/app/src"), Path("src")):
+              for p in base.rglob("*"):
+                  if not p.is_file() or p.suffix not in {".java", ".kt", ".xml", ".ts", ".tsx", ".js", ".jsx"}:
+                      continue
+                  s = p.read_text(encoding="utf-8")
+                  new = s
+                  for prefix in ("provider", "action.", "widget."):
+                      new = new.replace("com.mx.music." + prefix, "com.mx.music.preview." + prefix)
+                  if p.name == "strings.xml":
+                      new = new.replace('>MX音乐<', '>MX音乐 测试版<')
+                  if new != s:
+                      p.write_text(new, encoding="utf-8")
+          PY
+      - name: Build Android APK
         env:
           DISABLE_SVG: 1
+          BUILD_MODE: ${{ inputs.build_mode }}
           KEYSTORE_B64: ${{ secrets.MXMUSIC_KEYSTORE_BASE64 }}
           STORE_PASS: ${{ secrets.MXMUSIC_STORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.MXMUSIC_KEY_ALIAS }}
@@ -63,19 +94,29 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for k in KEYSTORE_B64 STORE_PASS KEY_ALIAS KEY_PASS; do
-            test -n "${!k}" || { echo "Missing signing configuration: $k"; exit 1; }
-          done
           umask 077
           KEYFILE="$RUNNER_TEMP/mxmusic.jks"
           trap 'rm -f "$KEYFILE"' EXIT
-          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$KEYFILE"
           cd "$RUNNER_TEMP/mx-source/app/android"
+          if [ "$BUILD_MODE" = preview ]; then
+            cp app/debug.keystore "$KEYFILE"
+            STORE_PASS=android
+            KEY_PASS=android
+            KEY_ALIAS=androiddebugkey
+            echo 'Preview APK: public test signing key, isolated package, not for sensitive data.'
+          else
+            for k in KEYSTORE_B64 STORE_PASS KEY_ALIAS KEY_PASS; do
+              test -n "${!k}" || { echo "Missing signing configuration: $k"; exit 1; }
+            done
+            printf '%s' "$KEYSTORE_B64" | base64 --decode > "$KEYFILE"
+          fi
           chmod +x gradlew
           if ! ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a -PMYAPP_UPLOAD_STORE_FILE="$KEYFILE" -PMYAPP_UPLOAD_STORE_PASSWORD="$STORE_PASS" -PMYAPP_UPLOAD_KEY_ALIAS="$KEY_ALIAS" -PMYAPP_UPLOAD_KEY_PASSWORD="$KEY_PASS" --no-daemon >"$RUNNER_TEMP/gradle.log" 2>&1; then
             echo 'Android build failed (private diagnostic log not printed)'; exit 1
           fi
       - name: Verify package identity, signature and hash
+        env:
+          BUILD_MODE: ${{ inputs.build_mode }}
         shell: bash
         run: |
           set -euo pipefail
@@ -87,10 +128,16 @@ jobs:
           TOOLS="$ANDROID_HOME/build-tools/35.0.0"
           "$TOOLS/apksigner" verify "$APK" >"$RUNNER_TEMP/verify.log" 2>&1
           "$TOOLS/aapt" dump badging "$APK" >"$RUNNER_TEMP/badging.log"
-          grep -qF "package: name='com.mx.music'" "$RUNNER_TEMP/badging.log"
+          EXPECTED_ID=com.mx.music
+          if [ "$BUILD_MODE" = preview ]; then EXPECTED_ID=com.mx.music.preview; fi
+          grep -qF "package: name='$EXPECTED_ID'" "$RUNNER_TEMP/badging.log"
           grep -qF "versionName='$VERSION'" "$RUNNER_TEMP/badging.log"
           grep -q "native-code:.*'arm64-v8a'" "$RUNNER_TEMP/badging.log"
-          cp "$APK" "$RUNNER_TEMP/mx-dist/"
+          if [ "$BUILD_MODE" = preview ]; then
+            cp "$APK" "$RUNNER_TEMP/mx-dist/mxmusic-v${VERSION}-preview-arm64-v8a.apk"
+          else
+            cp "$APK" "$RUNNER_TEMP/mx-dist/"
+          fi
           cp LICENSE "$RUNNER_TEMP/mx-dist/UPSTREAM-LICENSE.txt"
           cp MX_MODIFICATIONS.md "$RUNNER_TEMP/mx-dist/"
           if [ -f NOTICE ]; then cp NOTICE "$RUNNER_TEMP/mx-dist/UPSTREAM-NOTICE.txt"; fi
@@ -100,15 +147,16 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.MXMUSIC_PUBLISH_TOKEN }}
           SOURCE_SHA: ${{ steps.source.outputs.sha }}
+          BUILD_MODE: ${{ inputs.build_mode }}
         shell: bash
         run: |
           set -euo pipefail
           test -n "$GH_TOKEN" || { echo 'MXMUSIC_PUBLISH_TOKEN is missing'; exit 1; }
           cd "$RUNNER_TEMP/mx-source/app"
           VERSION="$(node -p 'require("./package.json").version')"
-          TAG="v${VERSION}-test.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
+          TAG="v${VERSION}-${BUILD_MODE}.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
           cd "$RUNNER_TEMP/mx-dist"
-          if ! gh release create "$TAG" ./* --repo huoguotiankong/MXMusic --target "$SOURCE_SHA" --prerelease --title "MX Music $TAG" --notes 'Android compatibility preview; verify on device before daily use.' >"$RUNNER_TEMP/delivery.log" 2>&1; then
+          if ! gh release create "$TAG" ./* --repo huoguotiankong/MXMusic --target "$SOURCE_SHA" --prerelease --latest=false --title "MX Music $TAG" --notes "Build mode: $BUILD_MODE. Preview uses an isolated package and a public test signing key; do not store sensitive data. Verify on device before daily use." >"$RUNNER_TEMP/delivery.log" 2>&1; then
             echo 'Private release delivery failed'; exit 1
           fi
           echo 'Private release delivery succeeded.'
